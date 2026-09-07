@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.16] — 2026-09-07
+
+### 修正
+
+- WindowsのDesktop引き継ぎで、稼働中のアプリが使うCodex実行ファイルを選ぶようにした。
+  PATH上の古いCodexがデスクトップ版の設定を読めず、新規タスクの作成に失敗する問題を修正した。
+- 引き継ぎ結果へCodex実行元を表示する。アプリの実体を特定できない場合は理由を出して停止する。
+
 ## [0.10.15] — 2026-09-06
 
 ### Fixed
@@ -1449,7 +1457,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.15...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.16...HEAD
+[0.10.16]: https://github.com/kitepon/Throughline/compare/v0.10.15...v0.10.16
 [0.10.15]: https://github.com/kitepon/Throughline/compare/v0.10.14...v0.10.15
 [0.10.14]: https://github.com/kitepon/Throughline/compare/v0.10.13...v0.10.14
 [0.10.13]: https://github.com/kitepon/Throughline/compare/v0.10.12...v0.10.13

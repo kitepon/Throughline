@@ -310,6 +310,9 @@ test('codex-handoff-start execute creates a new app-server thread and can skip o
     assert.equal(payload.startThreadManually, false);
     assert.equal(payload.newThread.threadId, '019e2000-0000-7000-8000-000000000001');
     assert.equal(payload.newThread.delivery, 'developer-item');
+    assert.equal(payload.runtime.command, script);
+    assert.equal(payload.runtime.source, 'explicit');
+    assert.deepEqual(payload.runtime.commandArgs, []);
     assert.equal(payload.newThread.injectSent, true);
     assert.equal(payload.newThread.turnStatus, 'not-started');
     assert.equal(payload.open.status, 'skipped');

@@ -9,6 +9,7 @@ import { sameProjectPath } from '../project-path.mjs';
 import { shQuote } from '../os/shell.mjs';
 import { openUrlWithOsHandler } from '../os/open-url.mjs';
 import { runTerminalDoScript } from '../os/macos-terminal.mjs';
+import { resolveCodexRuntime } from '../os/codex-runtime.mjs';
 
 async function readStdin() {
   let raw = '';
@@ -242,6 +243,7 @@ function renderTextResult(result) {
   lines.push(`  execute:           ${result.execute ? 'yes' : 'no'}`);
   lines.push(`  open requested:    ${result.requestedOpenHost ?? result.openHost}`);
   lines.push(`  open resolved:     ${result.resolvedOpenHost ?? result.open?.host ?? result.openHost}`);
+  if (result.runtime) lines.push(`  Codex実行元:       ${result.runtime.command} (${result.runtime.source})`);
   lines.push(`  handoff smoke:     ${result.handoffSmoke.status}`);
   lines.push(`  prompt chars:      ${result.handoffSmoke.promptChars}/${result.handoffSmoke.maxPromptChars}`);
   lines.push(`  model prompt:      ${result.modelPromptChars}`);
@@ -452,11 +454,16 @@ export async function run(args) {
   }
 
   if (parsed.execute && result.status === 'ready') {
+    const runtime = resolveCodexRuntime({
+      host: result.resolvedOpenHost,
+      override: parsed.codexAppServerBin,
+    });
+    result.runtime = runtime;
     const startResult = await runCodexNewThreadHandoff({
       cwd: process.cwd(),
       prompt: handoffPrompt,
-      command: parsed.codexAppServerBin ?? 'codex',
-      commandArgs: parsed.codexAppServerBin ? [] : ['app-server', '--listen', 'stdio://'],
+      command: runtime.command,
+      commandArgs: runtime.commandArgs,
       timeoutMs: parsed.timeoutMs,
       requestTimeoutMs: parsed.requestTimeoutMs,
       waitForTurn: false,

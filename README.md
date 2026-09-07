@@ -638,6 +638,10 @@ opens the new task in Codex Desktop when invoked there, while preserving the
 existing VS Code and CLI routes. The result reports both the requested and
 resolved host. The installed `$throughline` skill passes the current Codex
 surface explicitly so a persistent shell or PTY cannot redirect the handoff.
+WindowsのDesktop引き継ぎは、稼働中のCodex Desktopが使う実行ファイルを選びます。
+PATH上の別バージョンによる設定読取りエラーを避け、選んだ実行元を結果へ表示します。
+Desktopを起動してから実行してください。実行ファイルが見つからない場合や、異なる実行ファイルの
+Desktopが複数稼働している場合は理由を出して停止します。明示した`--codex-app-server-bin`は優先します。
 The
 individual commands remain available: validate the fresh-thread handoff with
 `throughline codex-handoff-smoke --session codex:<thread-id>`, optionally audit
