@@ -181,6 +181,52 @@ test('new CLI completes install, migration, and diagnostics in order', () => {
   });
 });
 
+test('自己更新はnpmの単一版を文字列と単一要素配列から読み取る', () => {
+  for (const platform of ['darwin', 'linux', 'win32']) {
+    for (const registryVersion of ['0.10.16', ['0.10.16']]) {
+      const stdout = sink();
+      const calls = [];
+      const runner = (command, args) => {
+        calls.push([command, ...args]);
+        if (command === 'npm' || command === 'pwsh.exe') return ok(JSON.stringify(registryVersion));
+        if (args.at(-1) === 'install') return ok();
+        if (args.at(-2) === 'migrate') return ok(JSON.stringify(migration()));
+        if (args.at(-2) === 'factory-diagnostics') return ok(JSON.stringify(readyDiagnostics('0.10.16')));
+        throw new Error('想定外の更新工程');
+      };
+      assert.equal(run(['--json'], {
+        stdout, stderr: sink(), runner, platform, packageVersion: '0.10.16',
+        nodePath: '/node', cliPath: '/throughline.mjs',
+        env: {
+          THROUGHLINE_SELF_UPDATE_PHASE: 'post-install',
+          THROUGHLINE_SELF_UPDATE_BEFORE_VERSION: '0.10.15',
+          THROUGHLINE_SELF_UPDATE_EXPECTED_VERSION: '0.10.16',
+        },
+      }), 0, `${platform}: ${JSON.stringify(registryVersion)}`);
+      assert.equal(calls.length, 4);
+      assert.deepEqual(JSON.parse(stdout.values.join('')), updateSuccess('0.10.15', '0.10.16'));
+    }
+  }
+});
+
+test('自己更新は複数版・空配列・不正な版情報で後続工程を始めない', () => {
+  for (const value of [[], ['0.10.16', '0.10.17'], [['0.10.16']], [null], [{ version: '0.10.16' }], ['invalid']]) {
+    const stdout = sink();
+    let calls = 0;
+    assert.equal(run(['--json'], {
+      stdout, stderr: sink(), packageVersion: '0.10.16', platform: 'darwin',
+      runner: () => { calls += 1; return ok(JSON.stringify(value)); },
+      env: {
+        THROUGHLINE_SELF_UPDATE_PHASE: 'post-install',
+        THROUGHLINE_SELF_UPDATE_BEFORE_VERSION: '0.10.15',
+        THROUGHLINE_SELF_UPDATE_EXPECTED_VERSION: '0.10.16',
+      },
+    }), 1);
+    assert.equal(calls, 1);
+    assert.equal(JSON.parse(stdout.values.join('')).stage, 'version_verification_failed');
+  }
+});
+
 test('self-update fails closed without reflecting command output', () => {
   const stdout = sink();
   const stderr = sink();

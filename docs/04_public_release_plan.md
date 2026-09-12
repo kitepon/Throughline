@@ -44,6 +44,9 @@ Windows PowerShell 5.1へ切り替えない。更新前CLIを再利用せず、�
 新CLI、公開PATHから起動したCLI、そのversion、`throughline.self_update.v1`成功結果がすべて
 一致した場合だけ完了とする。複数npm prefixが混在して公開PATHが旧実体を指す場合は失敗する。
 
+公開版の照合は、npmの旧文字列形式と[npm 12の単一結果配列](https://docs.npmjs.com/cli/v12/commands/npm-view/#output)を受け入れる。
+複数版・空配列・不正な版情報から一つを推測して選ばず、後続の設定・移行処理の前に失敗を返す。
+
 ## 明示的失敗の契約
 
 想定外の状態、外部入力違反、I/O失敗、依存不足を成功扱いにしない。

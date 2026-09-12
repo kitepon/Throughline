@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.17] — 2026-09-12
+
+### 修正
+
+- npm 12が単一要素配列で返す公開版情報を自己更新で受け入れるようにした。
+  正常にpackageを更新しても`version_verification_failed`で停止する問題を修正した。
+  旧文字列形式を維持し、複数版・空配列・不正な値は後続の設定・移行処理の前に拒否する。
+- 公開前の梱包文書検査も、npm 12がpackage名をキーにして返す梱包情報に対応した。
+
 ## [0.10.16] — 2026-09-07
 
 ### 修正
@@ -1457,7 +1466,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.16...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.17...HEAD
+[0.10.17]: https://github.com/kitepon/Throughline/compare/v0.10.16...v0.10.17
 [0.10.16]: https://github.com/kitepon/Throughline/compare/v0.10.15...v0.10.16
 [0.10.15]: https://github.com/kitepon/Throughline/compare/v0.10.14...v0.10.15
 [0.10.14]: https://github.com/kitepon/Throughline/compare/v0.10.13...v0.10.14

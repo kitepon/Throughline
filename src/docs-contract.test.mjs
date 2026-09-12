@@ -6,8 +6,19 @@ import { fileURLToPath } from 'node:url';
 import {
   extractMarkdownTargets,
   findMissingPackedTargets,
+  packedFileSet,
 } from '../scripts/verify-pack-markdown-links.mjs';
 import { spawnPortableSync } from './os/portable-spawn-sync.mjs';
+
+test('梱包文書検査はnpmの旧配列形式とpackage名をキーにする形式を読む', () => {
+  const packed = { name: 'throughline', files: [{ path: 'README.md' }, { path: 'docs/00_overview.md' }] };
+  for (const report of [[packed], { throughline: packed }]) {
+    assert.deepEqual([...packedFileSet(report)], ['README.md', 'docs/00_overview.md']);
+  }
+  for (const report of [null, {}, [], [packed, packed], { throughline: { files: null } }]) {
+    assert.throws(() => packedFileSet(report), /npm pack dry-run JSON shape invalid/);
+  }
+});
 
 test('Markdown-only CI runs the product-owned documentation contract', () => {
   const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));

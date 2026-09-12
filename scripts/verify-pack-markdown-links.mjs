@@ -32,6 +32,12 @@ export function findMissingPackedTargets(packagePath, source, packedFiles) {
   return { checked: links.length, failures };
 }
 
+export function packedFileSet(report) {
+  const packed = Array.isArray(report) && report.length === 1 ? report[0] : report?.throughline;
+  if (!Array.isArray(packed?.files)) throw new Error('npm pack dry-run JSON shape invalid');
+  return new Set(packed.files.map((entry) => entry.path));
+}
+
 function packFileSet() {
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const result = spawnPortableSync(npmCommand, ['pack', '--dry-run', '--ignore-scripts', '--json'], {
@@ -39,9 +45,7 @@ function packFileSet() {
     encoding: 'utf8',
   });
   if (result.status !== 0) throw new Error(`npm pack dry-run failed: ${result.stderr.trim()}`);
-  const report = JSON.parse(result.stdout);
-  if (!Array.isArray(report) || !Array.isArray(report[0]?.files)) throw new Error('npm pack dry-run JSON shape invalid');
-  return new Set(report[0].files.map((entry) => entry.path));
+  return packedFileSet(JSON.parse(result.stdout));
 }
 
 function containsTarget(packedFiles, target) {

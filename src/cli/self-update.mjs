@@ -77,7 +77,8 @@ function succeeded(result) {
 function parseRegistryVersion(result) {
   if (!succeeded(result)) return null;
   try {
-    const value = JSON.parse(result.stdout);
+    let value = JSON.parse(result.stdout);
+    if (Array.isArray(value) && value.length === 1) [value] = value;
     return typeof value === 'string' && VERSION_PATTERN.test(value) ? value : null;
   } catch {
     return null;
