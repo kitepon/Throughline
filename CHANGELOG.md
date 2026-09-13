@@ -10,6 +10,12 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.18] — 2026-09-13
+
+### 修正
+
+- runtime snapshotに実発生時の`product_version`を公開し、取得時の導入版と区別する。snapshotによる件数・時刻・発生版の変更は行わない。
+
 ## [0.10.17] — 2026-09-12
 
 ### 修正
@@ -1466,7 +1472,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.17...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.18...HEAD
+[0.10.18]: https://github.com/kitepon/Throughline/compare/v0.10.17...v0.10.18
 [0.10.17]: https://github.com/kitepon/Throughline/compare/v0.10.16...v0.10.17
 [0.10.16]: https://github.com/kitepon/Throughline/compare/v0.10.15...v0.10.16
 [0.10.15]: https://github.com/kitepon/Throughline/compare/v0.10.14...v0.10.15

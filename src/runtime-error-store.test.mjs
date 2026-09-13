@@ -44,6 +44,17 @@ function enableCollection(box) {
   applyWindowsPrivateAcl(box.configPath);
 }
 
+test('発生版は直近の発生で更新し、snapshotの実行版から推測しない', () => {
+  const box = sandbox(); enableCollection(box);
+  observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED', now: '2026-09-01T00:00:00.000Z' }, { env: box.env, version: '1.0.0' });
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env, version: '2.0.0' }).runtime_errors[0].product_version, '1.0.0');
+  observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED', now: '2026-09-02T00:00:00.000Z' }, { env: box.env, version: '2.0.0' });
+  const entry = readRuntimeErrorSnapshot({ env: box.env, version: '3.0.0' }).runtime_errors[0];
+  assert.equal(entry.product_version, '2.0.0');
+  assert.equal(entry.occurrence_count, 2);
+  assert.equal(entry.last_seen, '2026-09-02T00:00:00.000Z');
+});
+
 test('runtime error store: missing/false/malformed config is fail-closed and creates no state', () => {
   for (const config of [
     null,
@@ -232,6 +243,7 @@ test('runtime error store: fixed template SHA-256 fingerprint aggregates and reo
     occurrence_count: 2,
     first_seen: '2026-07-13T00:00:00.000Z',
     last_seen: '2026-07-13T00:01:00.000Z',
+    product_version: '0.6.1',
     state_schema_version: '1.0',
   });
 

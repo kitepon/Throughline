@@ -530,6 +530,7 @@ function toPublicRuntimeError(record) {
     occurrence_count: record.count,
     first_seen: record.first_seen,
     last_seen: record.last_seen,
+    product_version: record.product_version,
     state_schema_version: record.state_schema_version,
   };
 }
