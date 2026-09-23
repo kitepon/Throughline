@@ -67,7 +67,7 @@ release候補は次の全条件を満たしたときだけ公開する。
 3. `npm run verify:release-commit` が、clean working treeかつHEADが`origin`既定ブランチの
    祖先であることを確認する。既定ブランチへ着地していないcommitからpublishしない。
 4. `npm pack --dry-run`でtarball内容、秘密混入、必要なREADME/docsの収録を確認する。
-5. npm publish後にregistryのversionとshasum、tag、GitHub Releaseを確認する。
+5. 公開は既定ブランチへ着地したrelease commitへ`v<version>` tagをpushし、`.github/workflows/publish.yml`がnpm Trusted Publishingで行う。手元から`npm publish`しない。公開後にregistryのversionとshasum、tag、GitHub Releaseを確認する。
 6. registry由来の隔離installで `throughline --version`、`throughline install`、
    `throughline migrate --json`、`throughline doctor`を確認する。
 7. 変更したhost面で実captureまたはfocused install/diagnostics smokeを行う。

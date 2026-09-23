@@ -1,17 +1,88 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
-  stripAnsi,
+  normalizeTerminalText,
   normalizeToolResultContent,
+  readTranscript,
   sliceCurrentTurnEntries,
   extractDetailBlocks,
 } from './transcript-reader.mjs';
 import { DETAIL_KIND } from './constants.mjs';
 
-test('stripAnsi: ANSI 色コードを除去する', () => {
-  assert.equal(stripAnsi('\x1b[32mgreen\x1b[0m text'), 'green text');
-  assert.equal(stripAnsi('plain'), 'plain');
-  assert.equal(stripAnsi(''), '');
+test('normalizeTerminalText: ANSI 色コードを除去する', () => {
+  assert.equal(normalizeTerminalText('\x1b[32mgreen\x1b[0m text'), 'green text');
+  assert.equal(normalizeTerminalText('plain'), 'plain');
+  assert.equal(normalizeTerminalText(''), '');
+});
+
+test('normalizeTerminalText: cursor 移動・private mode・OSC・2 byte ESC を除去する', () => {
+  // npm の spinner (macOS 実測) と Windows ConPTY の title / cursor 表示切替
+  assert.equal(normalizeTerminalText('\x1b[1G\x1b[0K|\x1b[1G\x1b[0Jdone\x1b[38G'), '|done');
+  assert.equal(normalizeTerminalText('\x1b]0;C:\\Windows\\pwsh.exe\x07\x1b[?25lok\x1b[?25h'), 'ok');
+  assert.equal(normalizeTerminalText('\x1b]8;;https://e.x\x1b\\link\x1b]8;;\x1b\\'), 'link');
+  assert.equal(normalizeTerminalText('\x1b(Bx\x1b7y\x1b8'), 'xy');
+});
+
+test('normalizeTerminalText: CRLF を LF にし、行内 CR は最後の上書きだけを残す', () => {
+  assert.equal(normalizeTerminalText('a\r\nb\r\n'), 'a\nb\n');
+  assert.equal(normalizeTerminalText('10%\r50%\r100%\nnext'), '100%\nnext');
+  assert.equal(normalizeTerminalText('line\r'), 'line');
+});
+
+function writeTranscript(entries) {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-transcript-'));
+  const path = join(dir, 't.jsonl');
+  writeFileSync(path, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  return path;
+}
+
+test('readTranscript: Claude task 通知は識別子・path・端末生出力を落として残す', () => {
+  const notice = [
+    '<task-notification>',
+    '<task-id>b1</task-id>',
+    '<tool-use-id>toolu_1</tool-use-id>',
+    '<output-file>/tmp/tasks/b1.output</output-file>',
+    '<status>completed</status>',
+    '<summary>Background command "x" completed (exit code 0)</summary>',
+    '<result>subagent report</result>',
+    '<usage><subagent_tokens>1</subagent_tokens></usage>',
+    '<note>A task-notification fires each time this agent stops.</note>',
+    '</task-notification>',
+    'Last output:',
+    '\x1b[34mEstablishing\x1b[39m\r\nPress ENTER',
+    '',
+    'The command is likely blocked on an interactive prompt.',
+  ].join('\n');
+  const path = writeTranscript([
+    { type: 'user', message: { role: 'user', content: notice } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '\x1b[1mkeep\x1b[0m' }] } },
+  ]);
+  const [user, assistant] = readTranscript(path);
+  assert.equal(
+    user.content,
+    [
+      '<task-notification>',
+      '<status>completed</status>',
+      '<summary>Background command "x" completed (exit code 0)</summary>',
+      '<result>subagent report</result>',
+      '</task-notification>',
+    ].join('\n'),
+  );
+  // assistant 本文は Stop payload との照合に使うため変えない
+  assert.equal(assistant.content, '\x1b[1mkeep\x1b[0m');
+});
+
+test('readTranscript: task 通知の後ろの system-reminder と通常の user 発言は残す', () => {
+  const path = writeTranscript([
+    { type: 'user', message: { role: 'user', content: '<task-notification>\n<task-id>b2</task-id>\n<summary>s</summary>\n</task-notification>\n<system-reminder>r</system-reminder>' } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '貼った出力 \x1b[31mERR\x1b[0m' }] } },
+  ]);
+  const [notice, typed] = readTranscript(path);
+  assert.equal(notice.content, '<task-notification>\n<summary>s</summary>\n</task-notification>\n<system-reminder>r</system-reminder>');
+  assert.equal(typed.content, '貼った出力 ERR');
 });
 
 test('normalizeToolResultContent: string / array / image mix', () => {

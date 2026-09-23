@@ -10,6 +10,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { DETAIL_KIND } from './constants.mjs';
+import { compactClaudeTaskNotification } from './hosts/claude.mjs';
 
 function entryKind(entry) {
   if (typeof entry?.type === 'string' && entry.type.length > 0) return entry.type;
@@ -71,7 +72,12 @@ export function readTranscript(transcriptPath) {
     const rawContent = msg?.content ?? grokContent;
     if (!role || rawContent == null) continue;
 
-    const text = extractText(rawContent);
+    const extracted = extractText(rawContent);
+    // user 発言には端末の生出力 (貼り付け・Claude の task 通知) が入る。記憶には
+    // 制御文字を落とした本文だけを残す。
+    const text = role === 'user'
+      ? normalizeTerminalText(compactClaudeTaskNotification(extracted))
+      : extracted;
     if (!text) continue;
 
     const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
@@ -185,14 +191,30 @@ export function readLatestLogicalTurnCompletion(transcriptPath) {
 }
 
 /**
- * ANSI エスケープシーケンスを除去する。
- * ツール出力（特に Bash）にしばしば含まれる色コードを剥がす。
+ * 端末出力の制御を除いて、画面に残る文字列にする。
+ * - ESC 系列: OSC (window title 等。Windows ConPTY が出す)、DCS/SOS/PM/APC、
+ *   CSI (色・cursor 移動・private mode)、その他の 2 byte 以上の ESC 系列。
+ * - 改行: CRLF は LF にし、行内の CR は上書き表示として最後の区間だけを残す。
  * @param {string} s
  */
-export function stripAnsi(s) {
+export function normalizeTerminalText(s) {
   if (typeof s !== 'string') return s;
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+  /* eslint-disable no-control-regex */
+  const stripped = s
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[ -/]*[0-~]/g, '');
+  /* eslint-enable no-control-regex */
+  return stripped
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => {
+      if (!line.includes('\r')) return line;
+      const segments = line.split('\r').filter((segment) => segment.length > 0);
+      return segments.length ? segments[segments.length - 1] : '';
+    })
+    .join('\n');
 }
 
 /**
@@ -378,7 +400,7 @@ export function extractDetailBlocks(turnEntries) {
             tool_name: toolName,
             source_id: toolUseId ? `${toolUseId}:result` : null,
             input_text: null,
-            output_text: stripAnsi(rawOutput),
+            output_text: normalizeTerminalText(rawOutput),
           });
         } else if (b.type === 'image') {
           out.push({
@@ -419,7 +441,7 @@ export function extractDetailBlocks(turnEntries) {
         tool_name: toolName,
         source_id: e.uuid ?? null,
         input_text: a.command ?? a.path ?? null,
-        output_text: stripAnsi(String(output)),
+        output_text: normalizeTerminalText(String(output)),
       });
     }
     // type === 'system' (stop_hook_summary) や queue-operation / file-history-snapshot は skip

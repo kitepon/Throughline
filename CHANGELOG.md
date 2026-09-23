@@ -10,11 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
-## [0.10.18] — 2026-09-13
+## [0.10.18] — 2026-09-23
 
 ### 修正
 
 - runtime snapshotに実発生時の`product_version`を公開し、取得時の導入版と区別する。snapshotによる件数・時刻・発生版の変更は行わない。
+- L2のuser本文から端末制御を落とす。色・cursor移動・private mode・OSC（Windows ConPTYのtitle等）を除き、CRLFはLFに、行内のCR上書きは最後の表示だけにする。L3のtool出力にも同じ処理を使う。
+- Claude Codeの背景task通知は、状態・要約・Monitorのevent・subagentのresultだけを記憶に残す。識別子・出力path・定型の注記と、入力待ち時に付く端末の生出力は落とす。
+
+### 変更
+
+- npm公開をTrusted Publishingへ移した。既定ブランチへ着地したrelease commitに`v<version>` tagをpushすると、`.github/workflows/publish.yml`が公開する。
 
 ## [0.10.17] — 2026-09-12
 
