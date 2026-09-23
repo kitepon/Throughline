@@ -224,7 +224,7 @@ export class AuditorContextError extends Error {
   }
 }
 
-function buildCompletedPairs(rows) {
+export function buildCompletedPairs(rows) {
   const grouped = new Map();
   for (const row of rows) {
     if (!row?.origin_session_id || !Number.isInteger(row.turn_number)) continue;
@@ -373,7 +373,7 @@ function canonicalProjectPath(value) {
   return normalized.split(sep).join('/').replace(/\/+$/, '');
 }
 
-function isSameProjectOrDescendant(candidate, root) {
+export function isSameProjectOrDescendant(candidate, root) {
   const normalizedCandidate = canonicalProjectPath(candidate);
   const normalizedRoot = canonicalProjectPath(root);
   const left = /^[A-Za-z]:\//.test(normalizedCandidate) ? normalizedCandidate.toLowerCase() : normalizedCandidate;

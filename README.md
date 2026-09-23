@@ -221,12 +221,11 @@ L1 summaries are generated lazily: for sessions that stay under 20 turns, no
 external summarizer is invoked. Summaries target a **compression ratio**
 (default 1/5 of the source turn, configurable via `THROUGHLINE_L1_RATIO`;
 invalid values are an explicit error, not a silent default). In the
-Claude-primary path the backend order is: `codex-sidecar` (when explicitly
-configured for the `summarize-l1` preset) → **Codex CLI** (default
+Claude-primary path the backend order is: **Codex CLI** (default
 `gpt-5.6-luna` at reasoning effort `low`, chosen by measured evaluation —
 see ADR 0015; override via `THROUGHLINE_L1_MODEL` / `THROUGHLINE_L1_EFFORT`)
 → **Claude Haiku 4.5** via a subprocess (`claude -p`), reusing your Claude
-Max login — no API key required. Each fallback step records its reason.
+Max login — no API key required. Each attempted backend records its result.
 For Codex-primary capture, the L1 backend is the Codex CLI only; failures are
 explicit and do not fall back to Claude Haiku or raw L2.
 
@@ -351,15 +350,12 @@ S1 (4 turns) --/clear--> S2 (auto-merges S1, adds 3 turns) --/clear--> S3 (auto-
 ---
 
 <details>
-<summary><b>Codex sidecar and Codex trim</b> — operator-level adapter details (click to expand)</summary>
+<summary><b>Codex trim</b> — operator-level details (click to expand)</summary>
 
-## Codex sidecar and Codex trim
+## Codex trim
 
-Throughline is still **Claude Code first**. Codex support is an adapter layer:
-it can project the same `HandoffRecord` into a `throughline_handoff` JSON block,
-and it can optionally use `codex-sidecar` for read-only review / risk-check
-work when that tool is installed and configured. It does not replace Claude
-hooks, slash commands, transcript parsing, or `/tl` baton handoff behavior.
+Codex support projects the same `HandoffRecord` into a `throughline_handoff` JSON block.
+Claude hooks, slash commands, transcript parsing, and `/tl` baton handoff remain available.
 
 Useful inspection commands:
 
@@ -385,15 +381,10 @@ THROUGHLINE_EXPERIMENTAL_CODEX_MODEL_VISIBLE_SMOKE=1 \
   throughline codex-visibility-smoke --session codex:<thread-id> \
     --resume-after-inject --request-timeout-ms 180000 --json
 throughline codex-threads --limit 5
-throughline codex-sidecar-diagnostics --project . --preset review
-throughline codex-sidecar-dry-run --project . --preset risk-check \
-  --context-file docs/throughline-handoff-context.example.json
 ```
 
-The only existing external model call in core Throughline is L2→L1
-summarization. When `codex-sidecar` is configured for `summarize-l1`,
-Throughline can use it for that step; otherwise it keeps the existing Claude
-Haiku path. This is an explicit compatibility mode, not silent auto-detection.
+The L2→L1 summarizer uses Codex CLI for Claude-primary capture, then Claude Haiku if Codex CLI fails.
+Codex-primary capture uses Codex CLI only and reports its failures.
 
 **Codex current-thread rollback / inject is explicit-only.** The 2026-05-06
 incident initially looked like a rolled-back user prompt could reappear after
@@ -852,6 +843,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline monitor --diag`                   | Dump TTY/columns/env diagnostics (for debugging monitor render bugs) |
 | `throughline detail <time>`                    | Retrieve L2 body text and L3 tool I/O for a turn (see below) |
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
+| `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline observer-read --project <absolute-directory> --json` | Read one completed-turn Observer page through the JSON-only public boundary |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
@@ -886,8 +878,6 @@ once with `npm install --global throughline@latest`, then run
 | `throughline codex-vscode-restore-smoke --prepare/--verify --codex-thread-id <id>` | Manual VS Code reload/reconnect marker proof protocol |
 | `throughline codex-vscode-rollback-smoke --verify --codex-thread-id <id>` | Manual VS Code rollback non-resurrection verifier |
 | `throughline codex-threads`                    | List read-only Codex thread id candidates for the current project |
-| `throughline codex-sidecar-diagnostics`        | Check `codex-sidecar` diagnostics status for this project     |
-| `throughline codex-sidecar-dry-run`            | Print a normalized read-only sidecar request without running the app server |
 | `throughline trim --dry-run --host codex`      | Preview Codex same-thread context trim memory and host boundary; does not rollback automatically |
 | `throughline trim --preflight --host codex`    | Read/resume the explicit Codex thread and preview any app-server-count rollback adjustment without rollback/inject |
 | `throughline trim --execute --host codex`      | Explicit diagnostic Codex current-thread rollback + Throughline DB memory inject; bare `$throughline` does not run this automatically |
@@ -969,6 +959,24 @@ Hook subcommands (invoked by Claude Code, not by humans):
 `session-start` (SessionStart), `process-turn` (Stop),
 `prompt-submit` (UserPromptSubmit — executes pending handoff and writes `/tl`
 batons; Grok `/tl` also launches `grok-continue`).
+
+### Caveat context (read-only)
+
+`throughline caveat-context --session <id> --project <root> --json` returns
+`throughline.caveat_context.v1`. `ready` contains exactly the last three completed
+user/assistant pairs in their original order, with any captured Thinking for each
+turn. User and assistant bodies are bounded to 1,200 characters each; Thinking is
+bounded to 1,800 characters per turn. Each turn reports whether its text was
+truncated. Tool inputs, tool outputs, hooks, and L1 summaries are never returned.
+
+The reader checks the session's project binding and opens the existing database
+read-only. Fewer than three captured pairs returns `incomplete` without bodies;
+a missing database or session returns `unavailable`. Pass
+`--host claude|codex --transcript <path>` to compare the latest captured pair
+with the host's latest completed pair. A mismatch returns `projection_pending`
+without bodies. The caller owns any decision to send this private context to an
+external model. Claude Thinking is captured when present; current Codex rollout
+Reasoning is encrypted, so its readable text is unavailable to this command.
 
 ### Observer completed-turn feed (development)
 

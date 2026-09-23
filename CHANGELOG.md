@@ -10,6 +10,16 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.19] — 2026-09-24
+
+### 追加
+
+- `throughline caveat-context`で、指定セッションの完了済み直近3ターンの会話と保存済みThinkingを、ツールログを含めずに読み取り専用JSONとして渡す。ホストの記録を指定した場合は最新ターンとの一致を検証する。
+
+### 削除
+
+- codex-sidecarのL1要約呼出し、診断・dry-run CLI、専用設定を削除する。Claude primaryの要約はCodex CLIから始める。
+
 ## [0.10.18] — 2026-09-23
 
 ### 修正
@@ -1478,7 +1488,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.18...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.19...HEAD
+[0.10.19]: https://github.com/kitepon/Throughline/compare/v0.10.18...v0.10.19
 [0.10.18]: https://github.com/kitepon/Throughline/compare/v0.10.17...v0.10.18
 [0.10.17]: https://github.com/kitepon/Throughline/compare/v0.10.16...v0.10.17
 [0.10.16]: https://github.com/kitepon/Throughline/compare/v0.10.15...v0.10.16

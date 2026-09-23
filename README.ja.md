@@ -216,8 +216,7 @@ Throughline は SQLite からコンテキストを再構築し、プレーンテ
 L1 要約は遅延実行で、20 ターン未満で終わるセッションでは外部要約器を呼ばず、
 短いタスクの要約コストはゼロです。要約は **削減割合**（既定 1/5、
 `THROUGHLINE_L1_RATIO` で変更可。不正値は明示エラー）を目標にします。
-Claude-primary 経路の backend 順は codex-sidecar（`summarize-l1` preset 明示
-設定時）→ **Codex CLI**（既定 `gpt-5.6-luna`@`low`、実測評価で選定 — ADR 0015。
+Claude-primary 経路のbackend順は **Codex CLI**（既定 `gpt-5.6-luna`@`low`、実測評価で選定 — ADR 0015。
 `THROUGHLINE_L1_MODEL` / `THROUGHLINE_L1_EFFORT` で変更可）→ **Claude Haiku 4.5**
 （`claude -p` サブプロセス、Claude Max のログイン認証流用）で、API キーは
 不要です。各段の失敗理由は記録されます。
@@ -325,17 +324,16 @@ S1 (4 ターン) --/clear--> S2 (S1 を auto-merge + 3 ターン追加) --/clear
 ---
 
 <details>
-<summary><b>Codex sidecar と Codex trim</b> — operator 向け adapter 詳細 (クリックで展開)</summary>
+<summary><b>Codex trim</b> — operator 向け詳細 (クリックで展開)</summary>
 
-## Codex sidecar と Codex trim
+## Codex trim
 
 Throughline の主軸は引き続き **Claude Code** です。Codex 対応は、Claude hooks /
 slash command / transcript / baton / resume behavior を置き換えるものではなく、
 adapter / projection として追加されます。
 
 現時点で core Throughline が外部モデルを呼ぶのは L2→L1 要約だけです。
-backend 順は codex-sidecar（`summarize-l1` preset 明示設定時）→ Codex CLI
-（既定 `gpt-5.6-luna`）→ Claude Haiku です（ADR 0015）。
+backend順はCodex CLI（既定`gpt-5.6-luna`）→ Claude Haikuです（ADR 0015）。
 
 Codex 側 trim (= same-thread context trim) は、診断・実験として明示した場合だけ
 `throughline trim --execute --host codex` で発火します。bare `$throughline` は
@@ -404,8 +402,6 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
 | `throughline latest-session --project <absolute-path> --json` | 指定した1プロジェクトだけを対象に直近セッションIDを読み取る。既存DBをread-onlyで開き、記録がなければ`empty`を返す |
 | `throughline grok-continue --session <id>` | handoff-context を初手 user 文にした対話 Grok 席を立てる。cwd は源の `project_path`。ready でなければ spawn しない。`--rules` なし。macOS Terminal のみ |
-| `throughline codex-sidecar-diagnostics` | この project の `codex-sidecar` diagnostics status を確認 |
-| `throughline codex-sidecar-dry-run` | App Server を呼ばずに read-only sidecar request を正規化表示 |
 | `throughline trim --dry-run --host codex` | Codex same-thread trim の dry-run preview |
 | `throughline trim --execute --host codex` | Codex 同 thread の scripted rollback + DB memory inject |
 | `throughline doctor --session <id-prefix>` | 特定セッションの state/transcript ズレを診断 |

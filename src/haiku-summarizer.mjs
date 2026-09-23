@@ -2,8 +2,7 @@
  * haiku-summarizer.mjs — L1 要約生成
  *
  * 基本方針 (モデル・比率の根拠は ADR 0015 の実測評価):
- *   - Claude primary の backend 順序: codex-sidecar (configured 時)
- *     → Codex CLI (既定 gpt-5.6-luna / effort low) → Claude Haiku
+ *   - Claude primary の backend 順序: Codex CLI (既定 gpt-5.6-luna / effort low) → Claude Haiku
  *     → L2 全文を L1 に入れる（情報欠損ゼロ）。各段の失敗理由は結果に記録する。
  *   - Codex primary では、Codex CLI backend を使い、失敗時は Haiku / raw L2 へ
  *     fallback せず explicit error にする。
@@ -42,14 +41,9 @@
  *   2. それでも失敗したら L2 全文を L1 に入れる（情報欠損ゼロ）
  */
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir, tmpdir } from 'os';
-import {
-  diagnoseCodexSidecar,
-  CODEX_SIDECAR_STATUS,
-  runCodexSidecarCommand,
-} from './codex-sidecar.mjs';
+import { homedir } from 'os';
 import { spawnPortableSync } from './os/portable-spawn-sync.mjs';
 
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -61,7 +55,6 @@ const L1_DEFAULT_CODEX_EFFORT = 'low';
 const L1_DEFAULT_RATIO = 0.2; // 元テキストの 1/5
 const MAX_RETRIES = 2;
 const TIMEOUT_MS = 30_000;
-const SIDECAR_TIMEOUT_MS = 10 * 60_000;
 const CODEX_CLI_TIMEOUT_MS = 60_000;
 const RECURSION_GUARD_ENV = 'THROUGHLINE_IN_HAIKU_SUBPROCESS';
 const CODEX_SUMMARIZER_GUARD_ENV = 'THROUGHLINE_IN_CODEX_SUMMARIZER';
@@ -129,109 +122,6 @@ function compactSubprocessStderr(stderr) {
     .join('\n');
   if (compacted.length <= 6_000) return compacted;
   return `${compacted.slice(0, 1_500)}\n...[stderr truncated]...\n${compacted.slice(-3_500)}`;
-}
-
-function parseSidecarSummary(stdout) {
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-  if (parsed?.status && !['ok', 'completed'].includes(parsed.status)) return null;
-  if (typeof parsed.summary === 'string' && parsed.summary.trim()) {
-    return parsed.summary.trim();
-  }
-  if (typeof parsed.recommendation === 'string' && parsed.recommendation.trim()) {
-    return parsed.recommendation.trim();
-  }
-  return null;
-}
-
-function tryCodexSidecarSummary(l2Text, { projectPath, prompt, env }) {
-  if (!projectPath) {
-    return { summary: null, reason: 'missing_project_path' };
-  }
-
-  const diagnostics = diagnoseCodexSidecar({
-    projectPath,
-    preset: 'summarize-l1',
-    env,
-    timeoutMs: SIDECAR_TIMEOUT_MS,
-  });
-  if (diagnostics.status !== CODEX_SIDECAR_STATUS.CONFIGURED) {
-    return {
-      summary: null,
-      reason: `sidecar_${diagnostics.status}`,
-      diagnostics,
-    };
-  }
-
-  const contextDir = mkdtempSync(join(tmpdir(), 'throughline-l1-context-'));
-  const contextFile = join(contextDir, 'context.json');
-  try {
-    writeFileSync(
-      contextFile,
-      JSON.stringify(
-        [
-          {
-            kind: 'manual_note',
-            source: 'throughline:l2-turn',
-            trust: 'local',
-            summary: 'Throughline L2 turn text to summarize into L1 memory.',
-            data: {
-              text: l2Text,
-            },
-          },
-        ],
-        null,
-        2,
-      ),
-    );
-
-    const command = env.THROUGHLINE_CODEX_SIDECAR_BIN ?? 'codex-sidecar';
-    const result = runCodexSidecarCommand(
-      command,
-      [
-        'explore',
-        '--project',
-        projectPath,
-        '--preset',
-        'summarize-l1',
-        '--context-file',
-        contextFile,
-        '--turn-timeout-ms',
-        String(SIDECAR_TIMEOUT_MS),
-        prompt,
-      ],
-      {
-        encoding: 'utf8',
-        env,
-        timeout: SIDECAR_TIMEOUT_MS + 5_000,
-      },
-    );
-
-    if (result.status !== 0 || !result.stdout) {
-      return {
-        summary: null,
-        reason: 'sidecar_run_failed',
-        exitCode: result.status,
-        stderr: result.stderr ?? '',
-      };
-    }
-
-    const summary = parseSidecarSummary(result.stdout);
-    if (!summary) {
-      return {
-        summary: null,
-        reason: 'sidecar_summary_missing',
-        stdout: result.stdout,
-      };
-    }
-    return { summary, reason: 'sidecar_ok' };
-  } finally {
-    rmSync(contextDir, { recursive: true, force: true });
-  }
 }
 
 function summarizeWithHaiku(l2Text, prompt, env) {
@@ -355,7 +245,7 @@ function tryCodexCliSummary(l2Text, { projectPath, env, ratio }) {
  * L2 本文を削減割合 (既定 1/5、THROUGHLINE_L1_RATIO で変更可) で要約する。
  * @param {string} l2Text ターンの会話本文（user+assistant を適当な形式で結合した文字列）
  * @param {{ projectPath?: string, env?: NodeJS.ProcessEnv, hostMode?: 'claude-primary' | 'codex-primary' | 'unknown' }} [options]
- * @returns {{ summary: string, fromFallback: boolean, source?: string, sidecarReason?: string, codexCliReason?: string }}
+ * @returns {{ summary: string, fromFallback: boolean, source?: string, codexCliReason?: string }}
  */
 export function summarizeToL1(
   l2Text,
@@ -384,25 +274,12 @@ export function summarizeToL1(
   }
 
   const prompt = buildPrompt(l2Text, ratio);
-  const sidecar = tryCodexSidecarSummary(l2Text, { projectPath, prompt, env });
-  if (sidecar.summary) {
-    return {
-      summary: sidecar.summary,
-      fromFallback: false,
-      source: 'codex-sidecar',
-      sidecarReason: sidecar.reason,
-    };
-  }
-
-  // sidecar 不在時は Codex CLI (既定 gpt-5.6-luna@low)。Haiku より要点拾い率が
-  // 同等以上・レイテンシ半分以下・タイムアウト失敗なし (ADR 0015 実測)。
   const codexCli = tryCodexCliSummary(l2Text, { projectPath, env, ratio });
   if (codexCli.summary) {
     return {
       summary: codexCli.summary,
       fromFallback: false,
       source: 'codex-cli',
-      sidecarReason: sidecar.reason,
       codexCliReason: codexCli.reason,
     };
   }
@@ -410,7 +287,6 @@ export function summarizeToL1(
   const haiku = summarizeWithHaiku(l2Text, prompt, env);
   return {
     ...haiku,
-    sidecarReason: sidecar.reason,
     codexCliReason: codexCli.reason,
   };
 }

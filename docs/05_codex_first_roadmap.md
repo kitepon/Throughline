@@ -1,3 +1,4 @@
+<!-- 完了済みの工程記録を含む。現行のhost契約は08_codex_dual_support.mdと実装を正とする。 -->
 # Throughline: Codex First Roadmap
 
 この文書は TODO を兼ねた実装計画です。
@@ -30,7 +31,7 @@ Windowsの通常の新規タスク引き継ぎは実機確認済み。
 - Throughline 本体は、ほとんどが hook から起動されるローカル Node.js コードベースで動く。
 - 現行 Claude path は、Claude hooks、slash command、handoff baton、DB、resume context、L1 / L2 / L3 persistence で成立している。
 - 外部モデル的に呼ぶ主要箇所は L2 -> L1 要約。
-- Claude-primary の現行 L2 -> L1 要約は `codex-sidecar` が configured の場合に sidecar を優先し、使えない場合は Claude Haiku 経路に戻る。Codex-primary は Codex CLI backend 失敗を明示 error にし、Claude Haiku / raw L2 へ fallback しない。
+- Claude-primary の現行 L2 -> L1 要約はCodex CLIを先に試し、失敗時はClaude Haiku経路に進む。Codex-primary は Codex CLI backend 失敗を明示 error にし、Claude Haiku / raw L2 へ fallback しない。
 - Codex guarded trim は、Codex app-server の `thread/read` / `thread/resume` / `thread/rollback` / `thread/inject_items` を使う。明示 thread identity と injectable memory がない場合は mutation 前に拒否する。rollout/app-server turn count mismatch は診断に残し、`thread/read` / `thread/resume` が同じ count を返す場合は app-server 側の差分で rollback `numTurns` を補正する。
 - Claude `/rewind` 自動化はまだ有効化しない。
 - 2026-05-10 update: Codex automatic current-thread refresh mutation は無効化する。live rollback / inject で token_count が一時的に落ちても同一 thread で戻る実測があるため、`UserPromptSubmit` / `PostToolUse` / `Stop` hooks は capture / monitor state write のみ行い、`codex_auto_refresh_disabled` で quiet にする。bare `$throughline` は `codex-handoff-start --execute --open-host <current-codex-surface>` による app-server 新スレッド handoff とし、明示 `trim --execute --host codex` だけを診断用 current-thread rollback / inject path として残す。current surfaceはCodex UI contextから決め、shell／永続PTYの継承環境へ委ねない。
@@ -58,7 +59,7 @@ Codex 側で実装済み / 診断可能なもの:
 
 Codex 側で再実装しないこと:
 
-- `codex-sidecar` を Codex primary backend にしない。Codex primary の L2 -> L1 は Codex CLI。
+- `退役済みcodex-sidecar` を Codex primary backend にしない。Codex primary の L2 -> L1 は Codex CLI。
 - Claude hooks / `/tl` / baton / transcript parser を Codex 用に置き換えない。
 - `thread/inject_items` 後の即時 `thread/read` で injected memory が turn count に出ないことを failure と見なさない。これは実測済み挙動で、次 model turn visibility は別 smoke で確認済み。
 
@@ -128,8 +129,8 @@ TODO:
   - project path
   - rollout file
   - Throughline `session_id` 相当を作るかどうか
-- [x] `codex-sidecar` と Codex CLI の役割を再整理する。
-  - `codex-sidecar`: review / risk-check / second opinion
+- [x] `退役済みcodex-sidecar` と Codex CLI の役割を再整理する。
+  - `退役済みcodex-sidecar`: review / risk-check / second opinion
   - Codex CLI: Codex primary の L2 -> L1 backend
   - Codex app-server: thread read / resume / rollback / inject
 
@@ -150,7 +151,7 @@ Audit result (2026-05-06):
 | DB schema | `sessions` / `bodies` / `skeletons` / `details` は `session_id` / `origin_session_id` で agent-neutral に近いが、現行 writer は Claude 由来 | Codex 由来を書き込む前に source/origin と session identity を固定する。既存 Claude-facing field は rename しない |
 | Codex rollout adapter | `parseCodexRolloutFile` は `thread_rolled_back` を適用した active turns を復元できる。現在は trim preview 用 | 通常 capture 用にも使う。rollback 済み tail を current L2 として保存しない |
 | Handoff projection | `HandoffRecord` は DB から安定 object を作るが、現行 `source.adapter` は `claude` 固定 | Codex capture 後に `source.adapter` / `sourceAgent` を Codex 由来にできるよう調整する |
-| L2 -> L1 backend | `summarizeToL1` は `codex-sidecar` -> Claude Haiku -> `raw_l2` の Claude primary 互換経路 | host mode を必須化し、Codex primary は Codex CLI backend failure を明示 error にする |
+| L2 -> L1 backend | `summarizeToL1` は `退役済みcodex-sidecar` -> Claude Haiku -> `raw_l2` の Claude primary 互換経路 | host mode を必須化し、Codex primary は Codex CLI backend failure を明示 error にする |
 
 Codex primary の最小 input contract は Phase 1 で固定した。Codex `thread_id` は裸の `session_id` として流用せず、Throughline DB では `codex:<thread_id>` に namespacing する。
 
@@ -199,13 +200,13 @@ Phase 1 implementation result (2026-05-06):
 
 目的: Codex primary で使う L2 -> L1 要約 backend を Codex CLI にする。
 
-現在の `codex-sidecar` 優先 / Claude Haiku fallback は、Claude primary から sidecar を使う互換経路として残す。
+現行のClaude primaryはCodex CLIを先に使い、失敗時にClaude Haikuを使う。
 Codex primary では、Codex CLI を本線 backend として扱う。
 
 TODO:
 
 - [x] `summarizeToL1` の backend 選択を host mode で分ける。
-  - `claude-primary`: `codex-sidecar` configured なら sidecar、なければ Claude Haiku
+  - `claude-primary`: Codex CLI、失敗時はClaude Haiku
   - `codex-primary`: Codex CLI
   - `unknown`: 明示エラー。呼び出し側が `claude-primary` / `codex-primary` を決める
 - [x] Codex CLI summarizer wrapper を追加する。
@@ -218,7 +219,7 @@ TODO:
   - failure は `source = codex-cli` / `reason = codex_cli_failed` 付き Error として throw する。
 - [x] Codex CLI が使えない場合の扱いを決める。
   - Codex primary では fallback せず error にする。
-  - Claude primary 互換経路だけ、既存通り `codex-sidecar` / Claude Haiku / `raw_l2` を source 付きで許可する。
+  - Claude primary 互換経路だけ、既存通り `退役済みcodex-sidecar` / Claude Haiku / `raw_l2` を source 付きで許可する。
 - [x] tests を追加する。
   - Codex primary は Codex CLI backend を呼ぶ
   - Claude primary は既存 sidecar / Haiku 経路を維持する
@@ -227,7 +228,7 @@ TODO:
 完了条件:
 
 - [x] Codex primary の L2 -> L1 source が `codex-cli` として記録される。
-- [x] Claude primary の L2 -> L1 source は既存通り `codex-sidecar` / `haiku` / `raw_l2` を返せる。
+- [x] Claude primary の L2 -> L1 source は既存通り `退役済みcodex-sidecar` / `haiku` / `raw_l2` を返せる。
 
 Phase 2 implementation result (2026-05-06):
 
@@ -555,7 +556,7 @@ Codex primary の capture / summarize / resume は完了扱い。Codex trim exec
 2026-05-06 監査結果:
 
 - [x] 旧統合計画との関係を明確化した。この文書は今後の実装順を上書きし、旧計画は実装履歴と根拠として残す。
-- [x] `codex-sidecar` と Codex CLI の役割を分離した。`codex-sidecar` は Claude primary からの review / risk-check / second opinion / 互換 L2 -> L1 経路、Codex CLI は Codex primary の L2 -> L1 本線 backend とする。
+- [x] `退役済みcodex-sidecar` と Codex CLI の役割を分離した。`退役済みcodex-sidecar` は Claude primary からの review / risk-check / second opinion / 互換 L2 -> L1 経路、Codex CLI は Codex primary の L2 -> L1 本線 backend とする。
 - [x] Codex primary の fallback 方針を固定した。Codex CLI backend が使えない場合、Codex primary は silent fallback せず明示 error にする。
 - [x] Claude primary 保護条件を維持した。Claude hooks / `/tl` / baton / resume context は Codex 用に置き換えない。
 - [x] Phase 0 実装時に、Codex primary session identity を実装前に再監査する。結論: `codex:<thread_id>` を Throughline DB の `session_id` / `origin_session_id` に使う。

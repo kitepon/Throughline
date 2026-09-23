@@ -30,7 +30,7 @@ function envWithPrependedPath(dir) {
 test('summarizeToL1: returns empty fallback for blank input', () => {
   const result = summarizeToL1('', {
     projectPath: '/repo',
-    env: { ...process.env, THROUGHLINE_CODEX_SIDECAR_DISABLED: '1' },
+    env: { ...process.env },
   });
 
   assert.equal(result.summary, '(no content)');
@@ -53,71 +53,7 @@ test('summarizeToL1: recursion guard returns raw L2 without spawning sidecar or 
   assert.equal(result.source, 'recursion_guard');
 });
 
-test('summarizeToL1: uses codex-sidecar when diagnostics and run both succeed', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tl-l1-sidecar-ok-'));
-  try {
-    const sidecar = makeBin(
-      dir,
-      'codex-sidecar',
-      `if (process.argv[2] === 'diagnostics') {
-  process.stdout.write('{"status":"ok"}\\n');
-} else {
-  process.stdout.write('{"status":"ok","summary":"sidecar summary"}\\n');
-}
-`,
-    );
-
-    const result = summarizeToL1('long enough turn text', {
-      hostMode: 'claude-primary',
-      projectPath: '/repo',
-      env: {
-        ...process.env,
-        THROUGHLINE_CODEX_SIDECAR_BIN: sidecar,
-      },
-    });
-
-    assert.equal(result.summary, 'sidecar summary');
-    assert.equal(result.fromFallback, false);
-    assert.equal(result.source, 'codex-sidecar');
-    assert.equal(result.sidecarReason, 'sidecar_ok');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('summarizeToL1: accepts stable SidecarResult summary without status field', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tl-l1-sidecar-result-'));
-  try {
-    const sidecar = makeBin(
-      dir,
-      'codex-sidecar',
-      `if (process.argv[2] === 'diagnostics') {
-  process.stdout.write('{"status":"ok"}\\n');
-} else {
-  process.stdout.write('{"summary":"stable sidecar summary","confidence":{"level":"high"},"recommendedNextAction":"continue"}\\n');
-}
-`,
-    );
-
-    const result = summarizeToL1('long enough turn text', {
-      hostMode: 'claude-primary',
-      projectPath: '/repo',
-      env: {
-        ...process.env,
-        THROUGHLINE_CODEX_SIDECAR_BIN: sidecar,
-      },
-    });
-
-    assert.equal(result.summary, 'stable sidecar summary');
-    assert.equal(result.fromFallback, false);
-    assert.equal(result.source, 'codex-sidecar');
-    assert.equal(result.sidecarReason, 'sidecar_ok');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('summarizeToL1: sidecar disabled + codex CLI failing falls back to Haiku path', () => {
+test('summarizeToL1: Codex CLI failure falls back to Haiku path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tl-l1-haiku-'));
   try {
     makeBin(
@@ -140,7 +76,6 @@ process.exit(9);
       projectPath: '/repo',
       env: {
         ...envWithPrependedPath(dir),
-        THROUGHLINE_CODEX_SIDECAR_DISABLED: '1',
         THROUGHLINE_CODEX_CLI_BIN: codex,
       },
     });
@@ -148,66 +83,7 @@ process.exit(9);
     assert.equal(result.summary, 'haiku summary');
     assert.equal(result.fromFallback, false);
     assert.equal(result.source, 'haiku');
-    assert.equal(result.sidecarReason, 'sidecar_disabled');
     assert.equal(result.codexCliReason, 'codex_cli_codex_cli_failed');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('summarizeToL1: sidecar run failure falls to Codex CLI (gpt-5.6-luna@low) before Haiku', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tl-l1-sidecar-fail-'));
-  try {
-    const sidecar = makeBin(
-      dir,
-      'codex-sidecar',
-      `if (process.argv[2] === 'diagnostics') {
-  process.stdout.write('{"status":"ok"}\\n');
-} else {
-  process.stderr.write('sidecar failed\\n');
-  process.exit(42);
-}
-`,
-    );
-    const argsFile = join(dir, 'codex-args.txt');
-    const codex = makeBin(
-      dir,
-      'codex',
-      `import { writeFileSync } from 'node:fs';
-writeFileSync(${JSON.stringify(argsFile)}, process.argv.slice(2).join('\\n') + '\\n');
-for await (const _chunk of process.stdin) {}
-process.stdout.write('luna summary after sidecar failure\\n');
-`,
-    );
-    makeBin(
-      dir,
-      'claude',
-      `for await (const _chunk of process.stdin) {}
-process.stdout.write('haiku should not run\\n');
-`,
-    );
-
-    const result = summarizeToL1('long enough turn text', {
-      hostMode: 'claude-primary',
-      projectPath: dir,
-      env: {
-        ...envWithPrependedPath(dir),
-        THROUGHLINE_CODEX_SIDECAR_BIN: sidecar,
-        THROUGHLINE_CODEX_CLI_BIN: codex,
-      },
-    });
-
-    assert.equal(result.summary, 'luna summary after sidecar failure');
-    assert.equal(result.fromFallback, false);
-    assert.equal(result.source, 'codex-cli');
-    assert.equal(result.sidecarReason, 'sidecar_run_failed');
-    assert.equal(result.codexCliReason, 'codex_cli_ok');
-
-    const argv = readFileSync(argsFile, 'utf8').trim().split('\n');
-    const modelIdx = argv.indexOf('-m');
-    assert.ok(modelIdx >= 0, 'explicit -m must be passed');
-    assert.equal(argv[modelIdx + 1], 'gpt-5.6-luna');
-    assert.ok(argv.includes('model_reasoning_effort=low'), 'explicit effort must be passed');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -296,7 +172,7 @@ test('summarizeToL1: unknown host mode is an explicit error', () => {
     () =>
       summarizeToL1('long enough turn text', {
         projectPath: '/repo',
-        env: { ...process.env, THROUGHLINE_CODEX_SIDECAR_DISABLED: '1' },
+        env: { ...process.env },
       }),
     /requires hostMode/,
   );

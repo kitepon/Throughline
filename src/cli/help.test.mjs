@@ -25,8 +25,6 @@ const CODEX_HELP_COMMANDS = [
   'throughline codex-vscode-restore-smoke',
   'throughline codex-vscode-rollback-smoke',
   'throughline codex-threads',
-  'throughline codex-sidecar-diagnostics',
-  'throughline codex-sidecar-dry-run',
 ];
 
 function runThroughline(args = []) {

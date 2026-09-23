@@ -270,7 +270,7 @@ auto-compaction は Claude Code 内部の context 圧縮で、conversation 連�
   - Codex trim 関連 (`trim --dry-run`, `--preflight`, `--execute --host codex` など) は **維持**
   - `bin/throughline.mjs` の `save-inflight` dispatch case 削除 (上の TODO と重複するが help text だけ別作業)
 - [ ] **[codex/skills/throughline/SKILL.md](../../codex/skills/throughline/SKILL.md)**: `/tl-trim` への言及があれば削除し、`throughline trim --execute --host codex` 直接呼び出しに統一。Codex 側 trim 案内自体は維持
-- [ ] **[.codex-sidecar.yml](../../.codex-sidecar.yml)** 確認: `/tl-trim` / `save-inflight` 経路の参照があれば削除。無ければ no-op
+- [ ] **当時の`.codex-sidecar.yml`** 確認: `/tl-trim` / `save-inflight` 経路の参照があれば削除。無ければ no-op
 - [ ] **テスト全部更新**:
   - `src/baton.test.mjs` → memo 関連 test 削除、`updateBatonMemo` test 削除
   - `src/session-merger.test.mjs` → source='clear' 自動経路の test 追加

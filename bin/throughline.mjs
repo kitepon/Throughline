@@ -37,8 +37,6 @@
  *   throughline codex-vscode-restore-smoke # Manual VS Code reload/reconnect restore smoke
  *   throughline codex-vscode-rollback-smoke # Manual rollback non-resurrection smoke
  *   throughline codex-threads # List read-only Codex thread id candidates
- *   throughline codex-sidecar-diagnostics # Check codex-sidecar availability
- *   throughline codex-sidecar-dry-run # Print normalized sidecar request
  *   throughline trim --execute --host codex # Codex same-thread guarded trim
  *   throughline doctor        # 環境チェック
  *   throughline status        # DB 統計表示
@@ -98,6 +96,11 @@ switch (cmd) {
   }
   case 'auditor-context': {
     const exitCode = (await import('../src/cli/auditor-context.mjs')).run(rest);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    break;
+  }
+  case 'caveat-context': {
+    const exitCode = (await import('../src/cli/caveat-context.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
@@ -176,12 +179,6 @@ switch (cmd) {
   case 'codex-threads':
     await (await import('../src/cli/codex-threads.mjs')).run(rest);
     break;
-  case 'codex-sidecar-diagnostics':
-    await (await import('../src/cli/codex-sidecar-diagnostics.mjs')).run(rest);
-    break;
-  case 'codex-sidecar-dry-run':
-    await (await import('../src/cli/codex-sidecar-dry-run.mjs')).run(rest);
-    break;
   case 'trim':
     await (await import('../src/cli/trim.mjs')).run(rest);
     break;
@@ -253,6 +250,9 @@ Usage:
                               Read only bounded completed user/assistant context
                               for an auditor; requires either --host plus --transcript,
                               or explicit pair identity/hashes; always requires --json
+  throughline caveat-context --session <id> --project <root> --json
+                              Read three completed dialogue turns and available thinking;
+                              --host claude|codex --transcript <path> verifies freshness
   throughline observer-read --project <absolute-directory> --json
                               Read one JSON-only completed-turn Observer page
   throughline observer-wait --project <absolute-directory> --after-cursor <opaque> --json
@@ -350,10 +350,6 @@ Usage:
                               and --after-vscode-restart for restart-safe proof
   throughline codex-threads     List read-only Codex thread id candidates
                               for --codex-thread-id
-  throughline codex-sidecar-diagnostics
-                              Check codex-sidecar diagnostics status
-  throughline codex-sidecar-dry-run
-                              Print normalized read-only sidecar request
   throughline trim --dry-run --host codex
                               Preview Codex same-thread context trim plan
                               (accepts --codex-thread-id <id> or
