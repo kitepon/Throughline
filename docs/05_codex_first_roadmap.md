@@ -15,7 +15,7 @@
 | [08_codex_dual_support.md](08_codex_dual_support.md) | Claude / Codex 両対応の architecture brief。adapter 境界の基本方針として維持する |
 | [09_rollback_context_trim_insight.md](09_rollback_context_trim_insight.md) | rollback / rewind を context delete primitive と見る設計メモ |
 | [04_public_release_plan.md](04_public_release_plan.md) | 公開配布の状態表。実装済み behavior だけを公開説明に出す |
-| [CLAUDE.md](https://github.com/kitepon/Throughline/blob/main/CLAUDE.md) / [AGENTS.md](https://github.com/kitepon/Throughline/blob/main/AGENTS.md) | 作業者向け入口。Claude 正本を守りつつ、この文書を次フェーズ計画として参照する |
+| [AGENTS.md](https://github.com/kitepon/Throughline/blob/main/AGENTS.md) | 作業者向け入口。Claude 正本を守りつつ、この文書を次フェーズ計画として参照する |
 
 この文書は、以後の実装順について [archive/07_codex_trim_implementation_plan.md](archive/07_codex_trim_implementation_plan.md) を上書きする。
 ただし、Claude primary を壊さない、Claude hooks / `/tl` / baton / DB / resume context を Codex 用に置き換えない、という既存の絶対条件は維持する。
@@ -75,7 +75,7 @@ Codex 側で再実装しないこと:
 
 1. この `新セッション引き継ぎ` を読む。
 2. Codex 側をやり直さず、Claude `/rewind conversation only` の手動 UX 確認へ進む。
-3. Claude 側に触る前に [CLAUDE.md](https://github.com/kitepon/Throughline/blob/main/CLAUDE.md) を読む。
+3. Claude 側に触る前に [AGENTS.md](https://github.com/kitepon/Throughline/blob/main/AGENTS.md) を読む。
 4. Codex rollback incident の追加診断が必要な場合だけ、[06_codex_trim_rollback_fix_plan.md](06_codex_trim_rollback_fix_plan.md) の Phase 4 を参照する。
 5. `.claude/settings.json` はユーザー環境差分を含み得るため、明示依頼なしに整理・置換しない。
 
@@ -103,7 +103,7 @@ Codex 側で再実装しないこと:
 ## 絶対に守ること
 
 - Claude の設定を Codex 用に置き換えない。
-- `CLAUDE.md` は Claude 正本として維持し、`AGENTS.md` は Codex / agent 向けの参照入口として扱う。
+- `AGENTS.md` を全 host 共通の作業者向け正本とし、Claude 契約を守る規則もそこに置く。
 - Claude hooks / slash command / transcript parser / baton / resume context の既存 semantics を rename しない。
 - Codex 対応は adapter / bridge / Codex primary entrypoint として足す。
 - Codex CLI / app-server / rollout の仕様は実測で固定する。未確認の host behavior を成功扱いにしない。

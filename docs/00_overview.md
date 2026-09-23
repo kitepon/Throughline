@@ -8,8 +8,7 @@ Throughline の文書は、現行契約・履歴・証拠を分ける。通常�
 | 文書 | 役割 |
 |---|---|
 | [../README.md](../README.md) / [../README.ja.md](../README.ja.md) | 利用者向けの導入、設定、コマンド、状態、診断、復旧、更新 |
-| [CLAUDE.md](https://github.com/kitepon/Throughline/blob/main/CLAUDE.md) | Claude Code 作業者向けの製品正本 |
-| [AGENTS.md](https://github.com/kitepon/Throughline/blob/main/AGENTS.md) | Codex など Claude Code 以外の作業者向け入口 |
+| [AGENTS.md](https://github.com/kitepon/Throughline/blob/main/AGENTS.md) | 全 host の作業者向けの製品正本 |
 | [01_l1_l2_l3_redesign.md](01_l1_l2_l3_redesign.md) | L1/L2/L3 記憶レイヤーの設計 |
 | [02_clear_auto_handoff_plan.md](02_clear_auto_handoff_plan.md) | `/clear` / `/tl` handoff の現行仕様 |
 | [04_public_release_plan.md](04_public_release_plan.md) | 公開配布、明示的失敗、release gate |

@@ -64,7 +64,7 @@ test('現行文書は版の正本を参照し、変更履歴は候補版と一�
   const version = packageJson.version;
   const currentSources = [
     readFileSync(new URL('../README.md', import.meta.url), 'utf8'),
-    readFileSync(new URL('../CLAUDE.md', import.meta.url), 'utf8'),
+    readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8'),
     readFileSync(new URL('../docs/04_public_release_plan.md', import.meta.url), 'utf8'),
   ];
   for (const source of currentSources) {

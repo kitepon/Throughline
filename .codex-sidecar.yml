@@ -9,7 +9,6 @@ safety_profile: claude-hook-package
 
 allowed_paths:
   - AGENTS.md
-  - CLAUDE.md
   - README.md
   - README.ja.md
   - CHANGELOG.md

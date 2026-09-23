@@ -61,7 +61,7 @@ Windows PowerShell 5.1へ切り替えない。更新前CLIを再利用せず、�
 
 release候補は次の全条件を満たしたときだけ公開する。
 
-1. `package.json` と `CHANGELOG.md` の候補版が一致し、READMEとCLAUDE.mdが版の正本を参照する。
+1. `package.json` と `CHANGELOG.md` の候補版が一致し、READMEとAGENTS.mdが版の正本を参照する。
    schema・host契約も実装と一致し、`npm run verify:docs` が全Markdownと梱包内リンクを検査する。
 2. 変更に直結するfocused testがgreenで、その後に `npm test` を最終確認として1回通す。
 3. `npm run verify:release-commit` が、clean working treeかつHEADが`origin`既定ブランチの
