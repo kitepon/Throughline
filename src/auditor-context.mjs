@@ -11,7 +11,7 @@ import { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 export { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 
 export const AUDITOR_CONTEXT_SCHEMA = 'throughline.auditor_context.v1';
-export const AUDITOR_CONTEXT_DB_SCHEMA_VERSION = 9;
+export const AUDITOR_CONTEXT_DB_SCHEMA_VERSION = 10;
 export const DEFAULT_AUDITOR_RECENT_TURNS = 2;
 export const DEFAULT_AUDITOR_MAX_BODY_CHARS = 1200;
 export const DEFAULT_AUDITOR_MAX_TOTAL_CHARS = 4000;
@@ -86,7 +86,7 @@ export function readAuditorContext({
 
   try {
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version !== AUDITOR_CONTEXT_DB_SCHEMA_VERSION) {
+    if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) {
       return emptyResult('schema_mismatch', 'unsupported_db_schema', {
         sessionId,
         projectRoot,
@@ -199,7 +199,7 @@ export function readCompletedPairProjection({
   }
   try {
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version !== AUDITOR_CONTEXT_DB_SCHEMA_VERSION) throw new AuditorContextError('E_AUDITOR_CONTEXT_SCHEMA', 'auditor context DB schema is unsupported');
+    if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) throw new AuditorContextError('E_AUDITOR_CONTEXT_SCHEMA', 'auditor context DB schema is unsupported');
     const session = db.prepare('SELECT session_id, project_path FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) return { status: 'pending', reason: 'session_not_found', turns: [] };
     if (!isSameProjectOrDescendant(session.project_path, projectRoot)) throw new AuditorContextError('E_AUDITOR_CONTEXT_PROJECT', 'auditor context DB project does not match');

@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.20] — 2026-09-27
+
+### 追加
+
+- `throughline room-context --json`で外部のルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す。発言IDによる再送は冪等とし、異なる本文への再利用はエラーにする。
+- DB schema v10にルーム発言テーブルを追加する。既存の会話記憶とread-only projectionは引き続き利用できる。
+
+### 修正
+
+- 高負荷時の外部app-server記録を待つ時間を最大3秒にし、durable verificationの早すぎる失敗を防ぐ。hook失敗時の診断子プロセスにも最大5秒を与える。全試験の同時実行数を4に抑え、子プロセス起動を含む試験の資源競合を減らす。
+
 ## [0.10.19] — 2026-09-24
 
 ### 追加
@@ -1488,7 +1499,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.19...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.20...HEAD
+[0.10.20]: https://github.com/kitepon/Throughline/compare/v0.10.19...v0.10.20
 [0.10.19]: https://github.com/kitepon/Throughline/compare/v0.10.18...v0.10.19
 [0.10.18]: https://github.com/kitepon/Throughline/compare/v0.10.17...v0.10.18
 [0.10.17]: https://github.com/kitepon/Throughline/compare/v0.10.16...v0.10.17

@@ -171,7 +171,7 @@ Anthropic API usage from the transcript JSONL (no `length / 4` heuristics).
 
 ---
 
-## Three-layer memory model (schema v9)
+## Three-layer memory model (schema v10)
 
 ```mermaid
 flowchart LR
@@ -844,6 +844,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline detail <time>`                    | Retrieve L2 body text and L3 tool I/O for a turn (see below) |
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
+| `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
 | `throughline observer-read --project <absolute-directory> --json` | Read one completed-turn Observer page through the JSON-only public boundary |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
@@ -978,6 +979,17 @@ without bodies. The caller owns any decision to send this private context to an
 external model. Claude Thinking is captured when present; current Codex rollout
 Reasoning is encrypted, so its readable text is unavailable to this command.
 
+### Room context
+
+`throughline room-context --json` reads one JSON object from stdin with absolute
+`projectPath`, `roomId`, `messageId`, `speaker`, and `text`. It records the turn
+under that room and returns `throughline.room_context.v1` with the latest three
+turns through the specified message, oldest first. The caller supplies only the
+conversation text and speaker; tool logs and Bot session details are not copied.
+Reusing a message ID with identical content is idempotent. Reusing it with different
+content exits with an error. The command owns its SQLite migration and storage;
+consumers use only this public JSON interface.
+
 ### Observer completed-turn feed (development)
 
 `observer-read` and `observer-wait` are JSON-only, read-only CLI boundaries for
@@ -1074,7 +1086,7 @@ plain `.mjs` files.
     └── <session_id>.json     Per-session activity state for the monitor
 ```
 
-Schema v9:
+Schema v10:
 
 - `sessions` — one row per `session_id`, with `project_path` and `merged_into`
 - `skeletons` — L1 one-liners, keyed by `(session_id, origin_session_id, turn, role)`
@@ -1082,6 +1094,7 @@ Schema v9:
 - `details` — L3 records with `kind` column (`tool_input` / `tool_output` / `system` / `image` / `thinking`) and `source_id` for idempotent re-processing
 - `handoff_batons` — one row per `project_path`, with `session_id` and `created_at`. Written by the `UserPromptSubmit` hook for `/tl`. A compatibility `/clear` branch remains in the hook, but tested built-in `/clear` commands are not forwarded to it. The next new session consumes and deletes an eligible baton at its **first user prompt**, if it was born within the 1-hour TTL. (v8 dropped the `memo_text` column when memo was retired in v0.4.0.)
 - `pending_handoffs` — one row per newborn session (`session_id` PK, `project_path`, `source`, `auto_predecessor_id`, `created_at`). Registered by `SessionStart`, consumed exactly once by the session's first `UserPromptSubmit`. Rows belonging to ghost sessions are never consumed and stay behind harmlessly (a few hundred bytes each). Added in v9 (ADR 0014).
+- `room_turns` — one row per external room message (`project_path`, `room_id`, `message_id`, `speaker`, `text`); the public `room-context` command reads the latest three messages through the given ID. Added in v10.
 - `injection_log` — audit trail of injection events
 
 All memory tables carry an `origin_session_id` so rebonded rows keep their
@@ -1251,7 +1264,7 @@ unchanged here.
 
 **Database got corrupted / want a clean slate**
 Delete `~/.throughline/throughline.db` (and the `-shm` / `-wal` companion files)
-and `~/.throughline/state/*.json`. A fresh database with schema v9 is created on
+and `~/.throughline/state/*.json`. A fresh database with schema v10 is created on
 the next hook fire.
 
 **New session didn't inherit memory from the previous one**

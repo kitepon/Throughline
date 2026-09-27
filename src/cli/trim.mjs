@@ -13,7 +13,8 @@ import {
   renderTrimDryRunReport,
 } from '../trim-model.mjs';
 
-const DURABLE_ROLLOUT_READ_ATTEMPTS = 5;
+// 外部app-serverの記録用プロセスは高負荷時に起動が遅れるため、観測を最大3秒待つ。
+const DURABLE_ROLLOUT_READ_ATTEMPTS = 30;
 const DURABLE_ROLLOUT_READ_DELAY_MS = 100;
 
 async function readStdin() {

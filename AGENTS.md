@@ -45,7 +45,7 @@ release判定まで完結する。dotagentsは工場への配線と統合契約�
 | [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) | Claude / Codex 両対応の architecture brief。Claude path を置き換えず、Codex support を adapter / projection として追加する方針 |
 | [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) | rollback を model-visible context の delete primitive と見る設計メモ。次フェーズでは Codex Rewind 互換の根拠として扱う |
 | [rag/INDEX.md](rag/INDEX.md) | Throughline 設計判断の根拠となる third-party spec 知識ベース。Claude Code hooks reference、Anthropic Messages API、`/clear`/`/compact` 挙動、openclaude の `initialUserMessage` source 抜粋を蓄積。各 finding は実機検証結果と対で更新 |
-| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schema v9、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
+| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schema v10、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
 | [docs/archive/](docs/archive/) | 完了済み計画と置換済み設計の履歴。通常は読まず、過去の判断・受入証拠が必要な場合だけ参照 |
 
 DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff-context` 契約と [docs/adr/0018-product-owned-database-migration.md](docs/adr/0018-product-owned-database-migration.md)、Grok host / `/tl` 後継は [docs/adr/0021-grok-host-capture.md](docs/adr/0021-grok-host-capture.md)、Cursor host は [docs/adr/0022-cursor-host-capture.md](docs/adr/0022-cursor-host-capture.md) も読む。
@@ -60,9 +60,10 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | 役割 |
 |---|---|
-| [src/db.mjs](src/db.mjs) | SQLite 接続、schema v1 → v9 migration。`node:sqlite` 組み込み、依存ゼロ |
-| [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と schema v9 で検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
+| [src/db.mjs](src/db.mjs) | SQLite 接続、schema v1 → v10 migration。`node:sqlite` 組み込み、依存ゼロ |
+| [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と現行schemaで検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
+| [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
 | [src/observer-turn-feed.mjs](src/observer-turn-feed.mjs) | Observer向けのcompleted-only Claude receipt／Codex `task_complete` projection、opaque cursor、fixed-through pagination。DB/WALを公開せず、host ambiguityとcursor不整合はfail closedにする |
 | [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー |
 | [src/transcript-usage.mjs](src/transcript-usage.mjs) | 最新 assistant の `message.usage` から実測トークン数を抽出、1M context 検出 |
@@ -117,7 +118,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/pending-handoff.mjs](src/pending-handoff.mjs) | 二相ハンドオフの intent 管理 (schema v9 `pending_handoffs`)。`registerPendingHandoff` (SessionStart) / `consumePendingHandoff` (初回 UserPromptSubmit、BEGIN IMMEDIATE で 1 回限り) |
 | [src/handoff-executor.mjs](src/handoff-executor.mjs) | 二相ハンドオフ第二相の本体。pending consume → baton path 優先 → auto path の merge → 前任 transcript backfill → `buildBudgetedResumeContext` で予算内注入テキストを組み立てる |
 | [src/decision-log.mjs](src/decision-log.mjs) | inheritance-decision.log の共有 writer。`phase: 'session-start' \| 'prompt-submit'` の 2 種を記録（2026-07-17 incident の一次証拠となった実績のあるログ） |
-| [src/handoff-record.mjs](src/handoff-record.mjs) | `HandoffRecord` v1 projection。Claude resume context と Codex projection が共有する安定した中間表現。DB 永続化はせず、現行schema v9の既存テーブルから組み立てる。`codex:<thread_id>` session は `source.adapter = codex` として扱う |
+| [src/handoff-record.mjs](src/handoff-record.mjs) | `HandoffRecord` v1 projection。Claude resume context と Codex projection が共有する安定した中間表現。DB 永続化はせず、現行schemaの既存テーブルから組み立てる。`codex:<thread_id>` session は `source.adapter = codex` として扱う |
 | [src/session-merger.mjs](src/session-merger.mjs) | `resolveMergeTarget` / `mergeSpecificPredecessor`（BEGIN IMMEDIATE トランザクション） |
 | [src/resume-context.mjs](src/resume-context.mjs) | `HandoffRecord` から「中断地点からの再開」注入テキストを描画。**v0.4.12 以降**: ヘッダーは「現在地参照案内」「直前の対話の自然な続きとして応答」「`Bash` ツールで `throughline detail HH:MM:SS` を実行」の 3 行。本文は **現在地アンカー (最新 user + 最新 assistant turn を再掲、各 600 字で truncate)** → L1 → L2 (末尾 anchor) の順。L2 が長くなると末尾 anchor だけでは注意が前半固着し話の流れを取り違える事例があった (`/clear` 直後に L2 先頭の古いターンを「現在の作業」と誤認するケース) ため、最新ターンをヘッダ直下にも再掲して二重に固定する。L3 は独立セクションを持たず、各 L1/L2 行末尾に `(詳細：…)` inline suffix として集約する。L1 行頭は `bodies.created_at` MIN 時刻 (元 body 時刻) で表示し detail 解決可能にする。**ADR 0016 以降 (2026-07-18)**: 実注入は `buildBudgetedResumeContext`（上限 9,500 字。hook stdout の 10k file 化対策）で、ヘッダ + アンカー + 案内セクション（無条件表示）を固定部として予約し、残り全予算に L2 をターン原子で新しい順に入るだけ詰める。**L1 は注入しない**。案内セクションは `recall --l2/--l1` コマンドに session / ISO ms 境界 / 件数を焼き込む。**ADR 0023以降**: 通常の引き継ぎ案内は最初の一度だけとし、`handoff-context --disclosure silent`またはproject束縛済み補足の`handoffDisclosure: silent`で案内を消せる。旧版のassistant固定宣言は次回文脈から除外する |
 | [src/l3-summary.mjs](src/l3-summary.mjs) | resume-context / codex-handoff 共通の L3 inline suffix ヘルパー。`shortenMcpToolName` / `localizeL3Part` / `groupL3ByTurn` / `buildPartsSummary`。MCP ツール名は末尾関数名に短縮、`tool_output` / hook 出力 (`system`) は noise として suffix から除外、`tool_input` 名 (例: Bash) で turn 内 1 件に集約する |
@@ -186,7 +187,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-restore-source-audit.test.mjs](src/codex-restore-source-audit.test.mjs) | `throughline codex-restore-source-audit` の rollout / session index / Codex state DB / VS Code storage / settings / logs / VS Code extension bundle 棚卸しと missing rollout refusal |
 | [src/codex-vscode-restore-smoke.test.mjs](src/codex-vscode-restore-smoke.test.mjs) | `throughline codex-vscode-restore-smoke` の prepare env guard、hidden marker prompt、restart acknowledgement、marker leak rejection |
 | [src/codex-vscode-rollback-smoke.test.mjs](src/codex-vscode-rollback-smoke.test.mjs) | `throughline codex-vscode-rollback-smoke` の restart acknowledgement 必須化、restore-safety risk refusal、CLI JSON 出力 |
-| [src/db-schema.test.mjs](src/db-schema.test.mjs) | schema v9 の Claude-facing table / field / index 名固定 |
+| [src/db-schema.test.mjs](src/db-schema.test.mjs) | schema v10 の table / field / index 名固定 |
 | [src/auditor-context.test.mjs](src/auditor-context.test.mjs) | Spotter auditor projection の freshness、role 除外、bound、schema / DB 状態、Claude / Codex transcript freshness、read-only WAL 契約 |
 | [src/cli/auditor-context.test.mjs](src/cli/auditor-context.test.mjs) | `auditor-context` JSON-only CLI、freshness source 排他、固定秘匿 error、bin help / dispatch |
 | [src/runtime-error-store.test.mjs](src/runtime-error-store.test.mjs) | collection fail-closed、privacy reject、固定 fingerprint 集約、cursor/ack、resolve/reopen、retention、private mode、atomic write、bounded diagnostics |
@@ -279,7 +280,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 
 ---
 
-## SQLite スキーマ (v9)
+## SQLite スキーマ (v10)
 
 `~/.throughline/throughline.db`（WAL モード）。schema migration の定義は [src/db.mjs](src/db.mjs) にあるので **スキーマを知りたい時は必ずそこを見る**。
 
@@ -293,6 +294,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
   - `source_id`: `tool_use.id` / `attachment.uuid` / `${entry_uuid}:thinking:${idx}` 等の一意キー。`INSERT OR IGNORE` の冪等性を保証
 - `handoff_batons` (v8) — `project_path (PK)`, `session_id`, `created_at` — 現行利用面では`/tl`で書き込み、newbornセッションの初回UserPromptSubmitが「誕生時刻基準TTL 1h以内」なら消費してmerge。`/clear`互換分岐は現行クライアントから到達しない。memo_text列はv8でdrop (memo廃止)
 - `pending_handoffs` (v9) — `session_id (PK)`, `project_path`, `source`, `auto_predecessor_id`, `created_at` — 二相ハンドオフの intent。SessionStart が登録し、初回 UserPromptSubmit が 1 回だけ消費。幽霊セッションの行は consume されず無害に残る (ADR 0014)
+- `room_turns` (v10) — `project_path`, `room_id`, `message_id (複合PK)`, `speaker`, `text` — 公開`room-context --json`が外部ルームの発言を記録し、指定発言までの直近3ターンを返す
 - `injection_log` — 監査用（未活用）
 
 `judgments` テーブルは v4 で DROP 済み。`classifier.mjs` による抽出は精度が低く廃止。

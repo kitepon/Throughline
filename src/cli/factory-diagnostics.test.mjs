@@ -125,7 +125,7 @@ test('factory-diagnostics DB inspection rejects version-only fake schema', () =>
   const dbPath = join(dir, 'throughline.db');
   try {
     const db = new DatabaseSync(dbPath);
-    db.exec('PRAGMA user_version = 9; CREATE TABLE sessions (session_id TEXT)');
+    db.exec(`PRAGMA user_version = ${CURRENT_VERSION}; CREATE TABLE sessions (session_id TEXT)`);
     db.close();
     assert.equal(inspectFactoryDatabase({ dbPath }).status, 'not_ready');
   } finally {
@@ -270,7 +270,7 @@ test('factory-diagnostics hook inspection rejects legacy timeoutSec keys', () =>
 
 function createFactorySchema(db) {
   db.exec(`
-    PRAGMA user_version = 9;
+    PRAGMA user_version = ${CURRENT_VERSION};
     CREATE TABLE sessions (
       session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL, status TEXT NOT NULL,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, merged_into TEXT
@@ -295,6 +295,11 @@ function createFactorySchema(db) {
     CREATE TABLE pending_handoffs (
       session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL, source TEXT,
       auto_predecessor_id TEXT, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE room_turns (
+      project_path TEXT NOT NULL, room_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      speaker TEXT NOT NULL, text TEXT NOT NULL,
+      PRIMARY KEY (project_path, room_id, message_id)
     );
     CREATE UNIQUE INDEX uq_skeletons_turn_v3
       ON skeletons(session_id, origin_session_id, turn_number, role);

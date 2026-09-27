@@ -104,6 +104,11 @@ switch (cmd) {
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
+  case 'room-context': {
+    const exitCode = await (await import('../src/cli/room-context.mjs')).run(rest);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    break;
+  }
   case 'observer-read': {
     const exitCode = (await import('../src/cli/observer-read.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
@@ -251,6 +256,9 @@ Usage:
                               for an auditor; requires either --host plus --transcript,
                               or explicit pair identity/hashes; always requires --json
   throughline caveat-context --session <id> --project <root> --json
+  throughline room-context --json
+                              Read one JSON room turn from stdin, record it,
+                              and return the latest three turns in that room
                               Read three completed dialogue turns and available thinking;
                               --host claude|codex --transcript <path> verifies freshness
   throughline observer-read --project <absolute-directory> --json

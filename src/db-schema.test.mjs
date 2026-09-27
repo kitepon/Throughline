@@ -38,10 +38,10 @@ function indexNames(db) {
     .map((row) => row.name);
 }
 
-test('schema v9 preserves Claude-facing tables, fields, and unique indexes', async () => {
+test('schema v10 preserves Claude-facing tables and adds room context', async () => {
   await withIsolatedDb((db) => {
     const version = db.prepare('PRAGMA user_version').get();
-    assert.equal(version.user_version, 9);
+    assert.equal(version.user_version, 10);
 
     assert.deepEqual(columnNames(db, 'sessions'), [
       'session_id',
@@ -94,6 +94,9 @@ test('schema v9 preserves Claude-facing tables, fields, and unique indexes', asy
       'source',
       'auto_predecessor_id',
       'created_at',
+    ]);
+    assert.deepEqual(columnNames(db, 'room_turns'), [
+      'project_path', 'room_id', 'message_id', 'speaker', 'text',
     ]);
 
     const indexes = indexNames(db);

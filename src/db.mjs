@@ -10,7 +10,7 @@ import { join } from 'path';
 const DB_DIR = join(homedir(), '.throughline');
 const DB_PATH = join(DB_DIR, 'throughline.db');
 export const DB_BUSY_TIMEOUT_MS = 5_000;
-export const CURRENT_VERSION = 9;
+export const CURRENT_VERSION = 10;
 
 let _db = null;
 
@@ -243,6 +243,22 @@ function initSchema(db) {
         auto_predecessor_id TEXT,
         created_at          INTEGER NOT NULL
       );
+    `);
+  }
+
+  // v9 → v10: 外部会話の発言を公開CLIから記録し、部屋ごとに直近の文脈を返す。
+  if (version < 10) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS room_turns (
+        project_path TEXT NOT NULL,
+        room_id      TEXT NOT NULL,
+        message_id   TEXT NOT NULL,
+        speaker      TEXT NOT NULL,
+        text         TEXT NOT NULL,
+        PRIMARY KEY (project_path, room_id, message_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_room_turns_room
+        ON room_turns(project_path, room_id);
     `);
   }
 

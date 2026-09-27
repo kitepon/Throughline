@@ -32,7 +32,7 @@ export function readCaveatContext({
     db = new DatabaseSync(dbPath, { readOnly: true });
     db.exec('PRAGMA busy_timeout = 1000');
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version !== AUDITOR_CONTEXT_DB_SCHEMA_VERSION) return empty('schema_mismatch');
+    if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) return empty('schema_mismatch');
 
     const session = db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) return empty('unavailable');
