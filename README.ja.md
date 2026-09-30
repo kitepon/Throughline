@@ -56,6 +56,8 @@ capture は Cursor の `agent-transcripts` jsonl。注入は sessionStart の
 global install は `~/.grok/hooks/throughline.json` に絶対 `node` +
 installed `bin/throughline.mjs` の SessionStart / UserPromptSubmit / Stop を書く。
 bare `throughline` は書かない（Grok Desktop の GUI PATH では見えない）。
+Windows の Grok は hook command を PowerShell で実行するため、先頭に呼出し演算子を付ける
+（`& "C:\...\node.exe" ...`）。
 
 ターンは `grok:<sessionId>` として保存し、L2 は
 `~/.grok/sessions/<encodeURIComponent(cwd)>/<id>/chat_history.jsonl` から回収する。

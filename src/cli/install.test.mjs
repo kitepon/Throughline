@@ -8,6 +8,7 @@ import {
   buildCodexPostToolUseHookCommand,
   buildCodexStopHookCommand,
   buildCodexUserPromptSubmitHookCommand,
+  buildCursorHookCommand,
   buildGrokHookCommand,
   createGrokHooksFile,
   createCursorHookEntries,
@@ -194,21 +195,31 @@ test('Grok hook commands are absolute node + throughline.mjs on every platform',
   const options = {
     nodePath: String.raw`C:\Program Files\nodejs\node.exe`,
     cliScriptPath: String.raw`C:\Users\Kite\App Data\Roaming\npm\node_modules\throughline\bin\throughline.mjs`,
+    platform: 'win32',
   };
+  // Grok on Windows runs hook commands through PowerShell; a leading quoted path
+  // followed by arguments is a ParserError without the call operator.
   assert.equal(
     buildGrokHookCommand('session-start', options),
-    String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\Kite\App Data\Roaming\npm\node_modules\throughline\bin\throughline.mjs" session-start`,
+    String.raw`& "C:\Program Files\nodejs\node.exe" "C:\Users\Kite\App Data\Roaming\npm\node_modules\throughline\bin\throughline.mjs" session-start`,
   );
   assert.equal(
     buildGrokHookCommand('process-turn', {
       nodePath: '/opt/homebrew/bin/node',
       cliScriptPath: '/Users/kite/Developer/Throughline/bin/throughline.mjs',
+      platform: 'darwin',
     }),
     '/opt/homebrew/bin/node /Users/kite/Developer/Throughline/bin/throughline.mjs process-turn',
   );
+  const winFile = createGrokHooksFile(options);
+  for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop']) {
+    assert.equal(winFile.hooks[event][0].hooks[0].command.startsWith('& "C:'), true);
+  }
+  assert.equal(buildCursorHookCommand('session-start', options).startsWith('& '), false);
   const file = createGrokHooksFile({
     nodePath: '/usr/bin/node',
     cliScriptPath: '/pkg/bin/throughline.mjs',
+    platform: 'linux',
   });
   assert.equal(file.hooks.SessionStart[0].hooks[0].command, '/usr/bin/node /pkg/bin/throughline.mjs session-start');
   assert.equal(file.hooks.UserPromptSubmit[0].hooks[0].command, '/usr/bin/node /pkg/bin/throughline.mjs prompt-submit');

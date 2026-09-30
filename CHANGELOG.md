@@ -10,6 +10,12 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.21] — 2026-09-30
+
+### 修正
+
+- WindowsのGrok hookが全件`ParserError`で失敗していた不具合を直す。GrokはWindowsでhook commandをPowerShellで実行するため、引用符付きの`node.exe`パスの後ろに引数を並べると構文エラーになる。`throughline install`はWindowsでGrok hookの先頭へCodex hookと同じ呼出し演算子`& `を付ける。既存環境は`throughline self-update`で書き直される。
+
 ## [0.10.20] — 2026-09-27
 
 ### 追加
@@ -1499,7 +1505,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.20...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.21...HEAD
+[0.10.21]: https://github.com/kitepon/Throughline/compare/v0.10.20...v0.10.21
 [0.10.20]: https://github.com/kitepon/Throughline/compare/v0.10.19...v0.10.20
 [0.10.19]: https://github.com/kitepon/Throughline/compare/v0.10.18...v0.10.19
 [0.10.18]: https://github.com/kitepon/Throughline/compare/v0.10.17...v0.10.18

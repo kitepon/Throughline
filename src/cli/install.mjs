@@ -292,15 +292,22 @@ function resolveGrokHooksPath() {
   return join(homedir(), ...GROK_HOOKS_RELATIVE_PATH);
 }
 
-export function buildGrokHookCommand(subcommand, {
+function buildNodeHookCommand(subcommand, {
   nodePath = resolveCodexHookNodePath(),
   cliScriptPath = join(PACKAGE_ROOT, 'bin', 'throughline.mjs'),
 } = {}) {
   return `${quoteCommandPath(nodePath)} ${quoteCommandPath(cliScriptPath)} ${subcommand}`;
 }
 
+// Grok は Windows で hook command を PowerShell で実行する。引用符付き path の後ろに
+// 引数を並べると ParserError になるため、Codex と同じく呼出し演算子 `& ` を付ける。
+export function buildGrokHookCommand(subcommand, { platform = process.platform, ...options } = {}) {
+  const prefix = platform === 'win32' ? '& ' : '';
+  return `${prefix}${buildNodeHookCommand(subcommand, options)}`;
+}
+
 export function buildCursorHookCommand(subcommand, options = {}) {
-  return buildGrokHookCommand(subcommand, options);
+  return buildNodeHookCommand(subcommand, options);
 }
 
 export function isThroughlineCursorHookCommand(command) {

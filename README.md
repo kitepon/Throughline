@@ -82,7 +82,8 @@ guarded `trim --execute --host codex` surface.
 Global install writes `~/.grok/hooks/throughline.json` with absolute `node` +
 installed `bin/throughline.mjs` for SessionStart, UserPromptSubmit, and Stop.
 Do not register a bare `throughline` command: Grok Desktop's GUI PATH will not
-see it.
+see it. On Windows, Grok runs hook commands through PowerShell, so each command
+starts with the call operator (`& "C:\...\node.exe" ...`).
 
 Turns are stored as `grok:<sessionId>`. L2 is recovered from
 `~/.grok/sessions/<encodeURIComponent(cwd)>/<id>/chat_history.jsonl`.
