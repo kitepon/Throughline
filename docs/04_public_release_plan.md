@@ -8,7 +8,7 @@
 
 - 候補の版は `package.json`、公開版はnpm registryを正とする。tagとnpmの一致はpublish後に確認する。
 - Claude Code、Codex、Grok、Cursorをfirst-class hostとして扱う。
-- 現行DB schemaはv10。schemaの正本は [src/db.mjs](../src/db.mjs) の
+- 現行DB schemaはv11。schemaの正本は [src/db.mjs](../src/db.mjs) の
   `CURRENT_VERSION`、二相handoffの判断は
   [ADR 0014](adr/0014-two-phase-handoff-ghost-baton.md)である。
 - repositoryの正規URLは `https://github.com/kitepon/Throughline`。

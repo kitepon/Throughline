@@ -172,7 +172,7 @@ Anthropic API usage from the transcript JSONL (no `length / 4` heuristics).
 
 ---
 
-## Three-layer memory model (schema v10)
+## Three-layer memory model (schema v11)
 
 ```mermaid
 flowchart LR
@@ -846,7 +846,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
-| `throughline observer-read --project <absolute-directory> --json` | Read one completed-turn Observer page through the JSON-only public boundary |
+| `throughline observer-read --project <absolute-directory> [--wire v2] --json` | Read one completed-turn Observer page through the JSON-only public boundary; `--wire v2` returns full bodies, the real harness, and how each turn started |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
 | `throughline doctor --session <id-prefix>`     | Diagnose a specific session — detect state/transcript drift, idle vs. stuck |
@@ -1007,6 +1007,28 @@ returns `projection_pending` without bodies. Pagination is bound to the exact
 project, after cursor, and fixed through cursor, so a newly completed turn is
 collected by the next wait instead of being mixed into an in-progress page.
 
+`--wire v2` is opt-in and leaves the default `throughline.observer_read.v1`
+page unchanged. A v2 page has schema `throughline.observer_read.v2`, the same
+statuses, cursors, and pagination, and these differences:
+
+- `user` and `assistant` are full bodies; `truncated` is always `false`.
+- `host` (top level and per turn) is the harness that ran the turn: `claude`,
+  `codex`, `grok`, or `cursor`. v1 keeps reporting Grok and Cursor turns as
+  `claude`, because they share the Claude-compatible Stop receipt lane.
+- Each turn has `turn_start`: `prompt` when a person or an external delivery
+  submitted the turn, `self` when the harness started it on its own, and
+  `unknown` when the host left no marker. `self` comes from Claude
+  `origin.kind` `task-notification` / `auto-continuation`, Grok
+  `synthetic_reason: "task_completed"`, and Cursor's fixed
+  `Briefly inform the user about the task result…` query. Codex starts turns
+  only on input, so Codex turns are `prompt`. Turns captured before schema v11
+  are `unknown`.
+
+Claude completion receipts are filed under the project Claude Code was
+launched in (`CLAUDE_PROJECT_DIR`), so a turn that ends after a `cd` into a
+subdirectory still appears in the launched project's feed. Hosts that do not
+provide it keep using the hook `cwd`.
+
 `observer-wait` returns one of four successful states: `changed`, `timeout`,
 `resync_required`, or `ambiguous_parent`. `timeout` preserves the input cursor.
 The default and maximum `--timeout-seconds` value is 3600. Claude completion is
@@ -1087,11 +1109,11 @@ plain `.mjs` files.
     └── <session_id>.json     Per-session activity state for the monitor
 ```
 
-Schema v10:
+Schema v11:
 
 - `sessions` — one row per `session_id`, with `project_path` and `merged_into`
 - `skeletons` — L1 one-liners, keyed by `(session_id, origin_session_id, turn, role)`
-- `bodies` — L2 verbatim text (user + assistant), same key shape
+- `bodies` — L2 verbatim text (user + assistant), same key shape. The user row's `turn_start` (`prompt` / `self` / `unknown`, added in v11) records how the turn started; rows captured before v11 are `NULL`
 - `details` — L3 records with `kind` column (`tool_input` / `tool_output` / `system` / `image` / `thinking`) and `source_id` for idempotent re-processing
 - `handoff_batons` — one row per `project_path`, with `session_id` and `created_at`. Written by the `UserPromptSubmit` hook for `/tl`. A compatibility `/clear` branch remains in the hook, but tested built-in `/clear` commands are not forwarded to it. The next new session consumes and deletes an eligible baton at its **first user prompt**, if it was born within the 1-hour TTL. (v8 dropped the `memo_text` column when memo was retired in v0.4.0.)
 - `pending_handoffs` — one row per newborn session (`session_id` PK, `project_path`, `source`, `auto_predecessor_id`, `created_at`). Registered by `SessionStart`, consumed exactly once by the session's first `UserPromptSubmit`. Rows belonging to ghost sessions are never consumed and stay behind harmlessly (a few hundred bytes each). Added in v9 (ADR 0014).
@@ -1265,7 +1287,7 @@ unchanged here.
 
 **Database got corrupted / want a clean slate**
 Delete `~/.throughline/throughline.db` (and the `-shm` / `-wal` companion files)
-and `~/.throughline/state/*.json`. A fresh database with schema v10 is created on
+and `~/.throughline/state/*.json`. A fresh database with schema v11 is created on
 the next hook fire.
 
 **New session didn't inherit memory from the previous one**

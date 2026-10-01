@@ -4,6 +4,7 @@
  * Claude は Throughline の基準 host。hook payload は snake_case のまま届き、
  * 引き継ぎ注入は UserPromptSubmit hook の stdout でモデルへ渡る。
  */
+import { isAbsolute } from 'node:path';
 import { CLAUDE_HOST, hostOfSessionId } from './identity.mjs';
 
 // Claude Code の背景 task 通知は user 発言として transcript に入る。識別子・出力 path・
@@ -31,6 +32,13 @@ export const claudeHostAdapter = Object.freeze({
   // Claude Stop payload の last_assistant_message を transcript 可視化の
   // barrier に使う (ADR 0012)。
   waitsForStopTranscriptFlush: true,
+  // 完了受領はセッションを起動した project に書く。hook payload の cwd は Bash の cd に
+  // 追従するため、作業中に下位ディレクトリへ移ると起動 project の feed から漏れる。
+  // Claude Code は hook の環境変数 CLAUDE_PROJECT_DIR に起動 project を渡す。
+  completionProjectPath({ cwd, env }) {
+    const projectDir = env?.CLAUDE_PROJECT_DIR;
+    return typeof projectDir === 'string' && isAbsolute(projectDir) ? projectDir : cwd;
+  },
   // Claude は UserPromptSubmit stdout がそのままモデル可視 context になる。
   deliverHandoffInjection({ text, stdout = process.stdout }) {
     stdout.write(text + '\n');

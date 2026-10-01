@@ -10,7 +10,7 @@ import { join } from 'path';
 const DB_DIR = join(homedir(), '.throughline');
 const DB_PATH = join(DB_DIR, 'throughline.db');
 export const DB_BUSY_TIMEOUT_MS = 5_000;
-export const CURRENT_VERSION = 10;
+export const CURRENT_VERSION = 11;
 
 let _db = null;
 
@@ -260,6 +260,15 @@ function initSchema(db) {
       CREATE INDEX IF NOT EXISTS idx_room_turns_room
         ON room_turns(project_path, room_id);
     `);
+  }
+
+  // v10 → v11: ターンの始まり方（人・配送か、hostが自分から始めたか）を user 行に残す。
+  // 旧行は NULL のままで、読む側は unknown として扱う。
+  if (version < 11) {
+    const bodyCols = db.prepare('PRAGMA table_info(bodies)').all();
+    if (!bodyCols.some((c) => c.name === 'turn_start')) {
+      db.exec('ALTER TABLE bodies ADD COLUMN turn_start TEXT');
+    }
   }
 
   if (version < CURRENT_VERSION) {

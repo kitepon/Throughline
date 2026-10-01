@@ -7,9 +7,13 @@ import { hashAuditorBody } from './body-digest.mjs';
 import { buildBodyRowsFromActiveTurns, buildCodexThroughlineSessionId } from './codex-capture.mjs';
 import { readCompletedTurnReceiptSnapshot } from './completed-turn-receipts.mjs';
 import { readCompletedPairProjection } from './auditor-context.mjs';
+import { CODEX_HOST, hostOfSessionId } from './hosts/identity.mjs';
+import { TURN_START_PROMPT, publicTurnStart } from './turn-start.mjs';
 
 export const OBSERVER_CURSOR_SCHEMA = 'throughline.observer_cursor.v1';
 export const OBSERVER_READ_SCHEMA = 'throughline.observer_read.v1';
+export const OBSERVER_READ_SCHEMA_V2 = 'throughline.observer_read.v2';
+export const OBSERVER_READ_WIRES = Object.freeze(['v1', 'v2']);
 export const OBSERVER_PAGE_SCHEMA = 'throughline.observer_page.v1';
 const CURSOR_PREFIX = 'tlc1.';
 const PAGE_PREFIX = 'tlp1.';
@@ -66,8 +70,10 @@ export function resolveObserverTurnFeed({ projectPath, cursor = null, codexHome,
 export function readObserverTurnPage({
   projectPath, afterCursor = null, throughCursor = null, pageToken = null,
   limit = DEFAULT_PAGE_LIMIT, codexHome, receiptOptions, dbPath, maxBodyChars, maxTotalChars,
+  wire = 'v1',
 } = {}) {
   assertPageLimit(limit);
+  if (!OBSERVER_READ_WIRES.includes(wire)) throw new TypeError('observer read wire must be v1 or v2');
   const project = canonicalExistingProject(projectPath);
   const projectSha256 = sha256(project);
   const candidates = [...claudeCandidates(project, receiptOptions), ...codexCandidates(project, codexHome)];
@@ -89,14 +95,14 @@ export function readObserverTurnPage({
   let fixedThroughCursor;
   if (normalizedThrough === null) {
     const selected = selectLatest(candidates);
-    if (selected?.ambiguous) return emptyReadResult('ambiguous_parent', normalizedAfter);
+    if (selected?.ambiguous) return emptyReadResult('ambiguous_parent', normalizedAfter, wire);
     fixedThrough = selected ?? emptyCandidate();
     fixedThroughCursor = encodeObserverCursor(cursorShape(fixedThrough, projectSha256));
   } else {
     const decodedThrough = decodeCursorForRead(normalizedThrough, projectSha256);
-    if (!decodedThrough) return emptyReadResult('resync_required', normalizedAfter);
+    if (!decodedThrough) return emptyReadResult('resync_required', normalizedAfter, wire);
     const throughCandidate = validateCursorCandidate(decodedThrough, candidates);
-    if (!throughCandidate) return emptyReadResult('resync_required', normalizedAfter);
+    if (!throughCandidate) return emptyReadResult('resync_required', normalizedAfter, wire);
     fixedThrough = fixedCandidate(throughCandidate, decodedThrough.length);
     fixedThroughCursor = normalizedThrough;
   }
@@ -108,19 +114,19 @@ export function readObserverTurnPage({
     return projectReadPage({
       status: 'snapshot', afterCursor: null, throughCursor: fixedThroughCursor,
       current: fixedThrough, pageEntries, project, dbPath, maxBodyChars, maxTotalChars,
-      historyTruncated, complete: true, nextToken: null,
+      historyTruncated, complete: true, nextToken: null, wire,
     });
   }
 
   const decodedAfter = decodeCursorForRead(normalizedAfter, projectSha256);
-  if (!decodedAfter) return emptyReadResult('resync_required', normalizedAfter);
+  if (!decodedAfter) return emptyReadResult('resync_required', normalizedAfter, wire);
   const afterCandidate = validateCursorCandidate(decodedAfter, candidates);
   if (!afterCandidate || fixedThrough.host === null && decodedAfter.host !== null) {
-    return emptyReadResult('resync_required', normalizedAfter);
+    return emptyReadResult('resync_required', normalizedAfter, wire);
   }
 
   const series = logicalDeltaSeries(decodedAfter, fixedThrough);
-  if (!series) return emptyReadResult('resync_required', normalizedAfter);
+  if (!series) return emptyReadResult('resync_required', normalizedAfter, wire);
   const { status, entries } = series;
   let offset = 0;
   if (decodedPageToken !== null) {
@@ -137,7 +143,7 @@ export function readObserverTurnPage({
   return projectReadPage({
     status, afterCursor: normalizedAfter, throughCursor: fixedThroughCursor,
     current: fixedThrough, pageEntries, project, dbPath, maxBodyChars, maxTotalChars,
-    historyTruncated: false, complete, nextToken,
+    historyTruncated: false, complete, nextToken, wire,
   });
 }
 
@@ -272,10 +278,12 @@ function logicalDeltaSeries(after, through) {
 
 function projectReadPage({
   status, afterCursor, throughCursor, current, pageEntries, project, dbPath,
-  maxBodyChars, maxTotalChars, historyTruncated, complete, nextToken,
+  maxBodyChars, maxTotalChars, historyTruncated, complete, nextToken, wire,
 }) {
+  const v2 = wire === 'v2';
+  const host = v2 ? harnessOf(current) : current.host;
   const base = {
-    schema: OBSERVER_READ_SCHEMA, status, host: current.host, thread_sha256: current.threadHash,
+    schema: v2 ? OBSERVER_READ_SCHEMA_V2 : OBSERVER_READ_SCHEMA, status, host, thread_sha256: current.threadHash,
     afterCursor, throughCursor, turns: [], historyTruncated,
     page: { complete, nextToken },
   };
@@ -283,23 +291,44 @@ function projectReadPage({
   const projection = readCompletedPairProjection({
     ...(dbPath === undefined ? {} : { dbPath }), sessionId: current.sessionId, projectRoot: project,
     expectedPairs: pageEntries.map(({ origin_sha256, user_sha256, assistant_sha256 }) => ({ origin_sha256, user_sha256, assistant_sha256 })),
-    ...(maxBodyChars === undefined ? {} : { maxBodyChars }),
-    ...(maxTotalChars === undefined ? {} : { maxTotalChars }),
+    ...(v2 ? { fullBodies: true } : {}),
+    ...(!v2 && maxBodyChars !== undefined ? { maxBodyChars } : {}),
+    ...(!v2 && maxTotalChars !== undefined ? { maxTotalChars } : {}),
   });
   if (projection.status === 'pending') {
     return { ...base, status: 'projection_pending', throughCursor: null, page: { complete: false, nextToken: null } };
   }
+  if (!v2) {
+    return {
+      ...base,
+      turns: pageEntries.map((entry, index) => ({ ...publicTurnEntry(entry), ...projection.turns[index] })),
+    };
+  }
   return {
     ...base,
-    turns: pageEntries.map((entry, index) => ({ ...publicTurnEntry(entry), ...projection.turns[index] })),
+    turns: pageEntries.map((entry, index) => {
+      const { turn_start: storedStart, ...projected } = projection.turns[index];
+      return {
+        ...publicTurnEntry(entry), ...projected, host,
+        // Codex は入力でしかターンを始めず、feed は user 発言のある rollout turn だけを載せる。
+        turn_start: host === CODEX_HOST ? TURN_START_PROMPT : publicTurnStart(storedStart),
+      };
+    }),
   };
+}
+
+/** receipt lane は Claude 互換 hook を共有するため、実際の harness は session ID から求める。 */
+function harnessOf(current) {
+  if (current.host === null) return null;
+  if (current.host === CODEX_HOST) return CODEX_HOST;
+  return hostOfSessionId(current.sessionId);
 }
 
 function publicTurnEntry({ _sessionId: _sessionId, ...entry }) { return entry; }
 
-function emptyReadResult(status, afterCursor) {
+function emptyReadResult(status, afterCursor, wire = 'v1') {
   return {
-    schema: OBSERVER_READ_SCHEMA, status, host: null, thread_sha256: null,
+    schema: wire === 'v2' ? OBSERVER_READ_SCHEMA_V2 : OBSERVER_READ_SCHEMA, status, host: null, thread_sha256: null,
     afterCursor, throughCursor: null, turns: [], historyTruncated: false,
     page: { complete: true, nextToken: null },
   };

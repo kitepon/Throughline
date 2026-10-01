@@ -11,7 +11,7 @@ import { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 export { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 
 export const AUDITOR_CONTEXT_SCHEMA = 'throughline.auditor_context.v1';
-export const AUDITOR_CONTEXT_DB_SCHEMA_VERSION = 10;
+export const AUDITOR_CONTEXT_DB_SCHEMA_VERSION = 11;
 export const DEFAULT_AUDITOR_RECENT_TURNS = 2;
 export const DEFAULT_AUDITOR_MAX_BODY_CHARS = 1200;
 export const DEFAULT_AUDITOR_MAX_TOTAL_CHARS = 4000;
@@ -182,10 +182,12 @@ export function readAuditorContext({
 export function readCompletedPairProjection({
   dbPath = defaultAuditorContextDbPath(), sessionId, projectRoot, expectedPairs,
   maxBodyChars = DEFAULT_AUDITOR_MAX_BODY_CHARS, maxTotalChars = DEFAULT_AUDITOR_MAX_TOTAL_CHARS,
+  fullBodies = false,
 } = {}) {
   assertNonEmptyString(sessionId, 'sessionId');
   assertNonEmptyString(projectRoot, 'projectRoot');
   assertExpectedPairs(expectedPairs);
+  if (typeof fullBodies !== 'boolean') throw new TypeError('fullBodies must be a boolean');
   assertPositiveInteger(maxBodyChars, 'maxBodyChars');
   if (!Number.isInteger(maxTotalChars) || maxTotalChars < 0) throw new TypeError('maxTotalChars must be an integer >= 0');
   if (!existsSync(dbPath)) return { status: 'pending', reason: 'db_not_found', turns: [] };
@@ -203,12 +205,16 @@ export function readCompletedPairProjection({
     const session = db.prepare('SELECT session_id, project_path FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) return { status: 'pending', reason: 'session_not_found', turns: [] };
     if (!isSameProjectOrDescendant(session.project_path, projectRoot)) throw new AuditorContextError('E_AUDITOR_CONTEXT_PROJECT', 'auditor context DB project does not match');
+    // turn_start は schema v11 で足した列。migration 前の DB では全ターンを unknown にする。
+    const withTurnStart = fullBodies &&
+      db.prepare('PRAGMA table_info(bodies)').all().some((column) => column.name === 'turn_start');
     const rows = db.prepare(
-      `SELECT id, origin_session_id, turn_number, role, text, created_at FROM bodies
+      `SELECT id, origin_session_id, turn_number, role, text, created_at${withTurnStart ? ', turn_start' : ''} FROM bodies
        WHERE session_id = ? AND role IN ('user', 'assistant') ORDER BY created_at ASC, id ASC`,
     ).all(sessionId);
     const matched = matchExpectedPairs(buildCompletedPairs(rows), expectedPairs);
     if (!matched) return { status: 'pending', reason: 'pair_not_found', turns: [] };
+    if (fullBodies) return { status: 'fresh', turns: fullProjectedPairs(matched, rows) };
     return { status: 'fresh', turns: boundProjectedPairs(matched, { maxBodyChars, maxTotalChars }) };
   } catch (cause) {
     if (cause instanceof AuditorContextError) throw cause;
@@ -323,6 +329,21 @@ function boundProjectedPairs(pairs, { maxBodyChars, maxTotalChars }) {
       truncated: user.length < pair.user.length || assistant.length < pair.assistant.length,
     };
   });
+}
+
+/** 本文を切らずに返し、user 行に残した始まり方を添える（Observer wire v2）。 */
+function fullProjectedPairs(pairs, rows) {
+  const starts = new Map();
+  for (const row of rows) {
+    if (row.role !== 'user') continue;
+    const key = `${row.origin_session_id}\u0000${row.turn_number}`;
+    if (!starts.has(key)) starts.set(key, row.turn_start ?? null);
+  }
+  return pairs.map((pair) => ({
+    origin_sha256: pair.expected.origin_sha256, user_sha256: pair.expected.user_sha256,
+    assistant_sha256: pair.expected.assistant_sha256, user: pair.user, assistant: pair.assistant,
+    truncated: false, turn_start: starts.get(`${pair.originSessionId}\u0000${pair.turnNumber}`) ?? null,
+  }));
 }
 
 function emptyResult(status, reason, { sessionId, projectRoot, recentTurns, dbSchemaVersion } = {}) {

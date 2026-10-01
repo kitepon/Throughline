@@ -339,3 +339,95 @@ test('observer read: a missing pair on a later page returns no partial body or c
     rmSync(box.root, { recursive: true, force: true });
   }
 });
+
+function createV11ProjectionDb(path, project, sessionId) {
+  const db = new DatabaseSync(path);
+  db.exec(`PRAGMA user_version = 11;
+    CREATE TABLE sessions (session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL);
+    CREATE TABLE bodies (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, origin_session_id TEXT NOT NULL, turn_number INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL, turn_start TEXT);`);
+  db.prepare('INSERT INTO sessions (session_id, project_path) VALUES (?, ?)').run(sessionId, project);
+  return db;
+}
+function setTurnStart(db, sessionId, turn, start) {
+  db.prepare("UPDATE bodies SET turn_start = ? WHERE session_id = ? AND turn_number = ? AND role = 'user'").run(start, sessionId, turn);
+}
+
+test('observer read v2: full bodies, real harness, and turn start while v1 stays unchanged', () => {
+  const box = fixture();
+  const dbPath = join(box.root, 'throughline.db');
+  let db;
+  try {
+    const sessionId = 'grok:private-grok-session';
+    db = createV11ProjectionDb(dbPath, box.project, sessionId);
+    const long = (label) => `${label}-head ${'x'.repeat(3000)} ${label}-tail`;
+    for (let turn = 1; turn <= 3; turn++) {
+      addClaudeTurn(box, db, { sessionId, origin: sessionId, turn, user: long(`user-${turn}`), assistant: long(`assistant-${turn}`), at: turn });
+    }
+    setTurnStart(db, sessionId, 1, 'prompt');
+    setTurnStart(db, sessionId, 2, 'self');
+    const base = { projectPath: box.project, codexHome: box.home, receiptOptions: box.receiptOptions, dbPath };
+
+    const v1 = readObserverTurnPage(base);
+    assert.equal(v1.schema, 'throughline.observer_read.v1');
+    assert.equal(v1.host, 'claude', 'v1 は既存の lane 名を返し続ける');
+    assert.equal(v1.turns.some((turn) => turn.truncated), true);
+    assert.deepEqual(Object.keys(v1.turns[0]).sort(), [
+      'assistant', 'assistant_sha256', 'completed_at', 'host', 'origin_sha256', 'source_sha256',
+      'thread_sha256', 'truncated', 'user', 'user_sha256',
+    ]);
+    assert.equal(v1.turns[0].host, 'claude');
+
+    const v2 = readObserverTurnPage({ ...base, wire: 'v2' });
+    assert.equal(v2.schema, 'throughline.observer_read.v2');
+    assert.equal(v2.host, 'grok');
+    assert.deepEqual(v2.turns.map((turn) => [turn.host, turn.turn_start, turn.truncated]), [
+      ['grok', 'prompt', false], ['grok', 'self', false], ['grok', 'unknown', false],
+    ]);
+    assert.deepEqual(v2.turns.map((turn) => [turn.user, turn.assistant]), [1, 2, 3].map((turn) => [long(`user-${turn}`), long(`assistant-${turn}`)]));
+    assert.equal(v2.throughCursor, v1.throughCursor, 'cursor は wire に依存しない');
+    assert.doesNotMatch(JSON.stringify(v2), /private-grok-session/);
+    assert.throws(() => readObserverTurnPage({ ...base, wire: 'v3' }), /wire must be v1 or v2/);
+  } finally {
+    db?.close();
+    rmSync(box.root, { recursive: true, force: true });
+  }
+});
+
+test('observer read v2: Cursor host, pre-v11 DB, Codex prompt, and empty states', () => {
+  const box = fixture();
+  const dbPath = join(box.root, 'throughline.db');
+  let db;
+  try {
+    const sessionId = 'cursor:private-cursor-session';
+    db = createProjectionDb(dbPath, box.project, sessionId);
+    addClaudeTurn(box, db, { sessionId, origin: sessionId, turn: 1, user: 'u', assistant: 'a', at: 1 });
+    const cursor = readObserverTurnPage({ projectPath: box.project, codexHome: box.home, receiptOptions: box.receiptOptions, dbPath, wire: 'v2' });
+    assert.deepEqual(cursor.turns.map((turn) => [turn.host, turn.turn_start]), [['cursor', 'unknown']], 'turn_start 列の無い DB は unknown');
+
+    const resync = readObserverTurnPage({ projectPath: box.project, codexHome: box.home, receiptOptions: box.receiptOptions, dbPath, afterCursor: 'tlc1.broken', wire: 'v2' });
+    assert.equal(resync.schema, 'throughline.observer_read.v2');
+    assert.equal(resync.status, 'resync_required');
+  } finally {
+    db?.close();
+    rmSync(box.root, { recursive: true, force: true });
+  }
+
+  const codexBox = fixture();
+  const codexDbPath = join(codexBox.root, 'throughline.db');
+  let codexDb;
+  try {
+    const id = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+    const sessionId = `codex:${id}`;
+    codexDb = createV11ProjectionDb(codexDbPath, codexBox.project, sessionId);
+    const insert = codexDb.prepare('INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    insert.run(sessionId, sessionId, 1, 'user', 'request', 1);
+    insert.run(sessionId, sessionId, 1, 'assistant', 'answer', 2);
+    writeRollout(codexBox.home, codexBox.project, id, completeEvents());
+    const codex = readObserverTurnPage({ projectPath: codexBox.project, codexHome: codexBox.home, receiptOptions: codexBox.receiptOptions, dbPath: codexDbPath, wire: 'v2' });
+    assert.equal(codex.host, 'codex');
+    assert.deepEqual(codex.turns.map((turn) => [turn.host, turn.turn_start, turn.user, turn.assistant]), [['codex', 'prompt', 'request', 'answer']]);
+  } finally {
+    codexDb?.close();
+    rmSync(codexBox.root, { recursive: true, force: true });
+  }
+});

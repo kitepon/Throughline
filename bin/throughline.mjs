@@ -261,8 +261,9 @@ Usage:
                               and return the latest three turns in that room
                               Read three completed dialogue turns and available thinking;
                               --host claude|codex --transcript <path> verifies freshness
-  throughline observer-read --project <absolute-directory> --json
-                              Read one JSON-only completed-turn Observer page
+  throughline observer-read --project <absolute-directory> [--wire v2] --json
+                              Read one JSON-only completed-turn Observer page;
+                              --wire v2 adds full bodies, harness, and turn start
   throughline observer-wait --project <absolute-directory> --after-cursor <opaque> --json
                               Wait for a completed-turn Observer cursor change
   throughline factory-diagnostics --json

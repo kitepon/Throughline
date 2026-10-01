@@ -45,7 +45,7 @@ release判定まで完結する。dotagentsは工場への配線と統合契約�
 | [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) | Claude / Codex 両対応の architecture brief。Claude path を置き換えず、Codex support を adapter / projection として追加する方針 |
 | [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) | rollback を model-visible context の delete primitive と見る設計メモ。次フェーズでは Codex Rewind 互換の根拠として扱う |
 | [rag/INDEX.md](rag/INDEX.md) | Throughline 設計判断の根拠となる third-party spec 知識ベース。Claude Code hooks reference、Anthropic Messages API、`/clear`/`/compact` 挙動、openclaude の `initialUserMessage` source 抜粋を蓄積。各 finding は実機検証結果と対で更新 |
-| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schema v10、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
+| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schema v11、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
 | [docs/archive/](docs/archive/) | 完了済み計画と置換済み設計の履歴。通常は読まず、過去の判断・受入証拠が必要な場合だけ参照 |
 
 DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff-context` 契約と [docs/adr/0018-product-owned-database-migration.md](docs/adr/0018-product-owned-database-migration.md)、Grok host / `/tl` 後継は [docs/adr/0021-grok-host-capture.md](docs/adr/0021-grok-host-capture.md)、Cursor host は [docs/adr/0022-cursor-host-capture.md](docs/adr/0022-cursor-host-capture.md) も読む。
@@ -60,12 +60,13 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | 役割 |
 |---|---|
-| [src/db.mjs](src/db.mjs) | SQLite 接続、schema v1 → v10 migration。`node:sqlite` 組み込み、依存ゼロ |
+| [src/db.mjs](src/db.mjs) | SQLite 接続、schema v1 → v11 migration。`node:sqlite` 組み込み、依存ゼロ |
 | [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と現行schemaで検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
 | [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
 | [src/observer-turn-feed.mjs](src/observer-turn-feed.mjs) | Observer向けのcompleted-only Claude receipt／Codex `task_complete` projection、opaque cursor、fixed-through pagination。DB/WALを公開せず、host ambiguityとcursor不整合はfail closedにする |
 | [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー |
+| [src/turn-start.mjs](src/turn-start.mjs) | ターンの始まり方（`prompt` / `self` / `unknown`）を host が transcript に書いた印だけで判定する。Claude `origin.kind`、Grok `synthetic_reason`、Cursor の自己開始固定文 (ADR 0024) |
 | [src/transcript-usage.mjs](src/transcript-usage.mjs) | 最新 assistant の `message.usage` から実測トークン数を抽出、1M context 検出 |
 | [src/codex-capture.mjs](src/codex-capture.mjs) | Codex rollout JSONL の active turns を Throughline DB の `bodies` に保存する capture adapter。`thread_rolled_back` 適用後の active thread だけを `codex:<thread_id>` session として再構成する |
 | [src/codex-rollout-memory.mjs](src/codex-rollout-memory.mjs) | Codex rollout JSONL から active turns / restore-safety diagnostics / trim source を構築する。trim source では現在進行中の in-flight turn と latest rollback 後の未完了 assistant continuation を rollback 候補から除外する。実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で rollback 数を補正する |
@@ -83,7 +84,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 |---|---|
 | [src/hosts/identity.mjs](src/hosts/identity.mjs) | session prefix (`codex:` / `grok:` / `cursor:`)・`hostOfSessionId`・codex thread id 往復・`NON_CLAUDE_SESSION_PREFIXES`・`KNOWN_STATE_HOSTS` の唯一の正本。codex-capture / handoff-record の旧 export はここへの再 export |
 | [src/hosts/index.mjs](src/hosts/index.mjs) | `normalizeHookPayload` (Grok camelCase / Cursor envelope の dispatch) と `hostAdapterForSessionId` |
-| [src/hosts/claude.mjs](src/hosts/claude.mjs) | Claude adapter (stdout 注入・flush barrier あり・prompt 素通し) |
+| [src/hosts/claude.mjs](src/hosts/claude.mjs) | Claude adapter (stdout 注入・flush barrier あり・prompt 素通し・完了受領は `CLAUDE_PROJECT_DIR` の起動 project へ) |
 | [src/hosts/codex.mjs](src/hosts/codex.mjs) | Codex adapter。Codex hook 本体は [src/cli/codex-hook.mjs](src/cli/codex-hook.mjs) のままで、ここは共有コード向けの識別と既定挙動の明文化 |
 | [src/hosts/grok.mjs](src/hosts/grok.mjs) | 旧 hook-envelope.mjs を統合。Grok envelope 正規化・chat_history path・chat_history 直書き注入・user_query 包装の command prompt fallback・`/tl` 後の grok-continue 起動・flush barrier 非適用 |
 | [src/hosts/cursor.mjs](src/hosts/cursor.mjs) | Cursor envelope 正規化・agent-transcripts path・sessionStart `additional_context` 注入・flush barrier 非適用・後継自動起動なし |
@@ -141,7 +142,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/cli/handoff-context.mjs](src/cli/handoff-context.mjs) | `handoff-context (--session <id> \| --project <path>) --json` — 既存DBをread-onlyで開き、SessionStartと同じ9,500字予算のinheritance contextをversioned JSONで返す。project指定時はそのprojectで会話本文を持つ最新sessionを選び、本文がなければ`empty`を返す。`--disclosure silent`は補足なしで基盤案内を消す。session指定時の任意補足JSONは源sessionと同じprojectだけを長期記憶・知識として合成する。DB作成・migration・merge・batonは行わない |
 | [src/cli/grok-continue.mjs](src/cli/grok-continue.mjs) | `grok-continue --session <id>` — handoff-context を初手 user 文にして、源セッションの `project_path` で macOS Terminal の対話 `grok` を立てる。context / project_path 失敗では spawn しない。末尾は待機。`--rules` なし |
 | [src/cli/auditor-context.mjs](src/cli/auditor-context.mjs) | `auditor-context` — Spotter 専用・JSON-only の read-only projection。`--session` / `--project` と、explicit pair identity/hash または `--host claude\|codex --transcript` を受ける（排他）。`fresh` だけに L2 body を含め、`empty` / `stale` / `session_mismatch` / `unavailable` / `schema_mismatch` は空 turns を返す。DB は create/migrate/write しない |
-| [src/cli/observer-read.mjs](src/cli/observer-read.mjs) | `observer-read` — existing absolute project向けJSON-only completed-turn page。opaque cursorを受け、snapshot / delta / thread・host switch、`resync_required`、`projection_pending`を返す |
+| [src/cli/observer-read.mjs](src/cli/observer-read.mjs) | `observer-read` — existing absolute project向けJSON-only completed-turn page。opaque cursorを受け、snapshot / delta / thread・host switch、`resync_required`、`projection_pending`を返す。`--wire v2` は全文・実harness・`turn_start` を返す (ADR 0024) |
 | [src/cli/observer-wait.mjs](src/cli/observer-wait.mjs) | `observer-wait` — opaque after cursorから最大3600秒待機し、`changed` / `timeout` / `resync_required` / `ambiguous_parent`だけをJSONで返す。cancelは成功に丸めない |
 | [src/cli/runtime-errors.mjs](src/cli/runtime-errors.mjs) | `runtime-errors enable\|disable\|snapshot\|diagnostics\|ack\|resolve\|reopen\|compact --json` — product-owned config/store の bounded JSON API。snapshot/diagnostics は state path を出さず、mutation API は cursor または fingerprint だけを受け付ける |
 | [src/cli/migrate.mjs](src/cli/migrate.mjs) | `migrate --json` — 既存の Throughline DB だけを production migration で現行 schema へ移行する正規入口。DB 不在時は作成せず `not_applicable`、現行は `already_current`、future schema と migration failure は非 0 の固定 JSON で明示する |
@@ -187,7 +188,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-restore-source-audit.test.mjs](src/codex-restore-source-audit.test.mjs) | `throughline codex-restore-source-audit` の rollout / session index / Codex state DB / VS Code storage / settings / logs / VS Code extension bundle 棚卸しと missing rollout refusal |
 | [src/codex-vscode-restore-smoke.test.mjs](src/codex-vscode-restore-smoke.test.mjs) | `throughline codex-vscode-restore-smoke` の prepare env guard、hidden marker prompt、restart acknowledgement、marker leak rejection |
 | [src/codex-vscode-rollback-smoke.test.mjs](src/codex-vscode-rollback-smoke.test.mjs) | `throughline codex-vscode-rollback-smoke` の restart acknowledgement 必須化、restore-safety risk refusal、CLI JSON 出力 |
-| [src/db-schema.test.mjs](src/db-schema.test.mjs) | schema v10 の table / field / index 名固定 |
+| [src/db-schema.test.mjs](src/db-schema.test.mjs) | schema v11 の table / field / index 名固定 |
 | [src/auditor-context.test.mjs](src/auditor-context.test.mjs) | Spotter auditor projection の freshness、role 除外、bound、schema / DB 状態、Claude / Codex transcript freshness、read-only WAL 契約 |
 | [src/cli/auditor-context.test.mjs](src/cli/auditor-context.test.mjs) | `auditor-context` JSON-only CLI、freshness source 排他、固定秘匿 error、bin help / dispatch |
 | [src/runtime-error-store.test.mjs](src/runtime-error-store.test.mjs) | collection fail-closed、privacy reject、固定 fingerprint 集約、cursor/ack、resolve/reopen、retention、private mode、atomic write、bounded diagnostics |
@@ -208,7 +209,9 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/session-merger.test.mjs](src/session-merger.test.mjs) | `resolveMergeTarget` / `mergeSpecificPredecessor` |
 | [src/state-file.test.mjs](src/state-file.test.mjs) | `writeSessionState` / `readAllSessionStates` / `snapshotStateMtimes` / stale 閾値 / `usage` スナップショット / 旧フォーマット互換 / Codex state filename encoding |
 | [src/turn-processor.test.mjs](src/turn-processor.test.mjs) | `countDistinctBodyTurns` / `pickOldestUnsummarizedTurn` / 20 ターン境界 |
-| [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging |
+| [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging / `turn_start` |
+| [src/turn-start.test.mjs](src/turn-start.test.mjs) | Claude / Grok / Cursor の始まり方判定と、旧行NULLのunknown写像 |
+| [src/hosts/claude.test.mjs](src/hosts/claude.test.mjs) | 完了受領の project（Claude は起動 project、他 host は hook cwd） |
 | [src/token-monitor.test.mjs](src/token-monitor.test.mjs) | CLI 引数、cell 幅、bar/色覚マーカー、`formatTimeAgo`、`shouldForceFullRedraw`、`formatLine` の ago 配置 / Codex estimated marker |
 | [src/transcript-reader.test.mjs](src/transcript-reader.test.mjs) | transcript JSONL パーサー、`extractDetailBlocks` の全 kind 分類 |
 | [src/transcript-usage.test.mjs](src/transcript-usage.test.mjs) | `readLatestUsage` / `inferContextWindowSize` / 1M sticky / size+mtime キャッシュ |
@@ -280,7 +283,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 
 ---
 
-## SQLite スキーマ (v10)
+## SQLite スキーマ (v11)
 
 `~/.throughline/throughline.db`（WAL モード）。schema migration の定義は [src/db.mjs](src/db.mjs) にあるので **スキーマを知りたい時は必ずそこを見る**。
 
@@ -288,7 +291,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 
 - `sessions` — `session_id`, `project_path`, `status`, `created_at`, `updated_at`, `merged_into`
 - `skeletons` (L1) — `session_id`, `origin_session_id`, `turn_number`, `role`, `summary`, `created_at`
-- `bodies` (L2) — `session_id`, `origin_session_id`, `turn_number`, `role`, `text`, `token_count`, `created_at`
+- `bodies` (L2) — `session_id`, `origin_session_id`, `turn_number`, `role`, `text`, `token_count`, `created_at`, `turn_start` (v11。user行だけに `prompt` / `self` / `unknown`、旧行はNULL)
 - `details` (L3) — `session_id`, `origin_session_id`, `turn_number`, `tool_name`, `input_text`, `output_text`, `token_count`, `created_at`, `kind`, `source_id`
   - `kind`: `'tool_input' | 'tool_output' | 'system' | 'image' | 'thinking'`
   - `source_id`: `tool_use.id` / `attachment.uuid` / `${entry_uuid}:thinking:${idx}` 等の一意キー。`INSERT OR IGNORE` の冪等性を保証

@@ -38,10 +38,10 @@ function indexNames(db) {
     .map((row) => row.name);
 }
 
-test('schema v10 preserves Claude-facing tables and adds room context', async () => {
+test('schema v11 preserves Claude-facing tables, room context, and turn starts', async () => {
   await withIsolatedDb((db) => {
     const version = db.prepare('PRAGMA user_version').get();
-    assert.equal(version.user_version, 10);
+    assert.equal(version.user_version, 11);
 
     assert.deepEqual(columnNames(db, 'sessions'), [
       'session_id',
@@ -69,6 +69,7 @@ test('schema v10 preserves Claude-facing tables and adds room context', async ()
       'text',
       'token_count',
       'created_at',
+      'turn_start',
     ]);
     assert.deepEqual(columnNames(db, 'details'), [
       'id',

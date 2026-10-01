@@ -273,12 +273,16 @@ export async function run() {
   // 過去のStopでDBだけ回収済みだったpairもreceipt storeの冪等性で穴埋めする。
   // receipt failure は Stop hook の failure として上位へ伝播させる。L1/L3/usage は
   // receipt 後の派生処理なので、そこで失敗しても completed pair を取り消さない。
+  const completionProjectPath = hostAdapterForSessionId(session_id).completionProjectPath({
+    cwd: cwd ?? process.cwd(),
+    env: process.env,
+  });
   for (const completedTurnNumber of backfill.turnNumbers) {
     publishCapturedClaudeCompletionReceipt(db, {
       target,
       origin,
       turnNumber: completedTurnNumber,
-      projectPath: cwd ?? process.cwd(),
+      projectPath: completionProjectPath,
     });
   }
 

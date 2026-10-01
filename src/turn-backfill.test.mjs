@@ -18,6 +18,7 @@ function makeDb() {
       text TEXT NOT NULL,
       token_count INTEGER,
       created_at INTEGER NOT NULL,
+      turn_start TEXT,
       UNIQUE(session_id, origin_session_id, turn_number, role)
     );
   `);
@@ -215,5 +216,28 @@ test('deriveTranscriptPath munges slash and dot characters with one leading dash
   assert.equal(
     deriveTranscriptPath('/Users/example/Developer/Through.line', 'session-id'),
     join(homedir(), '.claude', 'projects', '-Users-example-Developer-Through-line', 'session-id.jsonl'),
+  );
+});
+
+test('backfillBodies: user row keeps the turn start and assistant row leaves it empty', () => {
+  withData(
+    [
+      entry('user', 'wait for it', undefined, { origin: { kind: 'human' } }),
+      entry('assistant', 'started'),
+      entry('user', '<task-notification>\n<status>completed</status>\n</task-notification>', undefined, { origin: { kind: 'task-notification' } }),
+      entry('assistant', 'finished'),
+      entry('user', 'no marker'),
+      entry('assistant', 'answered'),
+    ],
+    (path) => {
+      const db = makeDb();
+      backfillBodies(db, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 1 });
+      const rows = db.prepare('SELECT role, text, turn_start FROM bodies ORDER BY turn_number, role DESC').all();
+      assert.deepEqual(rows.map((row) => [row.role, row.turn_start]), [
+        ['user', 'prompt'], ['assistant', null],
+        ['user', 'self'], ['assistant', null],
+        ['user', 'unknown'], ['assistant', null],
+      ]);
+    },
   );
 });

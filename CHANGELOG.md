@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.22] — 2026-10-01
+
+### 追加
+
+- `throughline observer-read --wire v2`を足す。v2は本文を切らずに返し、各ターンへ実際のharness（`claude`・`codex`・`grok`・`cursor`）と始まり方`turn_start`（`prompt`・`self`・`unknown`）を付ける。既定のv1は変わらない（ADR 0024）。
+- DB schema v11で`bodies.turn_start`を足し、Stop時にhostの印からターンの始まり方を残す。Claudeは`origin.kind`、Grokは`synthetic_reason`、Cursorは自分から始める時の固定文で見分ける。既存の行は`unknown`になる。
+
+### 修正
+
+- Claude Codeで作業中に下位ディレクトリへ`cd`して終わったターンが、起動したprojectのObserver feedに載らなかった不具合を直す。完了受領はClaude Codeがhookへ渡す`CLAUDE_PROJECT_DIR`のprojectに書く。
+
 ## [0.10.21] — 2026-09-30
 
 ### 修正
@@ -1505,7 +1516,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.21...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.22...HEAD
+[0.10.22]: https://github.com/kitepon/Throughline/compare/v0.10.21...v0.10.22
 [0.10.21]: https://github.com/kitepon/Throughline/compare/v0.10.20...v0.10.21
 [0.10.20]: https://github.com/kitepon/Throughline/compare/v0.10.19...v0.10.20
 [0.10.19]: https://github.com/kitepon/Throughline/compare/v0.10.18...v0.10.19

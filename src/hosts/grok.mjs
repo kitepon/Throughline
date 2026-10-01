@@ -72,6 +72,8 @@ function lastUserPromptText(transcriptPath) {
 export const grokHostAdapter = Object.freeze({
   host: GROK_HOST,
   matchesSessionId: isGrokSessionId,
+  // transcript path も cwd から導くため、hook の cwd がそのまま起動 project である。
+  completionProjectPath: ({ cwd }) => cwd,
   // Claude Stop transcript flush barrier は Claude transcript の完了行を待つ機構。
   // Grok の chat_history には適用しない (既存挙動)。
   waitsForStopTranscriptFlush: false,

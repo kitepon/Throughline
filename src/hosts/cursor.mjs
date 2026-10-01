@@ -113,6 +113,8 @@ export function normalizeCursorHookPayload(payload, { home = homedir() } = {}) {
 export const cursorHostAdapter = Object.freeze({
   host: CURSOR_HOST,
   matchesSessionId: isCursorSessionId,
+  // transcript path も cwd から導くため、hook の cwd がそのまま起動 project である。
+  completionProjectPath: ({ cwd }) => cwd,
   waitsForStopTranscriptFlush: false,
   consumesHandoffAtSessionStart: true,
   deliverHandoffInjection({ text, stdout = process.stdout }) {

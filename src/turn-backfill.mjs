@@ -76,8 +76,8 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
 
   const insertBody = db.prepare(
     `INSERT OR IGNORE INTO bodies
-       (session_id, origin_session_id, turn_number, role, text, token_count, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, origin_session_id, turn_number, role, text, token_count, created_at, turn_start)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   let insertedTurns = 0;
@@ -104,6 +104,7 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
         g.user.content,
         Math.round(g.user.content.length / 4),
         userAt,
+        g.user.start,
       );
       insertBody.run(
         targetSessionId,
@@ -113,6 +114,7 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
         g.representative.content,
         Math.round(g.representative.content.length / 4),
         assistantAt,
+        null,
       );
       insertedTurns++;
     }

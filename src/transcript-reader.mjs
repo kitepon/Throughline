@@ -11,6 +11,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { DETAIL_KIND } from './constants.mjs';
 import { compactClaudeTaskNotification } from './hosts/claude.mjs';
+import { classifyTurnStart } from './turn-start.mjs';
 
 function entryKind(entry) {
   if (typeof entry?.type === 'string' && entry.type.length > 0) return entry.type;
@@ -38,7 +39,7 @@ function extractText(content) {
 /**
  * トランスクリプト JSONL ファイルを読んで全ターンを返す。
  * @param {string} transcriptPath
- * @returns {Array<{role: string, content: string, turn_number: number}>}
+ * @returns {Array<{role: string, content: string, turn_number: number, timestamp: number|null, start?: 'prompt'|'self'|'unknown'}>}
  */
 export function readTranscript(transcriptPath) {
   if (!transcriptPath || !existsSync(transcriptPath)) return [];
@@ -87,6 +88,7 @@ export function readTranscript(transcriptPath) {
       content: text,
       turn_number: turns.length,
       timestamp: Number.isNaN(ts) ? null : ts,
+      ...(role === 'user' ? { start: classifyTurnStart(entry, extracted) } : {}),
     });
   }
 
@@ -123,7 +125,7 @@ export function isJunkAssistantText(text) {
  *
  * @param {string} transcriptPath
  * @returns {Array<{
- *   user: {content: string, timestamp: number|null, turn_number: number},
+ *   user: {content: string, timestamp: number|null, turn_number: number, start: 'prompt'|'self'|'unknown'},
  *   fragments: Array<{index: number, content: string, timestamp: number|null}>,
  *   representative: {index: number, content: string, timestamp: number|null},
  * }>}

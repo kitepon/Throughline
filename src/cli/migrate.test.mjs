@@ -138,3 +138,22 @@ test('migrate CLI reports an internal migration failure without reflecting its c
   });
   assert.doesNotMatch(output[0], /private|contents/);
 });
+
+test('migrate adds bodies.turn_start without touching existing rows', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-migrate-turn-start-'));
+  try {
+    createV8Db(home);
+    const before = new DatabaseSync(join(home, '.throughline', 'throughline.db'));
+    before.prepare('INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, created_at) VALUES (?, ?, ?, ?, ?, ?)').run('s', 's', 1, 'user', 'kept', 1);
+    before.close();
+    const result = runCli(home);
+    assert.equal(result.status, 0, result.stderr);
+    const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'), { readOnly: true });
+    try {
+      assert.equal(db.prepare('PRAGMA user_version').get().user_version, CURRENT_VERSION);
+      assert.deepEqual({ ...db.prepare('SELECT text, turn_start FROM bodies').get() }, { text: 'kept', turn_start: null });
+    } finally { db.close(); }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

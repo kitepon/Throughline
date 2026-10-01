@@ -18,8 +18,9 @@ function streams() {
 
 test('observer-read parses each supported option once and delegates validation to read library', () => {
   assert.deepEqual(parseArgs(['--project', '/repo', '--after-cursor', 'after', '--through-cursor', 'through', '--page-token', 'page', '--limit', '100', '--json']), {
-    projectPath: '/repo', afterCursor: 'after', throughCursor: 'through', pageToken: 'page', limit: 100, json: true,
+    projectPath: '/repo', afterCursor: 'after', throughCursor: 'through', pageToken: 'page', limit: 100, wire: 'v1', json: true,
   });
+  assert.equal(parseArgs(['--project', '/repo', '--wire', 'v2', '--json']).wire, 'v2');
   const io = streams(); let input;
   assert.equal(run(['--project', '/repo', '--json'], { ...io, read(value) { input = value; return FIXED; } }), 0);
   assert.deepEqual(input, { projectPath: '/repo' });
@@ -65,7 +66,7 @@ test('observer-read keeps known states successful and maps hard failures without
 test('observer-read bin dispatch and help advertise JSON-only command', () => {
   const help = spawnSync(process.execPath, [BIN_PATH, '--help'], { cwd: REPO_ROOT, encoding: 'utf8' });
   assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /throughline observer-read --project <absolute-directory> --json/);
+  assert.match(help.stdout, /throughline observer-read --project <absolute-directory> \[--wire v2\] --json/);
 });
 
 test('observer-read bin dispatch returns an empty snapshot from an isolated environment', async () => {
@@ -89,5 +90,19 @@ test('observer-read bin dispatch returns an empty snapshot from an isolated envi
     assert.deepEqual(page.turns, []);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('observer-read --wire v2 delegates the wire and reports hard failures with the v2 schema', () => {
+  const io = streams(); let input;
+  assert.equal(run(['--project', '/repo', '--wire', 'v2', '--json'], { ...io, read(value) { input = value; return FIXED; } }), 0);
+  assert.deepEqual(input, { wire: 'v2', projectPath: '/repo' });
+  const failed = streams();
+  assert.equal(run(['--project', '/repo', '--wire', 'v2', '--json'], { ...failed, read() { throw new Error('boom /private/path'); } }), 1);
+  assert.deepEqual(JSON.parse(failed.stderr.text), { schema: 'throughline.observer_read.v2', status: 'error', code: 'E_OBSERVER_READ_INTERNAL', message: 'observer read failed' });
+  for (const argv of [['--project', '/repo', '--wire', 'v3', '--json'], ['--project', '/repo', '--wire', 'v2', '--wire', 'v2', '--json']]) {
+    const bad = streams();
+    assert.equal(run(argv, { ...bad }), 1);
+    assert.equal(JSON.parse(bad.stderr.text).code, 'E_OBSERVER_READ_ARGS');
   }
 });

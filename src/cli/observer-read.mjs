@@ -1,4 +1,4 @@
-import { readObserverTurnPage, OBSERVER_READ_SCHEMA } from '../observer-turn-feed.mjs';
+import { readObserverTurnPage, OBSERVER_READ_SCHEMA, OBSERVER_READ_SCHEMA_V2, OBSERVER_READ_WIRES } from '../observer-turn-feed.mjs';
 
 const ERRORS = Object.freeze({
   args: { schema: OBSERVER_READ_SCHEMA, status: 'error', code: 'E_OBSERVER_READ_ARGS', message: 'invalid observer-read arguments' },
@@ -10,7 +10,7 @@ const ERRORS = Object.freeze({
 });
 
 export function parseArgs(argv = []) {
-  const out = { projectPath: null, afterCursor: undefined, throughCursor: undefined, pageToken: undefined, limit: undefined, json: false };
+  const out = { projectPath: null, afterCursor: undefined, throughCursor: undefined, pageToken: undefined, limit: undefined, wire: 'v1', json: false };
   const seen = new Set();
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
@@ -18,7 +18,7 @@ export function parseArgs(argv = []) {
       if (seen.has(arg)) throw new TypeError('duplicate option');
       seen.add(arg); out.json = true; continue;
     }
-    if (!['--project', '--after-cursor', '--through-cursor', '--page-token', '--limit'].includes(arg) || seen.has(arg)) {
+    if (!['--project', '--after-cursor', '--through-cursor', '--page-token', '--limit', '--wire'].includes(arg) || seen.has(arg)) {
       throw new TypeError('invalid option');
     }
     const value = argv[++index];
@@ -28,6 +28,7 @@ export function parseArgs(argv = []) {
     else if (arg === '--after-cursor') out.afterCursor = value;
     else if (arg === '--through-cursor') out.throughCursor = value;
     else if (arg === '--page-token') out.pageToken = value;
+    else if (arg === '--wire') out.wire = parseWire(value);
     else out.limit = parseLimit(value);
   }
   if (!out.json || !out.projectPath || (out.pageToken !== undefined && (out.afterCursor === undefined || out.throughCursor === undefined))) {
@@ -41,6 +42,7 @@ export function run(argv = [], { read = readObserverTurnPage, stdout = process.s
   try { args = parseArgs(argv); } catch { writeJson(stderr, ERRORS.args); return 1; }
   try {
     const result = read({
+      ...(args.wire === 'v1' ? {} : { wire: args.wire }),
       projectPath: args.projectPath,
       ...(args.afterCursor === undefined ? {} : { afterCursor: args.afterCursor }),
       ...(args.throughCursor === undefined ? {} : { throughCursor: args.throughCursor }),
@@ -50,9 +52,15 @@ export function run(argv = [], { read = readObserverTurnPage, stdout = process.s
     writeJson(stdout, result);
     return 0;
   } catch (error) {
-    writeJson(stderr, mapError(error));
+    const mapped = mapError(error);
+    writeJson(stderr, args.wire === 'v2' ? { ...mapped, schema: OBSERVER_READ_SCHEMA_V2 } : mapped);
     return 1;
   }
+}
+
+function parseWire(value) {
+  if (!OBSERVER_READ_WIRES.includes(value)) throw new TypeError('invalid wire');
+  return value;
 }
 
 function parseLimit(value) {
