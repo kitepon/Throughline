@@ -10,6 +10,21 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-10-03
+
+### 追加
+
+- Codex Desktopで、公式の`PreCompact(auto)`に合わせて作業を止め、記憶を持つ新しいタスクを開いて自動で続きを実行する。`throughline auto-handoff enable [--project <path>]`で有効化し、既定では無効とする。
+- 旧ターンの停止、新タスク表示後のモデル・推論強度・権限などの一致、配送した入力と実際の進捗を照合する。設定不一致や実行中状態は理由を記録して止め、送信結果不明の指示は再送しない。`status`と`resume`で同じ引き継ぎを確認・再開できる。
+- schema v12に引き継ぎの状態、不変のL1/L2/L3、祖先との関係、古いターンのL1生成結果を追加する。引き継ぎ全体の直近20ターンはL2全文、それより古いターンはL1を渡し、L3は引き継ぎID・origin・turnに束縛した`detail`で取得する。
+- macOSのCodex DesktopでA→B→Cを介入なしで実行し、CからAのL3を取得して3工程の完了を確認した。VS Code・CLI・他OSの自動継続は未検証とする。
+
+### 修正
+
+- Codexを再captureするたびにL1を削除していた不具合を直す。user/assistant両方の本文が変わらないターンのL1を保持する。
+- Desktopの`custom_tool_call`と`custom_tool_call_output`もL3へ保存し、詳細を失わないようにする。
+- read-only projectionの対応schema上限を製品の`CURRENT_VERSION`から参照し、schema更新後も既存の読取機能を利用できるようにする。
+
 ## [0.10.23] — 2026-10-03
 
 ### 修正
@@ -1523,7 +1538,9 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.23...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/kitepon/Throughline/compare/v0.10.23...v0.11.0
+
 [0.10.23]: https://github.com/kitepon/Throughline/compare/v0.10.22...v0.10.23
 [0.10.22]: https://github.com/kitepon/Throughline/compare/v0.10.21...v0.10.22
 [0.10.21]: https://github.com/kitepon/Throughline/compare/v0.10.20...v0.10.21

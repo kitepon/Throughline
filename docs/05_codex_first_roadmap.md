@@ -5,12 +5,12 @@
 
 ## 自動新規タスク継続の設計案
 
-状態: **成立条件A〜CはCodex Desktopで実測済み。配送にはaiterm-steer-deliveryを採用する。製品の自動引き継ぎは未実装。**
+状態: **製品実装とmacOSのCodex DesktopでのA→B→C連続受入は完了。失敗・結果不明と再開はfocused試験で確認した。公開履歴は実測記録を参照する。**
 
 この節は、自動圧縮が始まる前にThroughlineが新しいタスクへ記憶を渡し、
-人が「続けて」と入力せずに作業を再開するための設計案である。
+人が「続けて」と入力せずに作業を再開するための実装契約である。
 実測と証明範囲は[成立検証の記録](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)を参照する。
-次の工程はDesktop表示後の実効設定継承・停止観測の確定と、製品schema/継続処理の実装である。
+正規入口は `throughline auto-handoff enable [--project <path>]`。既定無効とし、自分のPreCompact hookだけを登録・承認・確認する。
 以下の既存Phase記録は従来のcurrent-thread trimの経緯として読み、この設計案の
 受入結果と混同しない。現在のautomatic refreshが無効である挙動は変更していない。
 
@@ -30,18 +30,18 @@
 VS Code・CLIとClaude/Grok/Cursorの対応はhostごとに同じ条件で検証する。
 一つのhostの成功で他のhostも対応済みとはしない。
 
-### 根拠と未確認事項
+### 根拠と検証範囲
 
 外部仕様と取得時点の固定参照は
 [RAGの抜粋](../rag/01-hooks/raw/codex-auto-handoff-extract.md)へ置く。
 
 | 項目 | 現時点で確認できたこと | 次に実測すること |
 |---|---|---|
-| 圧縮前の停止 | `PreCompact(auto)` と停止返答、同じturnの `turn_aborted`、圧縮記録0件をDesktopで実測した | 既定閾値での長時間作業と、一連の自動引き継ぎ |
-| 新タスクの準備 | 記憶注入後に作成processを閉じたタスクをDesktopで実行できた | Desktopが作成時のsandboxを更新するため、表示後も実効設定を保持・確認する手段 |
-| 自動再開 | 合成developer記憶を持つ未実行タスクへ公開配送APIから指示を送り、自動開始を実測した | 実際のThroughline記憶と、停止から開始までの製品統合 |
-| 接続の寿命 | 配送処理終了後にDesktopで複数段の作業と完了を実測した | 製品統合後の接続寿命と中断時の回復 |
-| 連続継承 | Codex captureは各threadのL1/L2/L3を再構築し、注入developer本文を会話として保存しない | 凍結した記憶と継承関係による2回以上の継続 |
+| 圧縮前の停止 | `PreCompact(auto)` と停止返答、同じturnの `turn_aborted`、圧縮記録0件をDesktopで実測した | 一連の自動引き継ぎはDで合格。既定閾値での長時間作業は未検証 |
+| 新タスクの準備 | 記憶注入後に作成processを閉じたタスクをDesktopで実行できた | sourceの実効設定を採用し、公式APIで準備した値を固定して表示後に一致を確認。保持不能は配送前に停止 |
+| 自動再開 | 合成developer記憶を持つ未実行タスクへ公開配送APIから指示を送り、自動開始を実測した | Dで実際のThroughline記憶と停止から開始までを確認 |
+| 接続の寿命 | 配送処理終了後にDesktopで複数段の作業と完了を実測した | Dで継続・最終完了、Eで同じ後継の再開を確認 |
+| 連続継承 | Codex captureは各threadのL1/L2/L3を再構築し、注入developer本文を会話として保存しない | Dで2回継続し、CからAの凍結L3を取得 |
 
 別processの `thread/read` が返した `notLoaded` や空turn一覧を、
 Desktopで旧ターンが停止した証拠として使わない。
@@ -100,7 +100,7 @@ Codexの継承文脈は合意済みの契約を維持する。
 
 現行の新thread rendererは8本文行・各1,600字を既定とする短縮版であり、
 自動継続の記憶契約へそのまま流用しない。
-既存の `buildHandoffRecord` と全文rendererを基礎に、上記内容を扱う注入を設計する。
+`codex-auto-handoff-memory`は凍結した祖先と現在の記憶から全文契約の文脈を生成する。
 既存の12,000字smokeやClaudeの9,500字制限は、自動Codex文脈の合否基準へ流用しない。
 新タスクの実効contextと圧縮なしの初回作業で容量を検証し、
 記憶が収まらない場合は内容を黙って削減せず原因と未成立条件を報告する。
@@ -156,7 +156,7 @@ DBには引き継ぎID、元thread/turn、project/Codex環境、snapshot参照�
 前任引き継ぎID、新thread ID、配送ID、受付ID、状態、開始証拠、失敗理由を保存する。
 元thread/turnの要求は一意にし、フックの重複で後継を増やさない。
 schema変更は `src/db.mjs` と製品所有migrationへ置き、
-現行schema番号はこの設計案では変更しない。
+schemaの版とmigrationは同じ製品releaseで更新する。
 
 外部mutation直前には対象と試行中の状態を保存する。
 応答前にprocessが消えた場合は、作成・注入・送信のどれも無条件に再試行しない。
@@ -166,7 +166,7 @@ schema変更は `src/db.mjs` と製品所有migrationへ置き、
 
 キュー受付成功は送信完了までの証拠であり、モデル可視・作業開始の証拠ではない。
 作業開始は、公式の指示IDとの相関を優先し、相関が公開されない場合は
-試験専用の識別子を持つ成果物とhostのイベントを照合する。
+製品が送ったoperation/delivery ID入りの本文と同じturnの進捗を照合する。
 固定sleepの経過、URL handlerのexit 0、関係ないturn開始を成功条件にしない。
 旧タスクの自動再開、current-thread trim、別memory sourceへの切り替えは行わない。
 
@@ -186,8 +186,8 @@ user指示の配送とdeveloper記憶の注入を分ける。
 明示的な設計改訂を行う。稼働中に別方式へ暗黙fallbackしない。
 
 Desktopは表示時に作成時のsandboxをアプリ設定へ更新した。
-作成応答の設定一致だけで `target_ready` に進まず、表示後の実効設定の保持手段を
-次の実装設計で確定する。保持を確認できない場合は配送前に固定理由で止まる。
+作成応答の設定一致だけで `target_ready` に進まず、表示後の実効設定を
+製品処理で確認する。保持を確認できない場合は配送前に固定理由で止まる。
 
 ### 成立条件の実機検証
 
@@ -205,8 +205,8 @@ hook承認や画面操作が人にしかできない場合は、止まった位�
 | E: 中断と実行中状態 | フック重複、既知の後継作成後の終了、送信結果不明、未完了コマンド・子agent・未処理入力・承認待ちを個別に再現する | 各境界で固定理由と段階を残し、同じ後継を再利用する。結果不明の再送と重複副作用がない。未対応状態を成功へ丸めない |
 
 A〜Cは独立した試験タスクで成立した。Aの停止からBの作成・開始までの
-一連の製品統合は未実装であり、A〜Cの成功で統合済みとは扱わない。
-表示後の実効設定継承を確認し、実装した統合経路でD〜Eへ進む。
+製品統合はDの介入なし試験で確認した。Eは重複hook、設定不一致、作成・配送結果不明、既知targetの再利用、入力保存の時間差、実行中状態をfocused試験で確認した。
+他OS/hostと既定容量上限での長時間作業は未検証とする。
 各検証は境界を一つずつ測り、失敗時は最小再現へ戻る。
 試験中のtoken使用量・context window・入力量・開始までの時間は証拠に含めるが、
 常設統計システムはこの実装へ追加しない。
@@ -218,13 +218,13 @@ A〜Cは独立した試験タスクで成立した。Aの停止からBの作成�
 | 対象 | 変更内容 | focused test |
 |---|---|---|
 | `src/hosts/codex.mjs`、`src/cli/codex-hook.mjs` | `PreCompact(auto)` payload、元IDへの束縛、停止返答 | manual非発火、並行task非混入、停止返答と要求保存 |
-| `src/cli/install.mjs`、doctor | 製品設定による自動機能ON/OFF、必要なhook登録・実効runtime・承認・能力の診断 | 既存hook/承認保持、未承認と未対応の明示、解除 |
+| `src/cli/install.mjs`、`src/cli/auto-handoff.mjs` | 製品設定による自動機能ON/OFF、必要なhook登録・実効runtime・承認・能力の診断 | 既存hook/承認保持、未承認と未対応の明示、解除 |
 | `src/db.mjs`、継続処理module | 要求・境界・snapshot・継承関係・進行状態と再開 | 同じ元turnの重複、確定済み段階の再開、外部結果不明 |
 | `src/codex-capture.mjs`、`src/handoff-record.mjs`、renderer/recall/detail | 不変snapshotと祖先を参照する記憶、全文契約、途中状態の表現 | A→B→C、origin重複排除、source再captureでsnapshot不変、L3非注入と取得 |
 | `src/codex-app-server.mjs`、`src/cli/codex-handoff-start.mjs` | 自動経路の実効設定継承・記憶注入・表示と配送接続 | 設定一致、既知targetの再利用、受付と開始の区別 |
 | 配送profile・製品依存 | 採用した公開APIの薄いadapter | 新threadへの配送、固定errorとunknownの伝播。ライブラリ内部の再試験はしない |
 
-未実装の自動経路は手動 `$throughline` の現行仕様と別の明示設定で有効化する。
+自動経路は手動 `$throughline` の現行仕様と別の明示設定で有効化する。
 手動経路の同名fieldと互換性を保ち、source推測の修正を無断で巻き込まない。
 READMEには実装と受入が完了した動作だけを書く。
 実装中はfocused test、最後に関連試験と実機受入、release時の通し試験を各1回行う。

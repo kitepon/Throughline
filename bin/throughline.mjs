@@ -53,6 +53,9 @@ switch (cmd) {
   case 'install':
     await (await import('../src/cli/install.mjs')).run(rest);
     break;
+  case 'auto-handoff':
+    process.exitCode = await (await import('../src/cli/auto-handoff.mjs')).run(rest);
+    break;
   case 'uninstall':
     await (await import('../src/cli/install.mjs')).run(['--uninstall', ...rest]);
     break;
@@ -370,6 +373,16 @@ Usage:
                               Codex rollback/inject guard; requires a Codex
                               thread id, injectable DB memory, and matching
                               rollout/app-server turns
+  throughline auto-handoff enable [--project <path>]
+                              Codex Desktopの自動新規タスク継続を有効化
+  throughline auto-handoff disable
+                              自動継続を無効化
+  throughline auto-handoff status [--operation <id>] --json
+                              引き継ぎの状態と固定理由を確認
+  throughline auto-handoff resume --operation <id> --json
+                              同じ引き継ぎを再開（結果不明は再送しない）
+  throughline auto-handoff detail --operation <id> --origin <session> --turn <n>
+                              凍結したL2/L3を取得
   throughline doctor            Check environment
   throughline doctor --trim     Show trim host boundary diagnostics
   throughline doctor --codex    Show Codex primary diagnostics
@@ -383,5 +396,6 @@ Hook subcommands (called by Claude Code / Codex):
   throughline codex-hook user-prompt-submit Codex current-session refresh prompt hook
   throughline codex-hook post-tool-use Codex current-session refresh tool-loop hook
   throughline codex-hook stop Codex Stop hook
+  throughline codex-hook pre-compact Codex自動圧縮前の停止・継続hook
 `);
 }

@@ -8,7 +8,7 @@
 
 - 候補の版は `package.json`、公開版はnpm registryを正とする。tagとnpmの一致はpublish後に確認する。
 - Claude Code、Codex、Grok、Cursorをfirst-class hostとして扱う。
-- 現行DB schemaはv11。schemaの正本は [src/db.mjs](../src/db.mjs) の
+- schemaの正本は [src/db.mjs](../src/db.mjs) の
   `CURRENT_VERSION`、二相handoffの判断は
   [ADR 0014](adr/0014-two-phase-handoff-ghost-baton.md)である。
 - repositoryの正規URLは `https://github.com/kitepon/Throughline`。
@@ -33,6 +33,7 @@ Throughline は次の入口を自分で所有し、dotagentsが無くても利�
 v0.10.4以前からの初回更新だけは、その版に `self-update` が無いため
 `npm install --global throughline@latest` の後に `throughline self-update` を実行する。
 v0.10.5以降は `throughline self-update` だけを公開更新入口とする。
+| Codex自動継続 | `auto-handoff enable/disable/status/resume/detail`。Desktopの圧縮前停止と、新タスクでの実進捗確認 |
 | release判断 | この文書のrelease gateと `scripts/verify-release-commit.mjs` |
 
 dotagentsは工場への配線と統合結果を所有するが、ThroughlineのDB、schema、migration、

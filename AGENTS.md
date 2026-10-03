@@ -40,12 +40,12 @@ release判定まで完結する。dotagentsは工場への配線と統合契約�
 | [docs/01_l1_l2_l3_redesign.md](docs/01_l1_l2_l3_redesign.md) | **L1/L2/L3 記憶レイヤーの設計仕様**。ブロック分類ルール、Haiku 呼び出し方針、実装順序、進捗表。schema v4 基盤 + v5 L3 分類拡張まで。以後の v6/v7 追加は本文書とは独立 |
 | [docs/02_clear_auto_handoff_plan.md](docs/02_clear_auto_handoff_plan.md) | handoffの現行契約。VS Codeのauto path (`source='clear'`) + 明示baton path (`/tl`) の2経路、Desktop制約、env `THROUGHLINE_DISABLE_AUTO_HANDOFF` |
 | [docs/04_public_release_plan.md](docs/04_public_release_plan.md) | 現行の単独運用入口、明示的失敗、release gate、host配線契約 |
-| [docs/05_codex_first_roadmap.md](docs/05_codex_first_roadmap.md) | Codex自動新規タスク継続の設計・実機検証手順と、従来のprimary / trim / Claude finalization工程。A〜Cの成立を実測済み。製品の自動継続は未実装 |
+| [docs/05_codex_first_roadmap.md](docs/05_codex_first_roadmap.md) | Codex自動新規タスク継続の設計・実機検証手順と、従来のprimary / trim / Claude finalization工程。製品の自動継続とA→B→Cの実機受入は完了。公開履歴はevidenceを参照する |
 | [docs/06_codex_trim_rollback_fix_plan.md](docs/06_codex_trim_rollback_fix_plan.md) | Codex rollback / inject incident の調査・修正履歴。controlled user marker の rollback 後 model-visible reproduction は、fresh app-server verify と VS Code reload/reconnect 後 verify の両方で未再現。ただし live token_count 削減が同一 thread で持続しない実測を受け、Codex hooks からの automatic current-thread refresh は無効化し、`$throughline` は app-server 新スレッド handoff に戻す。明示 `trim --execute --host codex` は診断用 current-thread rollback / inject として残す |
 | [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) | Claude / Codex 両対応の architecture brief。Claude path を置き換えず、Codex support を adapter / projection として追加する方針 |
 | [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) | rollback を model-visible context の delete primitive と見る設計メモ。次フェーズでは Codex Rewind 互換の根拠として扱う |
 | [rag/INDEX.md](rag/INDEX.md) | Throughline 設計判断の根拠となる third-party spec 知識ベース。Claude Code hooks reference、Anthropic Messages API、`/clear`/`/compact` 挙動、openclaude の `initialUserMessage` source 抜粋を蓄積。各 finding は実機検証結果と対で更新 |
-| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schema v11、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
+| [README.md](README.md) | ユーザー向け説明（Quick Start、3 層モデル、CLI、schemaの正本、VSCode 自動起動、monitor 診断、中断地点からの再開、トラブルシュート） |
 | [docs/archive/](docs/archive/) | 完了済み計画と置換済み設計の履歴。通常は読まず、過去の判断・受入証拠が必要な場合だけ参照 |
 
 DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff-context` 契約と [docs/adr/0018-product-owned-database-migration.md](docs/adr/0018-product-owned-database-migration.md)、Grok host / `/tl` 後継は [docs/adr/0021-grok-host-capture.md](docs/adr/0021-grok-host-capture.md)、Cursor host は [docs/adr/0022-cursor-host-capture.md](docs/adr/0022-cursor-host-capture.md) も読む。
@@ -60,7 +60,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | 役割 |
 |---|---|
-| [src/db.mjs](src/db.mjs) | SQLite 接続、schema v1 → v11 migration。`node:sqlite` 組み込み、依存ゼロ |
+| [src/db.mjs](src/db.mjs) | SQLite 接続、schema migration（現行値はCURRENT_VERSION）。`node:sqlite` 組み込み、依存ゼロ |
 | [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と現行schemaで検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
 | [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
@@ -71,6 +71,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-capture.mjs](src/codex-capture.mjs) | Codex rollout JSONL の active turns を Throughline DB の `bodies` に保存する capture adapter。`thread_rolled_back` 適用後の active thread だけを `codex:<thread_id>` session として再構成する |
 | [src/codex-rollout-memory.mjs](src/codex-rollout-memory.mjs) | Codex rollout JSONL から active turns / restore-safety diagnostics / trim source を構築する。trim source では現在進行中の in-flight turn と latest rollback 後の未完了 assistant continuation を rollback 候補から除外する。実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で rollback 数を補正する |
 | [src/codex-usage.mjs](src/codex-usage.mjs) | Codex rollout の `event_msg` / `token_count` verified shape から monitor 用 usage sample を抽出する。open turn 中は `input_tokens + output_tokens` を live footprint として返し、`task_complete` 後は verified `input_tokens` のみに戻す。`token_count` が無い rollout では active rollout text の `chars / 4` estimate を `estimated: true` として返す |
+| [src/codex-auto-handoff.mjs](src/codex-auto-handoff.mjs) | `PreCompact(auto)`から同turnの停止・記憶確定・後継作成/表示・設定確認・一度だけの配送・実際の進捗観測を行う。要求とsnapshot/祖先はstore、記憶描画はmemory、vendor設定はhosts/codex-handoff-stateに置く |
 | [src/codex-auto-refresh.mjs](src/codex-auto-refresh.mjs) | Codex automatic refresh helper。current-thread rollback / inject の判定と backoff ロジックは残すが、helper 自体も default disabled で、現行 Codex hooks はこの helper を呼ばず、常に `codex_auto_refresh_disabled` で quiet にする。明示 `trim --execute --host codex` は診断用 current-thread path として残す |
 | [src/codex-handoff.mjs](src/codex-handoff.mjs) | `HandoffRecord` から Codex-facing `throughline_handoff` v1 JSON block と Codex developer-message 用 active-work context を生成。`source='throughline'` / `trust='local'` / `kind='throughline_handoff'` を固定 |
 | [src/token-estimator.mjs](src/token-estimator.mjs) | 補助的なトークン数推定 (length/4) |
@@ -137,6 +138,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [bin/throughline.mjs](bin/throughline.mjs) | ディスパッチャ |
 | [src/cli/install.mjs](src/cli/install.mjs) | `install` / `uninstall`（デフォルト global、`--project` で Claude ローカル）。global install は `~/.claude/settings.json` と slash commands に加えて `~/.codex/hooks.json` の UserPromptSubmit / PostToolUse / Stop に絶対 node + `bin/throughline.mjs codex-hook ...` を先頭登録し、`~/.codex/config.toml` の `[features].hooks = true` を有効化し（旧名 `codex_hooks` の行は値によらず外す）、`~/.codex/skills/throughline` に `$throughline` skill を配置する。既存 Caveat / Spotter Codex hooks は保持し、uninstall は Throughline 管理の Codex hook / skill だけ削除する。**v0.3.23 以降**: `resolveThroughlineOnPath` で install 完了時に PATH 上の `throughline` 解決を確認し、見つからなければ stderr に修復手順 (npm prefix → `~/.bashrc` 編集 → `doctor` 確認) を出す。Claude-facing hooks は PATH 解決型のため、`~/.npm-global/bin` を `.profile` だけに書いて bashrc に書き忘れる sudoless prefix 派の silent fail を防ぐ |
 | [src/cli/doctor.mjs](src/cli/doctor.mjs) | `doctor` — 環境チェック。`doctor --session <id-prefix>` で特定セッションの state/transcript 整合性を診断。`doctor --trim --host claude|codex|unknown` で trim host boundary を診断し、Codex では host primitive audit status も表示する。`doctor --codex` で Codex primary の thread env / rollout candidates / captured DB sessions / context refresh memory source と `/tl` memory contract、new-thread handoff / safe continuation status、host primitive audit、VSCode monitor task の登録状態 / Reload Window note を診断 |
+| [src/cli/auto-handoff.mjs](src/cli/auto-handoff.mjs) | `auto-handoff enable/disable/status/resume/detail`。既定無効、Desktop対象。enableで自分のPreCompact hookだけを公式APIで承認・確認する |
 | [src/cli/status.mjs](src/cli/status.mjs) | `status` — DB 統計表示 |
 | [src/cli/handoff-preview.mjs](src/cli/handoff-preview.mjs) | `handoff-preview` — sidecar 実行なしで `throughline_handoff` JSON projection を stdout に出す。`--session <id>` / `--host-mode claude-primary|codex-primary|unknown` |
 | [src/cli/handoff-context.mjs](src/cli/handoff-context.mjs) | `handoff-context (--session <id> \| --project <path>) --json` — 既存DBをread-onlyで開き、SessionStartと同じ9,500字予算のinheritance contextをversioned JSONで返す。project指定時はそのprojectで会話本文を持つ最新sessionを選び、本文がなければ`empty`を返す。`--disclosure silent`は補足なしで基盤案内を消す。session指定時の任意補足JSONは源sessionと同じprojectだけを長期記憶・知識として合成する。DB作成・migration・merge・batonは行わない |
@@ -188,7 +190,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-restore-source-audit.test.mjs](src/codex-restore-source-audit.test.mjs) | `throughline codex-restore-source-audit` の rollout / session index / Codex state DB / VS Code storage / settings / logs / VS Code extension bundle 棚卸しと missing rollout refusal |
 | [src/codex-vscode-restore-smoke.test.mjs](src/codex-vscode-restore-smoke.test.mjs) | `throughline codex-vscode-restore-smoke` の prepare env guard、hidden marker prompt、restart acknowledgement、marker leak rejection |
 | [src/codex-vscode-rollback-smoke.test.mjs](src/codex-vscode-rollback-smoke.test.mjs) | `throughline codex-vscode-rollback-smoke` の restart acknowledgement 必須化、restore-safety risk refusal、CLI JSON 出力 |
-| [src/db-schema.test.mjs](src/db-schema.test.mjs) | schema v11 の table / field / index 名固定 |
+| [src/db-schema.test.mjs](src/db-schema.test.mjs) | 現行schemaの table / field / index 名固定 |
 | [src/auditor-context.test.mjs](src/auditor-context.test.mjs) | Spotter auditor projection の freshness、role 除外、bound、schema / DB 状態、Claude / Codex transcript freshness、read-only WAL 契約 |
 | [src/cli/auditor-context.test.mjs](src/cli/auditor-context.test.mjs) | `auditor-context` JSON-only CLI、freshness source 排他、固定秘匿 error、bin help / dispatch |
 | [src/runtime-error-store.test.mjs](src/runtime-error-store.test.mjs) | collection fail-closed、privacy reject、固定 fingerprint 集約、cursor/ack、resolve/reopen、retention、private mode、atomic write、bounded diagnostics |
@@ -270,6 +272,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 - Codex の bare `$throughline` は、Claude の `/clear` 後継続に近い新スレッド handoff surface とする。通常 path は `throughline codex-handoff-start --execute --open-host <current-codex-surface>` で、current thread を rollback / inject しない。current surfaceはCodex UI contextから決め、shell／永続PTYの継承環境から推測しない。`doctor --codex` / `trim --dry-run --all` / `trim --preflight --all` / 明示 `trim --execute --host codex --all` は診断・手動 current-thread 実験用に残すが、通常 `$throughline` の前段にはしない。
 - Codex UserPromptSubmit / PostToolUse hooks は token-monitor に依存せず rollout capture と monitor state write だけを行う。verified 75% 以上でも `$throughline` workflow 実行指示を `additionalContext` で注入しない。戻り値は `codex_auto_refresh_disabled` で quiet にし、同じ thread / 同じ状態で自動発火し続けない。
 - Codex Stop hook は DB capture / L1 summarize に加え、monitor 用 state も書く。`transcriptPath` は Claude transcript 用に残し、Codex rollout path は `rolloutPath` に保存する。monitor は state の `rolloutPath` と、state 未生成でも `~/.codex/sessions/**/rollout-*.jsonl` から直接 discovery した Codex rollout をライブに読み、`token_count` event がある場合は実測 usage として出し、無い場合だけ `estimated: true` の明示 estimate を出す。
+- Codexの自動新規タスク継続は `auto-handoff enable` で明示有効化した `PreCompact(auto)` だけが発火する。旧ターンを変更するtrimとは独立する。記憶は祖先を含む直近20ターンのL2全文と古いL1、L3は凍結した取得参照とする。失敗・結果不明は固定理由を残し、後継や配送を重複させない。
 - Codex Stop hook は automatic refresh mutation を実行しない。verified usage が `75%` 以上でも rollback / inject を送らず、capture / L1 summarize / monitor state write のあと `codex_auto_refresh_disabled` を返す。current-thread rollback / inject は明示 `trim --execute --host codex` の診断用 path に限定する。
 - Codex guarded trim の rollback source は rollout を使って計画するが、実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で `numTurns` を補正する。turn-count mismatch は診断であり mutation 前 blocker ではない。注入 memory は Throughline DB の `/tl` contract を正とする。`--session` 未指定時の Codex memory source は現在の `CODEX_THREAD_ID` / `THROUGHLINE_CODEX_THREAD_ID` に対応する `codex:<thread_id>` であり、同じ project の latest session へ fallback しない。古い turn は L1 summaries、直近 20 turn は L2 full bodies、L3 は reference only で、L3 bodies / tool payloads は注入しない。rollout preview を DB memory の代わりとして注入せず、DB memory が無い execute は mutation 前に拒否する。`codex-host-primitive-audit` と restore-safety diagnostics は表示するが、mutation 前 blocker にはしない。`doctor --codex` と `doctor --trim --host codex` はこの inject memory source / contract / L1-L2-L3 counts を表示する。
 - Codex trim の削減量は host tokenizer の厳密実測ではなく、現時点では rollout text の `chars / 4` heuristic estimate として dry-run に表示する。rollback candidate turns が 0 の場合は、削減量も 0 と明示する。
@@ -283,7 +286,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 
 ---
 
-## SQLite スキーマ (v11)
+## SQLite スキーマ
 
 `~/.throughline/throughline.db`（WAL モード）。schema migration の定義は [src/db.mjs](src/db.mjs) にあるので **スキーマを知りたい時は必ずそこを見る**。
 
@@ -298,6 +301,8 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 - `handoff_batons` (v8) — `project_path (PK)`, `session_id`, `created_at` — 現行利用面では`/tl`で書き込み、newbornセッションの初回UserPromptSubmitが「誕生時刻基準TTL 1h以内」なら消費してmerge。`/clear`互換分岐は現行クライアントから到達しない。memo_text列はv8でdrop (memo廃止)
 - `pending_handoffs` (v9) — `session_id (PK)`, `project_path`, `source`, `auto_predecessor_id`, `created_at` — 二相ハンドオフの intent。SessionStart が登録し、初回 UserPromptSubmit が 1 回だけ消費。幽霊セッションの行は consume されず無害に残る (ADR 0014)
 - `room_turns` (v10) — `project_path`, `room_id`, `message_id (複合PK)`, `speaker`, `text` — 公開`room-context --json`が外部ルームの発言を記録し、指定発言までの直近3ターンを返す
+- `codex_handoffs` — 元thread/turn一意の引き継ぎ要求、停止境界、設定、不変snapshot、祖先、後継、配送と観測状態
+- `codex_handoff_summaries` — origin/turn/本文hashごとの古いL1生成結果
 - `injection_log` — 監査用（未活用）
 
 `judgments` テーブルは v4 で DROP 済み。`classifier.mjs` による抽出は精度が低く廃止。
@@ -376,7 +381,7 @@ EOF
 
 - **ランタイム**: Node.js v22.13+、ESM（`.mjs` 統一。`node:sqlite` の flag 不要化以降）
 - **データベース**: `node:sqlite`（Node.js 組み込み、同期 API）
-- **外部依存**: なし
+- **外部依存**: `aiterm-steer-delivery`（自動継続の公開配送API。版の正本はpackage.json）
 - **対応プラットフォーム**: Windows、Linux、macOS
 - **L1 要約 backend**: 既定は Codex CLI `gpt-5.6-luna`@`low`（Codex 契約の認証、ADR 0015）。sidecar configured 時はそちら優先、両方不在時の fallback が `claude -p --model claude-haiku-4-5-20251001`（Claude Max 契約の認証を使う、API キー不要）
 
@@ -433,7 +438,7 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 
 ## 2 つの計画の扱い
 
-Codex自動新規タスク継続の[成立条件A〜C](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)は実測済みで、配送にはaiterm-steer-deliveryを採用する。次工程はDesktop表示後の実効設定継承の確認と、製品schema/継続処理の実装である。現行の自動refresh無効・手動handoff仕様は変更していない。
+Codex自動新規タスク継続は[実装契約と受入](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)に従う。macOSのDesktopで連続継承と最終完了を確認済み。既定では無効とし、`auto-handoff enable`で有効化する。実測JSONと公開履歴はevidenceへ置く。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 

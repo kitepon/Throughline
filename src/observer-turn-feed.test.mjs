@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { CURRENT_VERSION } from './db.mjs';
 import { decodeObserverCursor, encodeObserverCursor, readObserverTurnPage, resolveObserverTurnFeed } from './observer-turn-feed.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { seedCompletedTurnReceiptStore } from './completed-turn-receipts-test-fixture.mjs';
@@ -342,7 +343,7 @@ test('observer read: a missing pair on a later page returns no partial body or c
 
 function createV11ProjectionDb(path, project, sessionId) {
   const db = new DatabaseSync(path);
-  db.exec(`PRAGMA user_version = 11;
+  db.exec(`PRAGMA user_version = ${CURRENT_VERSION};
     CREATE TABLE sessions (session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL);
     CREATE TABLE bodies (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, origin_session_id TEXT NOT NULL, turn_number INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL, turn_start TEXT);`);
   db.prepare('INSERT INTO sessions (session_id, project_path) VALUES (?, ?)').run(sessionId, project);

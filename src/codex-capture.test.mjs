@@ -358,6 +358,30 @@ test('captureCodexRolloutToDb: second capture removes stale rows from previous a
   }
 });
 
+test('Desktopのcustom tool callと複数ブロックの結果をL3へ保存する', () => {
+  const db = makeDb();
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-custom-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+  try {
+    const output = [{ type: 'text', text: '処理結果' }, { type: 'text', text: '検証完了' }];
+    writeRollout(home, { id: threadId, cwd: project, events: [
+      event('task_started'), event('user_message', { message: '作業を続ける' }),
+      responseItem({ type: 'custom_tool_call', call_id: 'custom-1', name: 'exec', input: 'await tools.exec_command({cmd:"pwd"})' }),
+      responseItem({ type: 'custom_tool_call_output', call_id: 'custom-1', output }), event('task_complete'),
+    ] });
+    const captured = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project });
+    assert.equal(captured.capturedDetails, 2);
+    const rows = db.prepare('SELECT kind, tool_name, input_text, output_text FROM details ORDER BY id').all();
+    assert.equal(rows[0].kind, 'tool_input'); assert.equal(rows[0].tool_name, 'exec');
+    assert.ok(rows[0].input_text.includes('exec_command'));
+    assert.equal(rows[1].kind, 'tool_output'); assert.equal(rows[1].tool_name, 'exec');
+    assert.deepEqual(JSON.parse(rows[1].output_text), output);
+  } finally {
+    db.close(); rmSync(home, { recursive: true, force: true }); rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test('codex-capture CLI captures an explicit Codex thread as JSON', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-codex-home-'));
   const userHome = mkdtempSync(join(tmpdir(), 'tl-user-home-'));
@@ -406,6 +430,31 @@ test('codex-capture CLI captures an explicit Codex thread as JSON', () => {
   } finally {
     rmSync(home, { recursive: true, force: true });
     rmSync(userHome, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test('同じ会話の再captureはL1を保持し、ユーザー本文が変わったターンのL1だけを除く', () => {
+  const db = makeDb();
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-l1-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+  const sessionId = `codex:${threadId}`;
+  try {
+    const events = request => [event('user_message', { message: request }), event('task_started'),
+      event('agent_message', { message: '応答' }), event('task_complete')];
+    const rollout = writeRollout(home, { id: threadId, cwd: project, events: events('依頼') });
+    captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project });
+    db.prepare('INSERT INTO skeletons (session_id, origin_session_id, turn_number, role, summary, created_at) VALUES (?, ?, 1, ?, ?, 1)')
+      .run(sessionId, sessionId, 'assistant', '保存済み要約');
+    captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project });
+    assert.equal(db.prepare('SELECT summary FROM skeletons').get()?.summary, '保存済み要約');
+    writeRolloutRows(rollout, [sessionMeta(threadId, project), ...events('変更後の依頼')]);
+    captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project });
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM skeletons').get().c, 0);
+  } finally {
+    db.close();
+    rmSync(home, { recursive: true, force: true });
     rmSync(project, { recursive: true, force: true });
   }
 });

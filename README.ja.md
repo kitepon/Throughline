@@ -19,6 +19,31 @@
 [kitepon.dev](https://kitepon.dev/)を運営する[クオ（@QLyun35332）](https://x.com/QLyun35332)が
 開発・メンテナンスしています。
 
+## Codex Desktopの自動継続
+
+```bash
+throughline auto-handoff enable --project /absolute/project/path
+throughline auto-handoff status --json
+throughline auto-handoff disable
+```
+
+既定では無効です。`enable`は必要な`PreCompact(auto)`フックを登録し、そのフックの承認と有効状態を公式APIで確認します。`--project`を省略すると全projectを対象にします。macOSのCodex Desktopで実機確認済みです。VS Code・CLI・他OSの自動継続は未検証です。
+
+自動圧縮の開始前に旧ターンを停止し、同じprojectの新しいタスクへ記憶を注入して表示します。元のモデル・推論強度・権限・モードなどが表示後も一致することを確認してから、継続指示を一度だけ送ります。後継でその入力と作業の進捗を観測して完了とします。手動`/compact`は発火対象に含めません。
+
+記憶は引き継ぎ全体の直近20ターンをL2全文、それより古いターンをL1で渡します。元のユーザー依頼と中断地点を保持し、tool結果とThinkingは注入しません。本文内の`auto-handoff detail`コマンドで、凍結したL2/L3を引き継ぎID・origin・turnから取得できます。A→B→Cの連続引き継ぎでも祖先の詳細を取得できます。
+
+設定不一致、未処理入力、実行中の子agentや既知のnativeコマンド、追跡されていない旧handoff記憶では固定理由を残して停止します。失敗時はローカルの説明ページを開きます。新タスクだけで容量が尽きる場合も、新タスクを増やし続けません。結果不明の指示は自動で再送しません。
+
+```bash
+throughline auto-handoff status --operation <handoff-id> --json
+throughline auto-handoff resume --operation <handoff-id> --json
+```
+
+原因を解消した後の`resume`は同じ引き継ぎと既知の後継を再利用します。配送後の結果不明は実際の入力・開始を観測した場合だけ回復し、作成結果が不明な後継は再作成しません。従来の手動`$throughline`とcurrent-thread実験の設定は独立しています。
+
+[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)を参照してください。
+
 ## 所有境界
 
 本repositoryは導入、設定、状態、schemaとmigration、診断、復旧、更新、release判断を

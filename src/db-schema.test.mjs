@@ -38,10 +38,10 @@ function indexNames(db) {
     .map((row) => row.name);
 }
 
-test('schema v11 preserves Claude-facing tables, room context, and turn starts', async () => {
+test('schema v12は既存の記憶と自動継続の状態を保持する', async () => {
   await withIsolatedDb((db) => {
     const version = db.prepare('PRAGMA user_version').get();
-    assert.equal(version.user_version, 11);
+    assert.equal(version.user_version, 12);
 
     assert.deepEqual(columnNames(db, 'sessions'), [
       'session_id',
@@ -101,6 +101,9 @@ test('schema v11 preserves Claude-facing tables, room context, and turn starts',
     ]);
 
     const indexes = indexNames(db);
+    assert.ok(columnNames(db, 'codex_handoffs').includes('snapshot_json'));
+    assert.ok(columnNames(db, 'codex_handoffs').includes('previous_handoff_id'));
+    assert.deepEqual(columnNames(db, 'codex_handoff_summaries'), ['origin_session_id', 'turn_number', 'source_hash', 'summary', 'created_at']);
     assert.ok(indexes.includes('uq_skeletons_turn_v3'));
     assert.ok(indexes.includes('uq_details_source'));
   });

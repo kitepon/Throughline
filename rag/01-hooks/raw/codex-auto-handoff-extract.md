@@ -36,3 +36,13 @@ const result = await request("thread/queue/add", {
 受付IDは配送要求の受付を示す。新規idleタスクの自動開始と配送process終了後の継続は
 [検証B〜C](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)で実測した。
 この一次ソース抜粋自体を実測証拠として扱わず、設計案の合格条件と記録を照合する。
+
+## 製品統合で照合したhost記録
+
+- Desktopの最新`thread_settings_applied`と実行turnの`turn_context`を合わせて実効設定を取る。作成processがwriterを持つ間に`thread/settings/update`の確定値を保存し、表示後の値と比較する。
+- collaboration modeの`developer_instructions=null`は標準指示の選択で、公式APIが本文へ展開する。展開後の値は表示前に固定し、表示後の変更を正当化するために読み替えない。
+- `task_started`からユーザー本文の永続化まで時間差があった。入力が保存される前の開始eventだけで別入力の混入を断定しない。
+- 自動圧縮がターン開始前に発火した時、新しいuser本文は`response_item`にあり、対応する`turn_context`と`event_msg.user_message`はまだ無かった。
+- Desktopの`custom_tool_call`と`custom_tool_call_output`もL3保存の対象とする。詳細は凍結した元operation/origin/turnへ束縛する。
+
+上記は[製品統合の実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md#製品統合の受入d)と対で扱う。

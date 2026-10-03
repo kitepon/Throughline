@@ -69,9 +69,16 @@ export function captureCodexRolloutToDb(
          updated_at = excluded.updated_at`,
     ).run(sessionId, candidate.cwd ?? projectPath, now, now);
 
-    // Codex rollout is the source of truth for this namespaced session. Rebuild
-    // it so rolled-back tail turns from a previous capture cannot survive.
-    db.prepare('DELETE FROM skeletons WHERE session_id = ?').run(sessionId);
+    // 全発言の本文が一致するターンの要約は保持する。rollbackや本文変更で古くなった要約だけを除く。
+    const before = db.prepare('SELECT turn_number, role, text FROM bodies WHERE session_id = ? ORDER BY id').all(sessionId);
+    const beforeTurns = bodyTurnTexts(before.map(row => ({ turnNumber: row.turn_number, ...row })));
+    const afterTurns = bodyTurnTexts(rows);
+    const deleteSummary = db.prepare('DELETE FROM skeletons WHERE session_id = ? AND turn_number = ?');
+    for (const row of db.prepare('SELECT DISTINCT turn_number FROM skeletons WHERE session_id = ?').all(sessionId)) {
+      if (!beforeTurns.has(row.turn_number) || beforeTurns.get(row.turn_number) !== afterTurns.get(row.turn_number)) {
+        deleteSummary.run(sessionId, row.turn_number);
+      }
+    }
     db.prepare('DELETE FROM bodies WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM details WHERE session_id = ?').run(sessionId);
 
@@ -132,6 +139,16 @@ export function captureCodexRolloutToDb(
     capturedDetails: detailRows.length,
     stats: parsed.stats,
   };
+}
+
+function bodyTurnTexts(rows) {
+  const turns = new Map();
+  for (const row of rows) {
+    const text = turns.get(row.turnNumber) ?? [];
+    text.push([row.role, row.text]);
+    turns.set(row.turnNumber, text);
+  }
+  return new Map([...turns].map(([turn, text]) => [turn, JSON.stringify(text)]));
 }
 
 export function buildBodyRowsFromActiveTurns(activeTurns, { sessionId, now = Date.now() } = {}) {

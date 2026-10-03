@@ -389,27 +389,27 @@ function compactedPayloadToUserMessages(payload, timestamp) {
 }
 
 function responseItemToDetail(payload, timestamp, toolNameByCallId) {
-  if (payload?.type === 'function_call') {
+  if (['function_call', 'custom_tool_call'].includes(payload?.type)) {
     const callId = typeof payload.call_id === 'string' ? payload.call_id : null;
     const toolName = [payload.namespace, payload.name].filter((v) => typeof v === 'string' && v).join('.');
-    const name = toolName || 'function_call';
+    const name = toolName || payload.type;
     if (callId) toolNameByCallId.set(callId, name);
     return {
       time: timestamp ?? null,
       kind: 'tool_input',
       tool_name: name,
       source_id: callId,
-      input_text: stringifyToolArguments(payload.arguments),
+      input_text: stringifyToolArguments(payload.type === 'custom_tool_call' ? payload.input : payload.arguments),
       output_text: null,
     };
   }
 
-  if (payload?.type === 'function_call_output') {
+  if (['function_call_output', 'custom_tool_call_output'].includes(payload?.type)) {
     const callId = typeof payload.call_id === 'string' ? payload.call_id : null;
     return {
       time: timestamp ?? null,
       kind: 'tool_output',
-      tool_name: callId ? (toolNameByCallId.get(callId) ?? 'function_call') : 'function_call',
+      tool_name: callId ? (toolNameByCallId.get(callId) ?? payload.type.replace(/_output$/, '')) : payload.type.replace(/_output$/, ''),
       source_id: callId ? `${callId}:output` : null,
       input_text: null,
       output_text: typeof payload.output === 'string' ? payload.output : JSON.stringify(payload.output ?? null),

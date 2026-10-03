@@ -14,3 +14,8 @@ export function shQuote(value) {
 export function appleString(value) {
   return `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
+
+export function nodeCliCommand(nodePath, scriptPath, args, platform = process.platform) {
+  const quote = platform === 'win32' ? value => `'${String(value).replaceAll("'", "''")}'` : shQuote;
+  return (platform === 'win32' ? '& ' : '') + [nodePath, scriptPath, ...args].map(quote).join(' ');
+}

@@ -8,9 +8,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 const DB_DIR = join(homedir(), '.throughline');
-const DB_PATH = join(DB_DIR, 'throughline.db');
+export const DB_PATH = join(DB_DIR, 'throughline.db');
 export const DB_BUSY_TIMEOUT_MS = 5_000;
-export const CURRENT_VERSION = 11;
+export const CURRENT_VERSION = 12;
 
 let _db = null;
 
@@ -269,6 +269,47 @@ function initSchema(db) {
     if (!bodyCols.some((c) => c.name === 'turn_start')) {
       db.exec('ALTER TABLE bodies ADD COLUMN turn_start TEXT');
     }
+  }
+
+  if (version < 12) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS codex_handoffs (
+        handoff_id TEXT PRIMARY KEY,
+        source_thread_id TEXT NOT NULL,
+        source_turn_id TEXT NOT NULL,
+        source_session_id TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        rollout_path TEXT NOT NULL,
+        codex_home TEXT NOT NULL,
+        open_host TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'requested',
+        previous_handoff_id TEXT REFERENCES codex_handoffs(handoff_id),
+        settings_json TEXT,
+        snapshot_json TEXT,
+        runtime_json TEXT,
+        target_thread_id TEXT UNIQUE,
+        delivery_id TEXT NOT NULL UNIQUE,
+        queued_submission_id TEXT,
+        started_turn_id TEXT,
+        mutation_stage TEXT,
+        worker_identity_json TEXT,
+        resume_state TEXT,
+        error_code TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(source_thread_id, source_turn_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_codex_handoffs_project
+        ON codex_handoffs(project_path, created_at);
+      CREATE TABLE IF NOT EXISTS codex_handoff_summaries (
+        origin_session_id TEXT NOT NULL,
+        turn_number INTEGER NOT NULL,
+        source_hash TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(origin_session_id, turn_number, source_hash)
+      );
+    `);
   }
 
   if (version < CURRENT_VERSION) {

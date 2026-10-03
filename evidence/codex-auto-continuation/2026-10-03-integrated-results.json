@@ -1,0 +1,92 @@
+{
+  "schema": "throughline.auto-handoff.integrated-evidence.v1",
+  "observedAt": 1791005519695,
+  "sourceThreadId": "01a10038-c97e-7cb1-b04a-f0f4862cb41a",
+  "threshold": 60000,
+  "manualInterventionsAfterSubmit": 0,
+  "operations": [
+    {
+      "id": "328081ac-fe1e-4e57-91fd-265051b499f0",
+      "state": "continued",
+      "sourceThreadId": "01a10038-c97e-7cb1-b04a-f0f4862cb41a",
+      "sourceTurnId": "01a1003c-40e8-76d3-95c8-583021cb2584",
+      "targetThreadId": "01a1003c-d80e-7ff3-82dc-b8b7ad67de4a",
+      "previous": null,
+      "deliveryId": "61eb17b2-5628-48ca-8a47-cacee387d4e1",
+      "receipt": "01a1003c-edf5-7ce0-8f05-ef8b806235bc",
+      "startedTurnId": "01a1003d-0435-7662-a7fa-523b95114794",
+      "requestedAt": 1791005340748,
+      "stoppedAt": 1791005340780,
+      "stopAfterRequestMs": 32,
+      "compacted": 0,
+      "bodyRows": 2,
+      "detailRows": 6,
+      "settingsMatched": true
+    },
+    {
+      "id": "f287c914-0e19-4080-a4f5-a1c22733ed6c",
+      "state": "continued",
+      "sourceThreadId": "01a1003c-d80e-7ff3-82dc-b8b7ad67de4a",
+      "sourceTurnId": "01a1003d-0435-7662-a7fa-523b95114794",
+      "targetThreadId": "01a1003d-a71f-7de3-aa9f-ba9186f5b0ff",
+      "previous": "328081ac-fe1e-4e57-91fd-265051b499f0",
+      "deliveryId": "237c24e8-7fdf-4ee5-942a-78bad3e068d1",
+      "receipt": "01a1003d-ba30-7e81-a7ff-5297efd57c6f",
+      "startedTurnId": "01a1003d-c788-7a22-9c11-d8a0f0397c71",
+      "requestedAt": 1791005397026,
+      "stoppedAt": 1791005397065,
+      "stopAfterRequestMs": 39,
+      "compacted": 0,
+      "bodyRows": 2,
+      "detailRows": 6,
+      "settingsMatched": true
+    }
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "valueMatched": true,
+      "mtimeMs": 1791005339210.55
+    },
+    {
+      "stage": 2,
+      "valueMatched": true,
+      "mtimeMs": 1791005395821.4631
+    },
+    {
+      "stage": 3,
+      "valueMatched": true,
+      "mtimeMs": 1791005444201.664
+    }
+  ],
+  "firstSourceDetailsReadFromThirdTask": [
+    {
+      "at": "2026-10-03T05:30:38.355Z",
+      "callId": "call_e5E7cw2MsHJfgwA3SQNNPDzC",
+      "inputBoundToFirstOperation": true,
+      "resultRecorded": true,
+      "recordedAt": "2026-10-03T05:30:40.666Z"
+    },
+    {
+      "at": "2026-10-03T05:30:54.129Z",
+      "callId": "call_J0kJlbMcXY0FvNHZpqbZnH1C",
+      "inputBoundToFirstOperation": true,
+      "resultRecorded": true,
+      "recordedAt": "2026-10-03T05:30:55.487Z"
+    }
+  ],
+  "ancestorProof": {
+    "sha256": "7a7774ae7e07a2b16ca6106ee969cf05bf5379692911b78e9f644150167bc824",
+    "bytes": 461
+  },
+  "lastTaskComplete": true,
+  "lastTaskCompacted": 0,
+  "runtime": {
+    "host": "Codex Desktop",
+    "os": "macOS",
+    "codexVersion": "0.159.0-alpha.12.1",
+    "model": "gpt-6.1-sol",
+    "effort": "high"
+  },
+  "verdict": "passed"
+}

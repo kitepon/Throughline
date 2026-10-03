@@ -1,7 +1,7 @@
 # Codex自動新規タスク継続の成立検証
 
 - 実測日: 2026-10-03（Asia/Tokyo）
-- 状態: **圧縮前停止・新規タスクへの自動開始・配送process終了後の継続は合格。製品の自動引き継ぎは未実装。**
+- 状態: **A〜Cの成立と、製品経路でのD（A→B→C、介入なし）の実機受入は合格。Eの失敗境界はfocused試験で確認した。**
 - 対象と版・model・effort: [実測JSON](codex-auto-continuation/2026-10-03-results.json)を正とする。
 - 実行した試験source: [保存source](codex-auto-continuation/2026-10-03-probe-source.mjs)
 - 設計: [自動新規タスク継続](../docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)
@@ -73,3 +73,41 @@ Aの停止を契機にThroughlineが自動でBを作る一連の処理はまだ�
 次は、Desktop表示後の実効設定継承と停止観測を実装設計へ確定し、
 製品所有schema・継続処理・配送profileを実装する。
 その後に連続引き継ぎと中断試験D/E、対象host/OSの受入を行う。
+
+## 製品統合の受入（D）
+
+[統合結果JSON](codex-auto-continuation/2026-10-03-integrated-results.json)と
+[統合試験source](codex-auto-continuation/2026-10-03-integrated-probe-source.mjs)を保存した。
+最初の指示を1回送った後は、手動resume、追加prompt、コード修正を行っていない。
+3工程の順序と一意性を試験プログラムが検査し、工程3まで同じ元の値を保持した。
+
+| 引き継ぎ | 要求から旧turn停止 | 圧縮記録 | 凍結L2行 / L3行 | 表示後の設定 | 結果 |
+|---|---:|---:|---:|---|---|
+| A→B | 32 ms | 0 | 2 / 6 | 一致 | 配送入力・開始・実進捗を観測 |
+| B→C | 39 ms | 0 | 2 / 6 | 一致 | 配送入力・開始・実進捗を観測 |
+
+CではAに束縛した取得コマンドが実際に呼ばれ、L3結果が記録された。
+Cの最終`task_complete`と3工程の成果物を確認した。後継作成数は2、各配送受付は1である。
+
+試験projectの圧縮閾値は60,000 tokensとした。工程1/2の完了後だけ試験hookから
+合成tool文脈を追加し、公式`PreCompact(auto)`を実火させた。
+初回タスクの基盤指示より低い閾値で空の引き継ぎを繰り返す試験にはしていない。
+この確認は既定容量上限での長時間作業の証明ではない。
+macOSのDesktop以外のOS/hostは未検証である。
+
+## 失敗境界の受入（E）
+
+`src/codex-auto-handoff.test.mjs`で、元turnの重複、workerのPID再利用、
+設定不一致での配送0回と同じ後継からの再開、作成応答喪失での再作成0回、
+配送応答喪失での再送0回と観測による回復、入力保存前の開始event、
+実行中のnative session、未処理入力・子agent、追跡されていない継承記憶を確認した。
+これらはfocused fixtureの検証であり、すべてをDesktop障害として実火したとは扱わない。
+
+ターン開始前のauto発火でも、新しいユーザー入力はrolloutの`response_item`へ
+保存されていた。`turn_context`や`user_message`の不在を入力喪失と扱わない。
+標準モードの指示が公式settings APIで展開されることと、`task_started`から入力保存までに
+時間差があることは最小再現で確認し、設定と開始の照合へ反映した。
+
+自分の試験project/hook用設定6 sectionは、完了後に公式APIで削除した。
+通常の他hookやuser設定は巻き戻していない。製品の新しいPreCompact登録は
+標準installの管理対象とし、公開後に正規の導入先へ更新する。

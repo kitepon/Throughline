@@ -33,7 +33,7 @@ function parseArgs(argv) {
   }
 
   if (!out.event) out.event = 'stop';
-  if (!['stop', 'user-prompt-submit', 'post-tool-use'].includes(out.event)) {
+  if (!['stop', 'user-prompt-submit', 'post-tool-use', 'pre-compact'].includes(out.event)) {
     throw new Error(`unknown Codex hook event: ${out.event}`);
   }
   return out;
@@ -375,7 +375,17 @@ export async function run(argv = []) {
 
   try {
     let result;
-    if (parsed.event === 'user-prompt-submit') {
+    if (parsed.event === 'pre-compact') {
+      try {
+        const { requestCodexAutoHandoff } = await import('../codex-auto-handoff.mjs');
+        result = await requestCodexAutoHandoff({ payload });
+      } catch (error) {
+        recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
+        const code = typeof error.code === 'string' ? error.code : 'handoff_request_failed';
+        result = { status: 'failed', continue: false,
+          stopReason: `Throughline自動継続が失敗しました: ${code}。記憶の圧縮を停止します。` };
+      }
+    } else if (parsed.event === 'user-prompt-submit') {
       result = await runCodexUserPromptSubmitHook({
         args: parsed,
         payload,
@@ -394,12 +404,15 @@ export async function run(argv = []) {
         env: process.env,
       });
     }
-    if (parsed.json) {
+    if (parsed.event === 'pre-compact' && result.continue === false) {
+      process.stdout.write(JSON.stringify({ continue: false, stopReason: result.stopReason }) + '\n');
+    } else if (parsed.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     } else if (result.autoRefreshPrompt?.output) {
       process.stdout.write(result.autoRefreshPrompt.output + '\n');
     }
-    process.exit(result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
+    // continue=falseは、明示した失敗理由を含めてhostへ停止を届けた返答。背景処理の成否は引き継ぎ状態へ記録する。
+    process.exit(result.continue === false || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
     recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
     const msg = err instanceof Error ? err.message : 'unknown';

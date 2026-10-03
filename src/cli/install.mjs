@@ -61,6 +61,7 @@ const CODEX_COMMANDS = [
   'throughline codex-hook stop',
   'throughline codex-hook user-prompt-submit',
   'throughline codex-hook post-tool-use',
+  'throughline codex-hook pre-compact',
 ];
 
 function quoteCommandPath(p) {
@@ -127,6 +128,11 @@ export function buildCodexPostToolUseHookCommand({
   return buildCodexHookCommand('post-tool-use', { nodePath, cliScriptPath, platform });
 }
 
+export function buildCodexPreCompactHookCommand({ nodePath = resolveCodexHookNodePath(),
+  cliScriptPath = join(PACKAGE_ROOT, 'bin', 'throughline.mjs'), platform = process.platform } = {}) {
+  return buildCodexHookCommand('pre-compact', { nodePath, cliScriptPath, platform });
+}
+
 function buildCodexHookCommand(event, { nodePath, cliScriptPath, platform }) {
   const prefix = platform === 'win32' ? '& ' : '';
   return `${prefix}${quoteCommandPath(nodePath)} ${quoteCommandPath(cliScriptPath)} codex-hook ${event}`;
@@ -144,7 +150,9 @@ export function isThroughlineCodexHookCommand(command) {
     normalized.includes('throughline codex-hook post-tool-use') ||
     normalized.includes('throughline.mjs codex-hook stop') ||
     normalized.includes('throughline.mjs codex-hook user-prompt-submit') ||
-    normalized.includes('throughline.mjs codex-hook post-tool-use')
+    normalized.includes('throughline.mjs codex-hook post-tool-use') ||
+    normalized.includes('throughline codex-hook pre-compact') ||
+    normalized.includes('throughline.mjs codex-hook pre-compact')
   );
 }
 
@@ -168,7 +176,7 @@ export function isThroughlineCodexPostToolUseCommand(command) {
   );
 }
 
-const CODEX_HOOK_EVENTS = new Set(['stop', 'user-prompt-submit', 'post-tool-use']);
+const CODEX_HOOK_EVENTS = new Set(['stop', 'user-prompt-submit', 'post-tool-use', 'pre-compact']);
 
 function tokenizeCommand(command) {
   const tokens = [];
@@ -226,6 +234,8 @@ function isSameExecutablePath(a, b, realpath) {
 
 function createCodexHooks() {
   return {
+    PreCompact: { matcher: 'auto', hooks: [{ type: 'command', command: buildCodexPreCompactHookCommand(),
+      timeout: 30, async: false, statusMessage: 'Throughline: 自動継続を準備' }] },
     UserPromptSubmit: {
       hooks: [
         {
@@ -609,7 +619,7 @@ function installCodexHooks() {
       const hooks = (group.hooks ?? []).filter(h => !isThroughlineCodexHookCommand(h.command));
       if (hooks.length > 0) preserved.push({ ...group, hooks });
     }
-    existingHooks[key] = [entry, ...preserved];
+    existingHooks[key] = key === 'PreCompact' ? [...preserved, entry] : [entry, ...preserved];
   }
 
   current.hooks = existingHooks;
@@ -617,6 +627,24 @@ function installCodexHooks() {
   ensureCodexHooksFeature(configPath);
 
   return { hooksPath, configPath };
+}
+
+export function installCodexAutoHandoffHook(codexHome = join(homedir(), '.codex')) {
+  const hooksPath = join(codexHome, 'hooks.json');
+  const configPath = join(codexHome, 'config.toml');
+  const current = readSettings(hooksPath);
+  current.hooks ??= {};
+  const entry = createCodexHooks().PreCompact;
+  const groups = current.hooks.PreCompact ?? [];
+  const existing = groups.flatMap(group => group.hooks ?? []).filter(hook => isThroughlineCodexHookCommand(hook.command));
+  if (existing.length !== 1 || existing[0].command !== entry.hooks[0].command || existing[0].timeout !== 30) {
+    const preserved = groups.map(group => ({ ...group,
+      hooks: (group.hooks ?? []).filter(hook => !isThroughlineCodexHookCommand(hook.command)) })).filter(group => group.hooks.length);
+    current.hooks.PreCompact = [...preserved, entry];
+    writeSettings(hooksPath, current);
+  }
+  ensureCodexHooksFeature(configPath);
+  return { hooksPath, configPath, command: entry.hooks[0].command };
 }
 
 function uninstallCodexHooks() {
