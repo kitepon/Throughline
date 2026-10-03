@@ -10,6 +10,13 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.3] — 2026-10-03
+
+### 修正
+
+- runtime errorの送信で、reportの`observed_at`を秒へ切り捨てていた不具合を直す。storeの`first_seen`・`last_seen`・`resolved_at`はミリ秒まで持つので、発生や解決と同じ1秒の中で送ると`observed_at`が記録の時刻より前になり、受け口が422 `invalid_report`で断る。Throughlineは422を受けると次の送信を24時間空けるので、届くのが1日遅れる。`observed_at`はミリ秒まで持ち、載せる記録のどの時刻よりも前にしない（送信を始めた後に書かれた記録にも合わせる）。署名の`ts`は今までどおり同じ時刻の秒。
+- 実際に断られた送信は、この版までに確認されていない（BellTeamコンテナとMacの送信は全て受理）。同じ欠陥はLatticeで見つかり、BugHubの持ち主から確認の依頼があった。
+
 ## [0.12.2] — 2026-10-03
 
 ### 修正
@@ -1563,7 +1570,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.3...HEAD
+[0.12.3]: https://github.com/kitepon/Throughline/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/kitepon/Throughline/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/kitepon/Throughline/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/kitepon/Throughline/compare/v0.11.0...v0.12.0

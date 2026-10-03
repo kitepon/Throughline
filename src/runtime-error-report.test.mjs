@@ -213,6 +213,46 @@ test('runtime error report: sends only public snapshot fields, signs the exact b
   }
 });
 
+test('runtime error report: observed_at is never earlier than a record time in the same report', async (t) => {
+  // 受け口の検査（time.observation_order / time.resolution_after_observation）と同じ条件で断る受信側。
+  const receiver = await startReceiver((entry) => {
+    const observed = Date.parse(entry.report.observed_at);
+    const times = [
+      ...entry.report.runtime_errors.flatMap((record) => [record.first_seen, record.last_seen]),
+      ...entry.report.resolutions.map((resolution) => resolution.resolved_at),
+    ];
+    return times.some((time) => Date.parse(time) > observed)
+      ? { status: 422, body: { error: 'invalid_report', violations: ['time.observation_order'] } }
+      : accept(entry);
+  });
+  const { root, env } = createEnvironment();
+  t.after(() => receiver.close());
+  setRuntimeErrorCollectionEnabled(true, { env });
+  setRuntimeErrorReportingEnabled(true, { env, credentialFile: writeCredential(root, receiver.url) });
+
+  // 発生と同じ1秒の中で送る（storeの時刻はミリ秒まで持つ）。
+  observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED', now: '2026-10-03T08:00:00.921Z' }, { env });
+  const sameSecond = await reportRuntimeErrors({ env, now: '2026-10-03T08:00:00.930Z' });
+  assert.equal(sameSecond.status, 'sent');
+  assert.equal(receiver.requests[0].report.observed_at, '2026-10-03T08:00:00.930Z');
+  assert.equal(receiver.requests[0].ts, String(NOW / 1000));
+
+  // 解決と同じ1秒の中で送る。
+  const fingerprint = receiver.requests[0].report.runtime_errors[0].fingerprint;
+  resolveRuntimeError(fingerprint, { env, now: '2026-10-03T08:00:05.752Z', reasonCode: 'manual' });
+  const resolved = await reportRuntimeErrors({ env, now: '2026-10-03T08:00:05.800Z' });
+  assert.equal(resolved.status, 'sent');
+  assert.equal(receiver.requests[1].report.observed_at, '2026-10-03T08:00:05.800Z');
+
+  // 送信を始めた後に書かれた記録は、その時刻へ合わせる。
+  observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED', now: '2026-10-03T08:00:09.400Z' }, { env });
+  const late = await reportRuntimeErrors({ env, now: '2026-10-03T08:00:09.100Z' });
+  assert.equal(late.status, 'sent');
+  assert.equal(receiver.requests[2].report.observed_at, '2026-10-03T08:00:09.400Z');
+  assert.equal(receiver.requests[2].ts, String(NOW / 1000 + 9));
+  assert.equal(getRuntimeErrorReportStatus({ env }).last_result, 'sent');
+});
+
 test('runtime error report: only a signed acceptance of the same report counts as delivered', () => {
   const reportId = '11111111-2222-4333-8444-555555555555';
   const receivedAt = '2026-10-03T08:00:01.000Z';

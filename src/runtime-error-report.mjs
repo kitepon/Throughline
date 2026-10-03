@@ -195,11 +195,31 @@ export function buildRuntimeErrorReport({ snapshot, reportId, nowMs }) {
     report_id: reportId,
     product_id: 'throughline',
     installed_version: PACKAGE_VERSION,
-    // 受け口は observed_at と署名の ts が離れた report を断る。同じ時刻から作る。
-    observed_at: new Date(Math.floor(nowMs / 1000) * 1000).toISOString(),
+    observed_at: new Date(observedAtMs({ snapshot, nowMs })).toISOString(),
     runtime_errors: snapshot.runtime_errors,
     resolutions: snapshot.resolutions,
   };
+}
+
+/**
+ * observed_at は、載せる記録のどの時刻（first_seen / last_seen / resolved_at）よりも前にしない。
+ * 受け口は、観測より後の時刻を持つ記録が載った report を 422 で断る。storeの時刻はミリ秒まで
+ * 持つので、秒へ切り捨てると、発生や解決と同じ1秒の中で送った report が断られる。
+ * 送信を始めた後に書かれた記録や、時計が戻った端末の記録にも合わせる。
+ * 署名の ts は同じ nowMs から作る（受け口は observed_at と ts が10分より離れた report を断る）。
+ */
+function observedAtMs({ snapshot, nowMs }) {
+  let latest = nowMs;
+  const include = (value) => {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed) && parsed > latest) latest = parsed;
+  };
+  for (const record of snapshot.runtime_errors) {
+    include(record.first_seen);
+    include(record.last_seen);
+  }
+  for (const resolution of snapshot.resolutions) include(resolution.resolved_at);
+  return latest;
 }
 
 export function signRuntimeErrorReport({ secret, ts, body }) {
