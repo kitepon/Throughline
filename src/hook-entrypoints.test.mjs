@@ -885,10 +885,10 @@ test('process-turn subprocess captures the completed turn when the next user ent
       text('assistant', 'first answer'),
       text('user', 'queued request'),
     ].map((entry) => JSON.stringify(entry)).join('\n'), 'utf8');
-    const started = Date.now();
+    // deadlineまで待つとhookは非0で終わる。待たずに採用することは turn-processor.test.mjs が
+    // 時計を差し替えて確かめる（子プロセスの起動が遅い環境では実時間を条件にできない）。
     const first = stop('first answer');
     assert.equal(first.status, 0, first.stderr);
-    assert.ok(Date.now() - started < 1_900, 'must not wait for the flush deadline');
 
     let db = openDb(home);
     assert.deepEqual(
