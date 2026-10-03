@@ -26,6 +26,7 @@ Throughline は次の入口を自分で所有し、dotagentsが無くても利�
 | schema更新 | `throughline migrate --json`。既存DBだけを製品所有migrationで更新する |
 | 診断 | `throughline doctor`、host別doctor、`factory-diagnostics --json` |
 | runtime error収集 | `throughline runtime-errors enable\|disable --json`。製品所有configへ保存する |
+| runtime error送信 | `throughline runtime-errors report-enable --credential-file <path>\|report-disable\|report\|report-status --json`。既定OFF。有効にした端末だけがcredential fileの宛先へ送る（ADR 0025） |
 | 復旧 | READMEのTroubleshootingと、診断が返す明示的な修復手順 |
 | 更新 | `throughline self-update`。公式package更新、更新先global rootと公開PATHが同じ新CLI・versionを指すことの確認、host配線の再適用、既存DB migration、公開diagnosticsの`ready`確認までを一回で行う |
 | 削除 | `throughline uninstall`。Throughline管理面だけを除去する |
@@ -39,6 +40,8 @@ v0.10.5以降は `throughline self-update` だけを公開更新入口とする�
 dotagentsは工場への配線と統合結果を所有するが、ThroughlineのDB、schema、migration、
 設定、診断、復旧、releaseを代行・制御しない。runtime error collectionはThroughline所有configで
 既定OFFとし、工場側は公開`runtime-errors ... --json`契約だけを利用する。
+runtime errorを外へ送るのは製品自身で、`runtime-errors report-enable`で明示して有効にした端末に限る。
+既定では通信せず、宛先とcredentialは利用者が指定したcredential fileにだけあり、packageへ埋めない。
 
 Windows nativeの更新はPowerShell 7から公式`npm.cmd`を呼び、`npm.ps1`や
 Windows PowerShell 5.1へ切り替えない。更新前CLIを再利用せず、更新先global rootから解決した

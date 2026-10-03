@@ -85,13 +85,18 @@ export function setRuntimeErrorCollectionEnabled(enabled, options = {}) {
   if (typeof enabled !== 'boolean') throw new TypeError('enabled は boolean が必要です');
   const env = options.env ?? process.env;
   const path = options.configPath || defaultRuntimeErrorConfigPath(env);
-  const directory = dirname(path);
-  ensurePrivateStoreDirectory(directory, env);
-  const temporary = join(directory, `.runtime-errors-config.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
   const config = {
     schema: RUNTIME_ERROR_CONFIG_SCHEMA,
     collection: { enabled },
   };
+  return writeRuntimeErrorPrivateConfig(path, config, env);
+}
+
+// 製品所有configをprivate権限でatomicに置く。collection設定と送信設定が共用する。
+export function writeRuntimeErrorPrivateConfig(path, config, env = process.env) {
+  const directory = dirname(path);
+  ensurePrivateStoreDirectory(directory, env);
+  const temporary = join(directory, `.runtime-errors-config.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
   try {
     writeFileSync(temporary, `${JSON.stringify(config)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     if (isWindows(env)) {
@@ -339,12 +344,16 @@ function readStore(options, { missingIsEmpty = true, privateDirectory } = {}) {
 function writeStore(store, options, privateDirectory) {
   validateStore(store);
   const path = options.storePath || defaultRuntimeErrorStorePath(options.env);
+  writePrivateStateFile(path, store, options.env, privateDirectory);
+}
+
+function writePrivateStateFile(path, value, env, privateDirectory) {
   const directory = dirname(path);
-  assertPrivateDirectoryCapability(privateDirectory, directory, options.env);
+  assertPrivateDirectoryCapability(privateDirectory, directory, env);
   const temporary = join(directory, `.runtime-errors.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
   try {
-    writeFileSync(temporary, `${JSON.stringify(store)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    if (!isWindows(options.env)) {
+    writeFileSync(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    if (!isWindows(env)) {
       chmodSync(temporary, 0o600);
     } else {
       // The apply script performs an exact read-back verification. Repeating
@@ -356,10 +365,33 @@ function writeStore(store, options, privateDirectory) {
     // ACL/mode is complete before replacement, so an ACL failure leaves the
     // previous final store intact. Rename preserves the prepared file ACL.
     renameSync(temporary, path);
-    if (!isWindows(options.env)) assertPrivateStoreFile(lstatSync(path), options.env, path);
+    if (!isWindows(env)) assertPrivateStoreFile(lstatSync(path), env, path);
     else assertPrivateStoreFileShape(lstatSync(path));
   } finally {
     rmSync(temporary, { force: true });
+  }
+}
+
+// 送信状態はstoreと同じprivate directory・同じlockの下に置く。lockを持つ呼び出しだけが使う。
+export function withRuntimeErrorStoreLock(options, operation) {
+  assertExactOptions(options, ['env', 'storePath']);
+  return withStoreLock(options, operation);
+}
+
+export function writeRuntimeErrorPrivateState(path, value, env, privateDirectory) {
+  writePrivateStateFile(path, value, env, privateDirectory);
+}
+
+export function readRuntimeErrorPrivateState(path, env, privateDirectory) {
+  try {
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('runtime error store path unsafe');
+    assertPrivateDirectoryCapability(privateDirectory, dirname(path), env);
+    assertPrivateStoreFile(info, env, path);
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
 }
 

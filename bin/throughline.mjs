@@ -20,6 +20,8 @@
  *   throughline self-update # Update package, integrations, database, and verify the result
  *   throughline runtime-errors enable --json # Enable product-owned runtime error collection
  *   throughline runtime-errors snapshot --json # Read product-owned runtime error aggregates
+ *   throughline runtime-errors report-enable --credential-file <path> --json # Opt in to sending aggregates
+ *   throughline runtime-errors report --json # Send unacknowledged aggregates once
  *   throughline codex-capture # Capture active Codex rollout turns into Throughline DB
  *   throughline codex-hook user-prompt-submit # Codex rollout capture + monitor state hook
  *   throughline codex-hook post-tool-use # Codex tool-loop capture + monitor state hook
@@ -47,6 +49,16 @@
  */
 
 const [, , cmd, ...rest] = process.argv;
+
+// hook入口では、送信を明示して有効にした端末だけ、未受領のruntime errorを裏で送るprocessを起こす。
+// 既定（送信設定なし）では小さなファイル1つを見るだけで、通信もprocess起動もしない。
+if (['process-turn', 'session-start', 'prompt-submit', 'codex-hook'].includes(cmd)) {
+  try {
+    (await import('../src/runtime-error-report-trigger.mjs')).triggerRuntimeErrorReportBestEffort();
+  } catch {
+    // 送信の準備の失敗でhookを止めない。
+  }
+}
 
 try {
 switch (cmd) {
@@ -138,7 +150,7 @@ switch (cmd) {
     break;
   }
   case 'runtime-errors': {
-    const exitCode = (await import('../src/cli/runtime-errors.mjs')).run(rest);
+    const exitCode = await (await import('../src/cli/runtime-errors.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
@@ -282,6 +294,10 @@ Usage:
                               Enable product-owned local runtime error collection.
                               Also supports disable, snapshot, diagnostics, ack <cursor>,
                               resolve <fingerprint>, reopen <fingerprint>, and compact
+  throughline runtime-errors report-enable --credential-file <path> --json
+                              Opt in to sending aggregates to the receiver named in
+                              that credential file (disabled by default). Also supports
+                              report-disable, report, and report-status
   throughline codex-capture     Capture active Codex rollout turns into DB
                               (requires --codex-thread-id or env thread id)
   throughline codex-hook user-prompt-submit

@@ -888,6 +888,10 @@ once with `npm install --global throughline@latest`, then run
 | `throughline runtime-errors resolve <fingerprint> --json` | Explicitly resolve an aggregate; observing the same fingerprint again reopens it |
 | `throughline runtime-errors reopen <fingerprint> --json` | Explicitly reopen a resolved aggregate without fabricating a new occurrence |
 | `throughline runtime-errors compact --json`    | Remove only acknowledged, resolved aggregates after retention; open or unacknowledged records remain |
+| `throughline runtime-errors report-enable --credential-file <path> --json` | Opt in to sending aggregates to the receiver named in that credential file; sending is disabled by default |
+| `throughline runtime-errors report-disable --json` | Stop sending aggregates |
+| `throughline runtime-errors report --json`     | Send unacknowledged aggregates once now; exits 0 only for `sent` or `nothing_pending` |
+| `throughline runtime-errors report-status --json` | Read the last attempt time and fixed result code without exposing the receiver, credential, or paths |
 | `throughline handoff-preview --session <id>`   | Print a Codex-facing `throughline_handoff` JSON projection    |
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | Print the SessionStart inheritance context without moving memory rows. Project mode selects the newest captured session with dialogue, supports `--disclosure silent`, and returns `empty` when no dialogue exists. Session mode may add a project-bound supplement inside the same 9,500-character budget |
 | `throughline latest-session --project <absolute-path> --json` | Read the latest session id strictly scoped to one project; opens the existing database read-only and returns `empty` when the project has no captured session |
@@ -929,6 +933,34 @@ writes the versioned `throughline.runtime_error_config.v1` shape with private
 permissions. `disable --json` changes only this product config. Throughline
 does not read dotagents configuration; factory integration consumes the public
 `runtime-errors ... --json` contract.
+
+### Sending runtime errors to your own receiver (opt-in)
+
+Throughline never sends anything unless you opt in on that machine. There is no
+built-in receiver address. To send the aggregates to a receiver you operate,
+place a credential file `{"url": "...", "key_id": "...", "secret": "..."}` that
+only you can read, then:
+
+```bash
+throughline runtime-errors report-enable --credential-file /absolute/path/credential.json --json
+throughline runtime-errors report --json
+throughline runtime-errors report-status --json
+```
+
+Once enabled, the Claude and Codex hook entry points start a detached sender at
+most once per hour, and only contact the receiver when unacknowledged records
+exist; the hooks do not wait for it. The body carries the public snapshot fields
+only (fixed error code, template, count, timestamps, version, resolutions). The
+secret is never transmitted: the body is signed with
+`HMAC-SHA256(secret, ts + "\n" + SHA-256(body))`, redirects are not followed,
+and records are acknowledged only when the receiver answers `200` with
+`accepted: true`, the same `report_id`, and a valid
+`HMAC-SHA256(secret, report_id + "\n" + received_at)` response signature. The
+reporting switch lives in `runtime-errors.report.config.json` next to the
+collection config; the credential file is read in place and not copied. On
+macOS/Linux the credential file must be owned by you with no group/other
+permissions and must not be a symlink. See
+[ADR 0025](docs/adr/0025-runtime-error-reporting.md).
 
 ### Read-only handoff context for local launchers
 

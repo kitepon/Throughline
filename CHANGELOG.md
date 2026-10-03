@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-10-03
+
+### 追加
+
+- runtime errorのaggregateを、利用者が指定した受け口へ製品自身が送れるようにする（ADR 0025）。既定では送らない。`throughline runtime-errors report-enable --credential-file <絶対path> --json`で有効にした端末だけが、credential file（`{url, key_id, secret}`）の宛先へ送る。宛先はpackageに入っていない。
+- 送るのは`runtime-errors snapshot`の公開項目（固定code・定型文・回数・時刻・版・解決記録）だけ。secretは通信に載せず、本文へ`HMAC-SHA256(secret, ts + "\n" + SHA-256(本文))`の署名を付ける。redirectは追わない。
+- 受領済みにするのは、受け口が200・`accepted: true`・同じ`report_id`・正しい応答署名`HMAC-SHA256(secret, report_id + "\n" + received_at)`を返した時だけ。そろわない応答では、記録を未受領のまま残す。
+- 有効にした端末では、`process-turn`・`session-start`・`prompt-submit`・`codex-hook`の開始時に、多くて1時間に1回、切り離した送信processを起こす。未受領の記録が無ければ通信しない。hookは送信を待たない。credentialやreportの形で断られた時は24時間空ける。
+- `throughline runtime-errors report --json`は間隔を待たずに1回送り、`sent`と`nothing_pending`だけexit 0にする。`report-status --json`は最後に試した時刻と結果の固定codeを返し、宛先・credential・pathは出さない。`report-disable --json`で止める。
+- 送信設定は`runtime-errors.report.config.json`に持ち、収集の設定`runtime-errors.config.json`の形は変えない。送信を有効にしていない端末の動きは、hook入口で設定ファイル1つの有無を見ることを除いて変わらない。
+
 ## [0.11.0] — 2026-10-03
 
 ### 追加
@@ -1538,7 +1549,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/kitepon/Throughline/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/kitepon/Throughline/compare/v0.10.23...v0.11.0
 
 [0.10.23]: https://github.com/kitepon/Throughline/compare/v0.10.22...v0.10.23

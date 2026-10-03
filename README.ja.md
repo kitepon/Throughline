@@ -425,6 +425,10 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 | `throughline runtime-errors disable --json` | Throughline所有のruntime error収集を無効化 |
 | `throughline runtime-errors snapshot --json` | boundedなlocal aggregateを読み取る（network I/Oなし） |
 | `throughline runtime-errors diagnostics --json` | collection/store状態をpathやraw errorなしで診断 |
+| `throughline runtime-errors report-enable --credential-file <path> --json` | credential fileの受け口へaggregateを送る設定を有効化（既定OFF） |
+| `throughline runtime-errors report-disable --json` | 送信を無効化 |
+| `throughline runtime-errors report --json` | 未受領のaggregateを今1回送る。`sent`と`nothing_pending`だけexit 0 |
+| `throughline runtime-errors report-status --json` | 最後に試した時刻と結果の固定codeを読む。宛先・credential・pathは出さない |
 | `throughline handoff-preview --session <id>` | Codex 向け `throughline_handoff` JSON projection を表示 |
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
 | `throughline latest-session --project <absolute-path> --json` | 指定した1プロジェクトだけを対象に直近セッションIDを読み取る。既存DBをread-onlyで開き、記録がなければ`empty`を返す |
@@ -450,6 +454,28 @@ throughline runtime-errors diagnostics --json
 `%LOCALAPPDATA%\throughline\runtime-errors.config.json`です。CLIはprivate権限で
 `throughline.runtime_error_config.v1`を書きます。Throughlineはdotagents設定を読まず、
 工場連携側は公開`runtime-errors ... --json`契約だけを利用します。
+
+### runtime errorを自分の受け口へ送る（明示して有効にした時だけ）
+
+Throughlineは、その端末で有効にしない限り何も送りません。宛先はpackageに入っていません。
+自分で運用する受け口へ送る時は、本人だけが読めるcredential file
+`{"url": "...", "key_id": "...", "secret": "..."}`を置いてから有効にします。
+
+```bash
+throughline runtime-errors report-enable --credential-file /absolute/path/credential.json --json
+throughline runtime-errors report --json
+throughline runtime-errors report-status --json
+```
+
+有効にすると、ClaudeとCodexのhook入口が、多くて1時間に1回、切り離した送信processを起こします。
+未受領の記録が無ければ通信しません。hookは送信を待ちません。送るのはsnapshotの公開項目
+（固定code・定型文・回数・時刻・版・解決記録）だけです。secretは送らず、本文へ
+`HMAC-SHA256(secret, ts + "\n" + SHA-256(本文))`の署名を付けます。redirectは追いません。
+受領済みにするのは、受け口が`200`・`accepted: true`・同じ`report_id`・正しい応答署名
+`HMAC-SHA256(secret, report_id + "\n" + received_at)`を返した時だけです。送信設定は収集の設定の隣の
+`runtime-errors.report.config.json`に持ち、credential fileは写さずその場で読みます。
+macOS/Linuxでは、本人所有でgroup/otherに権限が無く、symlinkでないcredential fileだけを読みます。
+詳細は[ADR 0025](docs/adr/0025-runtime-error-reporting.md)。
 
 ### ローカルlauncher向けread-only handoff context
 
