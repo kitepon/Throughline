@@ -161,34 +161,45 @@ export function getLogicalTurnGroups(transcriptPath) {
 }
 
 /**
- * transcript上のlatest user groupが、現在どのassistant本文まで永続化されたかを返す。
- * 過去のcompleted groupではなく最後のuser以後だけを見るため、同文answerの誤帰属を避ける。
+ * latest user group と、その1つ前のgroupが、どのassistant本文まで永続化されたかを返す。
+ *
+ * transcriptは追記だけなので、後ろにuser行が見えているgroupは行が出そろっている。
+ * Stopの直後に次のuser行（queueから届いた入力）が書かれた時、完了したturnは
+ * latestではなく1つ前のgroupになる。fragmentTurnNumbers はgroup内の全assistant断片のindex。
  *
  * @param {string} transcriptPath
- * @returns {{userTurnNumber: number, assistantTurnNumber: number|null, assistantContent: string|null}|null}
+ * @returns {{
+ *   latest: {userTurnNumber: number, assistantTurnNumber: number|null, assistantContent: string|null, fragmentTurnNumbers: number[]},
+ *   previous: {userTurnNumber: number, assistantTurnNumber: number|null, assistantContent: string|null, fragmentTurnNumbers: number[]}|null,
+ * }|null}
  */
-export function readLatestLogicalTurnCompletion(transcriptPath) {
+export function readLatestLogicalTurnCompletions(transcriptPath) {
   const turns = readTranscript(transcriptPath);
-  let latestUserIndex = -1;
-  for (let index = turns.length - 1; index >= 0; index--) {
-    if (turns[index].role === 'user') {
-      latestUserIndex = index;
-      break;
-    }
+  const userIndexes = [];
+  for (let index = turns.length - 1; index >= 0 && userIndexes.length < 2; index--) {
+    if (turns[index].role === 'user') userIndexes.push(index);
   }
-  if (latestUserIndex < 0) return null;
+  if (userIndexes.length === 0) return null;
 
-  const user = turns[latestUserIndex];
-  let representative = null;
-  for (let index = latestUserIndex + 1; index < turns.length; index++) {
-    const turn = turns[index];
-    if (turn.role === 'user') break;
-    if (turn.role === 'assistant' && !isJunkAssistantText(turn.content)) representative = turn;
-  }
+  const describe = (start, end) => {
+    let representative = null;
+    const fragmentTurnNumbers = [];
+    for (let index = start + 1; index < end; index++) {
+      const turn = turns[index];
+      if (turn.role !== 'assistant') continue;
+      fragmentTurnNumbers.push(turn.turn_number);
+      if (!isJunkAssistantText(turn.content)) representative = turn;
+    }
+    return {
+      userTurnNumber: turns[start].turn_number,
+      assistantTurnNumber: representative?.turn_number ?? null,
+      assistantContent: representative?.content ?? null,
+      fragmentTurnNumbers,
+    };
+  };
   return {
-    userTurnNumber: user.turn_number,
-    assistantTurnNumber: representative?.turn_number ?? null,
-    assistantContent: representative?.content ?? null,
+    latest: describe(userIndexes[0], turns.length),
+    previous: userIndexes.length === 2 ? describe(userIndexes[1], userIndexes[0]) : null,
   };
 }
 

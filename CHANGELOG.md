@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.2] — 2026-10-03
+
+### 修正
+
+- Claudeのturnが終わった直後に次の入力が届くと、Stop hookが2秒待って`HOOK_PROCESS_TURN_FAILED`で失敗していた不具合を直す。BellTeamのようにqueueの入力がturnの終わりに届く環境では、Stopの数十ms後に次のuser行がtranscriptへ書かれる。flush barrierはlatest user groupだけを見ていたため、完了したturnが1つ前のgroupへ移ると一致しなかった。latest groupにassistant本文がまだ無く、1つ前のgroupがStopの本文と一致し、そのturnが未捕捉の時は、1つ前のgroupを完了したturnとして待たずに採用する（ADR 0026）。
+- これまで失敗したturnは、L2と完了受領が次のStopまで遅れ、L3（toolの入出力）は保存されなかった。直した後は同じStopで書かれる。捕捉済みの同文answerを今回の完了と取り違えない条件（ADR 0012）は変えていない。
+- hookの試験の子プロセスが、親の`XDG_CONFIG_HOME`・`XDG_STATE_HOME`・`LOCALAPPDATA`を引き継いでいた。収集を有効にした端末でhookの試験が落ちると、本物のruntime error storeへ記録されていたので、設定とstateの置き場も一時HOMEへ向ける。製品の動作は変わらない。
+
 ## [0.12.1] — 2026-10-03
 
 ### 修正
@@ -1555,7 +1563,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/kitepon/Throughline/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/kitepon/Throughline/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/kitepon/Throughline/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/kitepon/Throughline/compare/v0.10.23...v0.11.0

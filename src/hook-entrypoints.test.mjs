@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -26,10 +27,15 @@ function makeTempProject() {
 }
 
 function childEnv(home) {
+  // 設定とstateの置き場も一時HOMEへ向ける。親のXDG_*やLOCALAPPDATAを引き継ぐと、
+  // 失敗したhookが本物のruntime error storeへ記録し、完了受領も本物のstateへ書かれる。
   return {
     ...process.env,
     HOME: home,
     USERPROFILE: home,
+    XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_STATE_HOME: join(home, '.local', 'state'),
+    LOCALAPPDATA: join(home, 'AppData', 'Local'),
     THROUGHLINE_NO_VSCODE: '1',
   };
 }
@@ -851,6 +857,61 @@ test('process-turn subprocess backfills all completed logical turns from a multi
     assert.equal(receipts.receipts.length, 2);
     assert.deepEqual(receipts.receipts.map((entry) => entry.sequence), [1, 2]);
     db.close();
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('process-turn subprocess captures the completed turn when the next user entry lands right after Stop', () => {
+  const home = makeTempHome();
+  const project = makeTempProject();
+  const transcriptPath = join(project, 'transcript.jsonl');
+  const text = (role, value) => ({ type: role, message: { role, content: [{ type: 'text', text: value }] } });
+  const stop = (lastAssistantMessage) => runNode([join(REPO_ROOT, 'src/turn-processor.mjs')], {
+    home,
+    cwd: project,
+    input: JSON.stringify({
+      session_id: 'queued-input-session',
+      cwd: project,
+      transcript_path: transcriptPath,
+      last_assistant_message: lastAssistantMessage,
+    }),
+  });
+  try {
+    // 実測の並び: assistantの最終行、Stop、その数十ms後にqueueのuser行。hookの最初の読取より前にuser行がある。
+    writeFileSync(transcriptPath, [
+      text('user', 'first request'),
+      text('assistant', 'first answer'),
+      text('user', 'queued request'),
+    ].map((entry) => JSON.stringify(entry)).join('\n'), 'utf8');
+    const started = Date.now();
+    const first = stop('first answer');
+    assert.equal(first.status, 0, first.stderr);
+    assert.ok(Date.now() - started < 1_900, 'must not wait for the flush deadline');
+
+    let db = openDb(home);
+    assert.deepEqual(
+      db.prepare('SELECT role, text FROM bodies ORDER BY turn_number, role').all().map((row) => ({ ...row })),
+      [{ role: 'assistant', text: 'first answer' }, { role: 'user', text: 'first request' }],
+    );
+    db.close();
+    assert.equal(readCompletedTurnReceiptSnapshot({ projectPath: project, env: childEnv(home) }).receipts.length, 1);
+
+    // 次のturnが同じ文で終わっても、捕捉済みの前のturnを今回の完了として採用しない。
+    appendFileSync(transcriptPath, `\n${JSON.stringify(text('assistant', 'first answer'))}`, 'utf8');
+    const second = stop('first answer');
+    assert.equal(second.status, 0, second.stderr);
+    db = openDb(home);
+    assert.deepEqual(
+      db.prepare('SELECT role, text FROM bodies ORDER BY turn_number, role').all().map((row) => ({ ...row })),
+      [
+        { role: 'assistant', text: 'first answer' }, { role: 'user', text: 'first request' },
+        { role: 'assistant', text: 'first answer' }, { role: 'user', text: 'queued request' },
+      ],
+    );
+    db.close();
+    assert.equal(readCompletedTurnReceiptSnapshot({ projectPath: project, env: childEnv(home) }).receipts.length, 2);
   } finally {
     rmSync(project, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });

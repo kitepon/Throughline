@@ -33,7 +33,7 @@
 import { getDb } from './db.mjs';
 import {
   readRawEntries,
-  readLatestLogicalTurnCompletion,
+  readLatestLogicalTurnCompletions,
   sliceCurrentTurnEntries,
   extractDetailBlocks,
 } from './transcript-reader.mjs';
@@ -56,30 +56,46 @@ export const CLAUDE_STOP_TRANSCRIPT_FLUSH_INTERVAL_MS = 25;
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
- * Claude Stop payloadのassistant identityがlatest user groupへ永続化されるまで待つ。
+ * Claude Stop payloadのassistant identityがtranscriptへ永続化されるまで待つ。
  * markerは本文ソースにせず、transcript可視化のbarrierにだけ使う。
+ *
+ * 完了したturnは通常latest user groupにある。Stopの直後に次のuser行（queueから届いた入力）が
+ * 書かれると、latestは次のturnになり、完了したturnは1つ前のgroupへ移る。この時だけ、
+ * 1つ前のgroupを採用する（ADR 0026）。条件は次の全て:
+ * - latest groupにassistant断片がまだ無い（次のturnは本文を書いていない）
+ * - 1つ前のgroupの本文がmarkerと一致する
+ * - そのturnがまだDBに捕捉されていない（捕捉済みの同文answerは、今回のStopの完了ではない）
  */
 export async function waitForClaudeStopTranscriptFlush({
   transcriptPath,
   lastAssistantMessage,
   timeoutMs = CLAUDE_STOP_TRANSCRIPT_FLUSH_TIMEOUT_MS,
   intervalMs = CLAUDE_STOP_TRANSCRIPT_FLUSH_INTERVAL_MS,
-  readCompletion = readLatestLogicalTurnCompletion,
+  readCompletion,
+  readCompletions = readLatestLogicalTurnCompletions,
+  isTurnCaptured = () => true,
   now = Date.now,
   wait = delay,
 }) {
   if (typeof lastAssistantMessage !== 'string' || lastAssistantMessage.length === 0) {
     return { status: 'marker_unavailable' };
   }
+  const read = readCompletion
+    ? () => ({ latest: readCompletion(transcriptPath), previous: null })
+    : () => readCompletions(transcriptPath);
+  const ready = (completion) => ({
+    status: 'ready',
+    userTurnNumber: completion.userTurnNumber,
+    assistantTurnNumber: completion.assistantTurnNumber,
+  });
   const deadline = now() + timeoutMs;
   for (;;) {
-    const completion = readCompletion(transcriptPath);
-    if (completion?.assistantContent === lastAssistantMessage) {
-      return {
-        status: 'ready',
-        userTurnNumber: completion.userTurnNumber,
-        assistantTurnNumber: completion.assistantTurnNumber,
-      };
+    const { latest, previous } = read() ?? { latest: null, previous: null };
+    if (latest?.assistantContent === lastAssistantMessage) return ready(latest);
+    if (previous?.assistantContent === lastAssistantMessage &&
+      latest?.fragmentTurnNumbers?.length === 0 &&
+      !isTurnCaptured(previous.fragmentTurnNumbers)) {
+      return ready(previous);
     }
     const remaining = deadline - now();
     if (remaining <= 0) {
@@ -87,6 +103,18 @@ export async function waitForClaudeStopTranscriptFlush({
     }
     await wait(Math.min(intervalMs, remaining));
   }
+}
+
+/**
+ * originのtranscript上のturn（assistant断片のindex群）が、既にbodiesへ捕捉されているかを返す。
+ * backfillBodies の「部分捕捉済み群」と同じ判定。
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} origin
+ * @param {number[]} fragmentTurnNumbers
+ */
+export function isLogicalTurnCaptured(db, origin, fragmentTurnNumbers) {
+  const find = db.prepare('SELECT 1 FROM bodies WHERE origin_session_id = ? AND turn_number = ? LIMIT 1');
+  return fragmentTurnNumbers.some((turnNumber) => find.get(origin, turnNumber) !== undefined);
 }
 
 /**
@@ -205,10 +233,15 @@ export async function run() {
     process.stderr.write(`[vscode-task] ${msg}\n`);
   }
 
+  const db = getDb();
+  // merge target 解決: 入力 session が既に合流済みなら target = 合流先
+  const { target, origin } = resolveMergeTarget(db, session_id);
+
   if (hostAdapterForSessionId(session_id).waitsForStopTranscriptFlush) {
     await waitForClaudeStopTranscriptFlush({
       transcriptPath: transcript_path,
       lastAssistantMessage: last_assistant_message,
+      isTurnCaptured: (fragmentTurnNumbers) => isLogicalTurnCaptured(db, origin, fragmentTurnNumbers),
     });
   }
 
@@ -221,11 +254,7 @@ export async function run() {
     pid: process.ppid,
   });
 
-  const db = getDb();
   const now = Date.now();
-
-  // merge target 解決: 入力 session が既に合流済みなら target = 合流先
-  const { target, origin } = resolveMergeTarget(db, session_id);
 
   // target の sessions 行を upsert
   const existing = db

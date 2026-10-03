@@ -86,7 +86,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 |---|---|
 | [src/hosts/identity.mjs](src/hosts/identity.mjs) | session prefix (`codex:` / `grok:` / `cursor:`)・`hostOfSessionId`・codex thread id 往復・`NON_CLAUDE_SESSION_PREFIXES`・`KNOWN_STATE_HOSTS` の唯一の正本。codex-capture / handoff-record の旧 export はここへの再 export |
 | [src/hosts/index.mjs](src/hosts/index.mjs) | `normalizeHookPayload` (Grok camelCase / Cursor envelope の dispatch) と `hostAdapterForSessionId` |
-| [src/hosts/claude.mjs](src/hosts/claude.mjs) | Claude adapter (stdout 注入・flush barrier あり・prompt 素通し・完了受領は `CLAUDE_PROJECT_DIR` の起動 project へ) |
+| [src/hosts/claude.mjs](src/hosts/claude.mjs) | Claude adapter (stdout 注入・flush barrier あり・prompt 素通し・完了受領は `CLAUDE_PROJECT_DIR` の起動 project へ)。flush barrier は latest user group を待ち、Stop直後に次のuser行が届いた時だけ未捕捉の1つ前のgroupを採用する（ADR 0012 / 0026、実装は `src/turn-processor.mjs` の `waitForClaudeStopTranscriptFlush`） |
 | [src/hosts/codex.mjs](src/hosts/codex.mjs) | Codex adapter。Codex hook 本体は [src/cli/codex-hook.mjs](src/cli/codex-hook.mjs) のままで、ここは共有コード向けの識別と既定挙動の明文化 |
 | [src/hosts/grok.mjs](src/hosts/grok.mjs) | 旧 hook-envelope.mjs を統合。Grok envelope 正規化・chat_history path・chat_history 直書き注入・user_query 包装の command prompt fallback・`/tl` 後の grok-continue 起動・flush barrier 非適用 |
 | [src/hosts/cursor.mjs](src/hosts/cursor.mjs) | Cursor envelope 正規化・agent-transcripts path・sessionStart `additional_context` 注入・flush barrier 非適用・後継自動起動なし |
