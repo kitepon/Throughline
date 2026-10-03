@@ -10,6 +10,13 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.10.23] — 2026-10-03
+
+### 修正
+
+- `throughline install`がCodexの`~/.codex/config.toml`へ廃止済みの`[features].codex_hooks = true`を書き足していた不具合を直す。`codex_hooks`は現行の`hooks`の旧名で、Codexは起動のたびにdeprecated警告を出す。installは`hooks = true`だけを書き、`[features]`に残っている`codex_hooks`の行は値によらず外す。旧名は`false`でもhookを無効にするため、`hooks`へ寄せる。`[features]`以外のsectionは触らない。既存環境は`throughline self-update`で書き直される。
+- `[features]`へ行を足す時、次のsectionとの間の空行より前へ入れる。これまでは空行の後ろへ足し、次のsection見出しと隣り合っていた。
+
 ## [0.10.22] — 2026-10-01
 
 ### 追加
@@ -1516,7 +1523,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.22...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.10.23...HEAD
+[0.10.23]: https://github.com/kitepon/Throughline/compare/v0.10.22...v0.10.23
 [0.10.22]: https://github.com/kitepon/Throughline/compare/v0.10.21...v0.10.22
 [0.10.21]: https://github.com/kitepon/Throughline/compare/v0.10.20...v0.10.21
 [0.10.20]: https://github.com/kitepon/Throughline/compare/v0.10.19...v0.10.20

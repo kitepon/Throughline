@@ -183,8 +183,7 @@ test('global install registers Codex session hooks and enables hooks features', 
     const managedHooks = [codexHook, promptHook, postToolUseHook];
     assert.doesNotMatch(JSON.stringify(managedHooks), /timeoutSec/);
     const config = readFileSync(join(home.dir, '.codex', 'config.toml'), 'utf8');
-    assert.match(config, /^\[features\]\ncodex_hooks = true/m);
-    assert.match(config, /^hooks = true/m);
+    assert.equal(config, '[features]\nhooks = true\n');
   } finally {
     unsilence();
     home.restore();
@@ -396,12 +395,65 @@ test('global install preserves existing Codex hooks and is idempotent', async ()
     assert.ok(!promptCommands.includes('throughline codex-hook user-prompt-submit'));
     assert.ok(!postToolUseCommands.includes('throughline codex-hook post-tool-use'));
     const config = readFileSync(join(home.dir, '.codex', 'config.toml'), 'utf8');
-    assert.match(config, /other = true/);
-    assert.match(config, /codex_hooks = true/);
-    assert.match(config, /hooks = true/);
+    assert.equal(config, '[features]\nother = true\nhooks = true\n');
   } finally {
     unsilence();
     home.restore();
+  }
+});
+
+test('global install moves the deprecated codex_hooks flag to hooks', async () => {
+  const cases = [
+    {
+      name: '旧名と現行名の両方がある（旧版の install が空行の後ろへ足した形）',
+      before: [
+        'model = "gpt-5"',
+        '',
+        '[features]',
+        'hooks = true',
+        'other = true',
+        '',
+        'codex_hooks = true',
+        '[hooks.state]',
+        '',
+        '[other]',
+        'codex_hooks = true',
+        '',
+      ].join('\n'),
+      after: [
+        'model = "gpt-5"',
+        '',
+        '[features]',
+        'hooks = true',
+        'other = true',
+        '',
+        '[hooks.state]',
+        '',
+        '[other]',
+        'codex_hooks = true',
+        '',
+      ].join('\n'),
+    },
+    {
+      name: '旧名だけが false で残っている',
+      before: '[features]\ncodex_hooks = false # legacy\nother = true\n\n[tools]\nweb = true\n',
+      after: '[features]\nother = true\nhooks = true\n\n[tools]\nweb = true\n',
+    },
+  ];
+
+  for (const { name, before, after } of cases) {
+    const home = makeTempHome();
+    mkdirSync(join(home.dir, '.codex'), { recursive: true });
+    writeFileSync(join(home.dir, '.codex', 'config.toml'), before);
+    const unsilence = silence();
+    try {
+      await run([]);
+      await run([]);
+      assert.equal(readFileSync(join(home.dir, '.codex', 'config.toml'), 'utf8'), after, name);
+    } finally {
+      unsilence();
+      home.restore();
+    }
   }
 });
 

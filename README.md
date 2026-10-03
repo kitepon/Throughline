@@ -57,9 +57,10 @@ baton. See [ADR 0022](docs/adr/0022-cursor-host-capture.md).
 <summary><b>Also using Codex?</b> Global install registers Codex hooks too — click for details.</summary>
 
 Global install also registers Codex `UserPromptSubmit`, `PostToolUse`, and
-`Stop` hooks in `~/.codex/hooks.json` and enables both
-`[features].codex_hooks = true` and `[features].hooks = true` in
-`~/.codex/config.toml`. The Codex hooks invoke the installed
+`Stop` hooks in `~/.codex/hooks.json` and enables
+`[features].hooks = true` in `~/.codex/config.toml`. The deprecated
+`[features].codex_hooks` line is removed if present, because Codex warns about
+it and treats it as an alias of `hooks`. The Codex hooks invoke the installed
 `bin/throughline.mjs` through an absolute Node path, so Codex App Server PATH
 differences do not hide the command. They are registered synchronously
 (`async: false`), matching the Codex hook behavior verified in Caveat. Existing

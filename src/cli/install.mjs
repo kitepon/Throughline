@@ -558,7 +558,10 @@ function ensureCodexHooksFeature(configPath) {
   const ensureFeatureLine = (featureLines, name) => {
     const idx = featureLines.findIndex((line) => new RegExp(`^\\s*${name}\\s*=`).test(line));
     if (idx === -1) {
-      featureLines.push(`${name} = true`);
+      // 次の section との間の空行より前へ足す。
+      let insertAt = featureLines.length;
+      while (insertAt > 0 && featureLines[insertAt - 1].trim() === '') insertAt--;
+      featureLines.splice(insertAt, 0, `${name} = true`);
     } else {
       featureLines[idx] = `${name} = true`;
     }
@@ -567,7 +570,7 @@ function ensureCodexHooksFeature(configPath) {
 
   if (sectionStart === -1) {
     const prefix = existing.trimEnd();
-    updated = `${prefix}${prefix ? '\n\n' : ''}[features]\ncodex_hooks = true\nhooks = true\n`;
+    updated = `${prefix}${prefix ? '\n\n' : ''}[features]\nhooks = true\n`;
   } else {
     let sectionEnd = lines.length;
     for (let i = sectionStart + 1; i < lines.length; i++) {
@@ -577,8 +580,11 @@ function ensureCodexHooksFeature(configPath) {
       }
     }
 
-    const featureLines = lines.slice(sectionStart + 1, sectionEnd);
-    ensureFeatureLine(featureLines, 'codex_hooks');
+    // codex_hooks は hooks の旧名で、Codex が deprecated 警告を出す。
+    // 旧名は false でも hooks を無効にするので、値によらず行ごと外して hooks へ寄せる。
+    const featureLines = lines
+      .slice(sectionStart + 1, sectionEnd)
+      .filter((line) => !/^\s*codex_hooks\s*=/.test(line));
     ensureFeatureLine(featureLines, 'hooks');
     lines.splice(sectionStart + 1, sectionEnd - sectionStart - 1, ...featureLines);
     updated = lines.join('\n').replace(/\n*$/, '\n');

@@ -667,7 +667,7 @@ TODO:
   - `doctor --codex` / `codex-capture` / `codex-summarize` / `codex-resume --memo-stdin` / `codex-visibility-smoke`
 - [x] Codex primary の doctor を追加または拡張する。
 - [x] Codex primary の setup / install 手順を追加する。
-  - global `throughline install` は `~/.codex/hooks.json` に絶対 node + installed `bin/throughline.mjs codex-hook stop` を登録し、`~/.codex/config.toml` の `[features].codex_hooks = true` を有効化し、`~/.codex/skills/throughline` に `$throughline` skill を配置する。
+  - global `throughline install` は `~/.codex/hooks.json` に絶対 node + installed `bin/throughline.mjs codex-hook stop` を登録し、`~/.codex/config.toml` の `[features].hooks = true` を有効化し（0.10.23 から旧名 `codex_hooks` は書かず、残っていれば外す）、`~/.codex/skills/throughline` に `$throughline` skill を配置する。
   - 既存 Caveat / Spotter などの Codex hooks は保持し、`throughline uninstall` は Throughline 管理 hook だけを削除する。
   - manual diagnostics / explicit operation: `doctor --codex` -> `codex-capture` -> `codex-summarize` -> `codex-resume --memo-stdin` -> 必要なら model-visible smoke / trim preflight / explicit trim execute。
 - [x] README には実装済み behavior だけ載せる。
