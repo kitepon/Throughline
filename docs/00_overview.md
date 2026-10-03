@@ -12,7 +12,7 @@ Throughline の文書は、現行契約・履歴・証拠を分ける。通常�
 | [01_l1_l2_l3_redesign.md](01_l1_l2_l3_redesign.md) | L1/L2/L3 記憶レイヤーの設計 |
 | [02_clear_auto_handoff_plan.md](02_clear_auto_handoff_plan.md) | `/clear` / `/tl` handoff の現行仕様 |
 | [04_public_release_plan.md](04_public_release_plan.md) | 公開配布、明示的失敗、release gate |
-| [05_codex_first_roadmap.md](05_codex_first_roadmap.md) | Codex primary / trim / Claude finalization の現行順序 |
+| [05_codex_first_roadmap.md](05_codex_first_roadmap.md) | Codex自動新規タスク継続の設計案・実機検証手順と、従来のprimary / trim / Claude finalization工程 |
 | [06_codex_trim_rollback_fix_plan.md](06_codex_trim_rollback_fix_plan.md) | Codex rollback / inject incident 後の現行判断 |
 | [08_codex_dual_support.md](08_codex_dual_support.md) | Claude primary を維持する Codex adapter 方針 |
 | [09_rollback_context_trim_insight.md](09_rollback_context_trim_insight.md) | rollback を context delete primitive と見る設計 |

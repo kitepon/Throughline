@@ -22,6 +22,10 @@ rag/
 
 ---
 
+## Codex自動新規タスク継続の根拠
+
+- [PreCompact・記憶注入・配送の一次ソース抜粋](01-hooks/raw/codex-auto-handoff-extract.md) — 公式仕様と配送ライブラリの固定sourceを確認。Desktopの自動停止・新規idle taskの起動・配送process終了後の継続は未実測。[設計案と検証手順](../docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)を参照する。
+
 ## Question this RAG was built to answer
 
 > Throughline は「コンテキスト削減しつつ過去の記憶を一切失わない」と定義されている。記憶を引き継いでいてもモデルがそれを自分の作業履歴として体感していないなら、その記憶は無意味なコンテキストである。

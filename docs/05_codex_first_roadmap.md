@@ -3,6 +3,233 @@
 
 この文書は TODO を兼ねた実装計画です。
 
+## 自動新規タスク継続の設計案
+
+状態: **設計案を作成済み。成立条件の実機検証・機能実装・設定変更は未実施。**
+
+この節は、自動圧縮が始まる前にThroughlineが新しいタスクへ記憶を渡し、
+人が「続けて」と入力せずに作業を再開するための設計案である。
+次の工程は下記の検証A〜C。配送方式はその結果で確定する。
+以下の既存Phase記録は従来のcurrent-thread trimの経緯として読み、この設計案の
+受入結果と混同しない。現在のautomatic refreshが無効である挙動は変更していない。
+
+### 目的と受入条件
+
+1. 自動圧縮の本文生成が始まる前に、旧タスクの作業を停止する。
+2. 同じproject・作業ディレクトリと、そのタスクのモデル・推論強度・権限・
+   正規の指示読込を継承した新タスクを表示する。
+3. 最新のユーザー依頼、合意した制約、途中の作業と過去の記憶を渡し、自動で続きを実行する。
+4. A→B→Cと2回以上切り替えても、Aの指示・記憶・詳細をCから取得できる。
+5. 新タスクの作業開始を実測して成功とする。作成、注入、URLを開く要求、
+   キュー受付のいずれかだけでは成功にしない。
+6. 同じ旧タスクから後継を重複作成せず、旧・新タスクが同じ操作を重複実行しない。
+
+最初の成立検証はCodex Desktopで行う。OSごとの仕組みと受入条件は共通にし、
+差分は既存の `src/os/` と配送ライブラリの環境適合へ閉じ込める。
+VS Code・CLIとClaude/Grok/Cursorの対応はhostごとに同じ条件で検証する。
+一つのhostの成功で他のhostも対応済みとはしない。
+
+### 根拠と未確認事項
+
+外部仕様と取得時点の固定参照は
+[RAGの抜粋](../rag/01-hooks/raw/codex-auto-handoff-extract.md)へ置く。
+
+| 項目 | 現時点で確認できたこと | 次に実測すること |
+|---|---|---|
+| 圧縮前の停止 | Codex公式仕様は `PreCompact` の `continue: false` で圧縮前に停止すると定義する | Desktopでの実火、旧ターン終了の観測、圧縮本文の非生成 |
+| 新タスクの準備 | `codex-handoff-start` は `thread/start` とdeveloper memory注入を実装する | 同じ実効設定で作成し、Desktopがそのタスクを引き受けること |
+| 自動再開 | `aiterm-steer-delivery` は指定threadへの `thread/queue/add` を公開する | まだ一度も動いていない新タスクが、その指示で作業を開始すること |
+| 接続の寿命 | 現行handoff helperは処理終了時に自身のapp-server接続を閉じる | 配送process終了後もDesktopで作業が続くこと |
+| 連続継承 | Codex captureは各threadのL1/L2/L3を再構築し、注入developer本文を会話として保存しない | 凍結した記憶と継承関係による2回以上の継続 |
+
+別processの `thread/read` が返した `notLoaded` や空turn一覧を、
+Desktopで旧ターンが停止した証拠として使わない。
+実行を所有するhostの終了イベントか、それと一致する永続化記録が必要である。
+
+### 責務
+
+| 所有者 | 担当 |
+|---|---|
+| Throughline | 発火、元thread/turnの特定、記憶の確定、継承関係、引き継ぎの進行状態、新タスク作成・設定継承・表示、開始結果の検証 |
+| `aiterm-steer-delivery`（採用候補） | 指定したCodex threadへの配送、配送ID・受付ID・送信結果不明の区別、必要な配送hookとOS適合 |
+| Codex host | 実際のターン停止、指示・権限の適用、キュー消費、モデル実行とそのイベント |
+| Aiterm | 引き継ぐ作業が利用中の永続PTYの状態と公開API。今回の配送採用のために新たな子agentは起動しない |
+
+配送ライブラリの公開APIを利用する。queue処理・hook相関・runtime探索を
+Throughlineへコピーしない。ライブラリのstate/config置き場は製品profileで
+Throughline所有領域を指定する。他製品のprofile・channel・hookへ便乗しない。
+この用途にchannelやThroughlineのMCPサーバーは追加しない。
+
+### 発火と停止
+
+設計案の発火点は `PreCompact` の `trigger=auto` とする。
+固定75%の判定は初版へ接続しない。圧縮前の公式eventを使い、
+使用量の取得時刻と実際の圧縮判断のずれを避ける。
+手動 `/compact` はこの自動切り替えの発火対象にしない。
+
+フック入力のsession/turn、transcriptから束縛したCodex環境、projectを使う。
+同一projectの最新session、古いshellの環境変数、前回のhost推測は自動経路で使わない。
+表示先は登録時またはhostの公開情報で固定し、判定できない場合は明示的な未対応とする。
+
+フックはDBへ引き継ぎ要求と旧ターンの境界を保存し、独立した継続processを起動して
+`continue: false` を返す。継続processは旧ターンの停止を確認してから後継を準備する。
+**フック内で自身の終了を待たない。**
+フックの返答と旧ターン終了の因果は検証Aで確認する。
+
+独立processの開始だけを成功にしない。開始不能ならフックが固定理由で失敗を表示する。
+要求の保存後にprocessが終了した場合も、同じ引き継ぎIDを診断・再開できるようにする。
+常駐daemonや周期監視は、この設計案には追加しない。
+
+### 記憶と作業途中の情報
+
+引き継ぎでは最新captureの境界を固定し、L1生成完了を確認してから文脈を作る。
+進行中のターンは完了済みと表現せず、旧user要求、直近assistant本文、
+完了したtoolの結果への参照、未完了operationの識別子を含める。
+「次の一手」は元の会話・明示checkpointにある内容だけを使い、存在しなければ
+元の依頼と実測された現在地から継続させる。設計段階の都合で新たな依頼を捏造しない。
+
+Codexの継承文脈は合意済みの契約を維持する。
+
+- 直近20ターンのL2全文。
+- それ以前のL1要約。元のL2全文は必要時に取得できる。
+- L3は取得可能な参照だけを注入し、本文・tool payload・Thinkingを注入しない。
+- 保存本文の発言者と出典を保持し、元のユーザー指示・合意と正規repo指示を継承する。
+
+現行の新thread rendererは8本文行・各1,600字を既定とする短縮版であり、
+自動継続の記憶契約へそのまま流用しない。
+既存の `buildHandoffRecord` と全文rendererを基礎に、上記内容を扱う注入を設計する。
+既存の12,000字smokeやClaudeの9,500字制限は、自動Codex文脈の合否基準へ流用しない。
+新タスクの実効contextと圧縮なしの初回作業で容量を検証し、
+記憶が収まらない場合は内容を黙って削減せず原因と未成立条件を報告する。
+
+L1/L2/L3の元レコードはsource sessionを維持し、Codexの通常captureが
+過去の継承分を削除しないよう、引き継ぎ時点のsource自身の記憶を不変snapshotへ保存する。
+snapshotにはL3の保存本文も含むが、モデルへ渡すのは参照だけである。
+各snapshotには元のorigin/turn/source IDと境界を残す。
+取得用の参照もそのsnapshotと元IDへ束縛し、同時刻の別threadや変更後のlive sessionへ解決しない。
+継承履歴はsnapshotと前任の引き継ぎIDを指し、次の文脈は祖先と現タスクの記憶を
+origin/turnで重複を除いて構成する。過去の注入文を再帰的に貼り付けない。
+元タスクを後から再開・rollback・captureしても凍結snapshotは変えない。
+
+実行中のコマンド、native子agent、未処理のユーザー入力、権限確認は
+実行を所有するhost/製品へ照会する。単なる「停止済み」で副作用の完了を推測せず、
+完了待ちまたは正規の継承手段を検証してから同じ操作の重複を避けて再開する。
+継承できない状態は固定理由を表示して止まり、その状態を対応済みとしない。
+
+### 処理順と進行状態
+
+```mermaid
+sequenceDiagram
+    participant H as Codex旧タスク
+    participant F as Throughlineフック
+    participant W as Throughline継続処理
+    participant D as 配送ライブラリ
+    participant N as Codex新タスク
+    H->>F: PreCompact(auto)
+    F->>F: 要求と旧turn境界を保存
+    F->>W: 同じ引き継ぎIDで開始
+    F-->>H: continue=false
+    H-->>W: 旧turn停止の証拠
+    W->>W: capture・要約・snapshot確定
+    W->>N: 作成・設定継承・記憶注入
+    W->>N: Desktopへ表示要求
+    W->>D: 新threadへ継続指示を一度送信
+    D->>N: 公式queueへ登録
+    N-->>W: 指示IDに対応する作業開始と進捗
+    W->>W: continuedを記録
+```
+
+| 状態 | 進める条件 |
+|---|---|
+| `requested` | フック由来の元thread/turnと要求を保存済み |
+| `source_stopped` | 同じ元turnの停止と、未完了operationの処置を確認済み |
+| `memory_ready` | 最終capture・必要なL1・不変snapshot・実効設定を確定済み |
+| `target_ready` | 新thread IDを保存し、設定一致と注入済み記憶を確認済み |
+| `submitted` | 一つの配送IDに対する公式キュー受付IDを保存済み |
+| `continued` | その指示に対応する新turnの開始と、実際の継続作業を確認済み |
+
+DBには引き継ぎID、元thread/turn、project/Codex環境、snapshot参照、
+前任引き継ぎID、新thread ID、配送ID、受付ID、状態、開始証拠、失敗理由を保存する。
+元thread/turnの要求は一意にし、フックの重複で後継を増やさない。
+schema変更は `src/db.mjs` と製品所有migrationへ置き、
+現行schema番号はこの設計案では変更しない。
+
+外部mutation直前には対象と試行中の状態を保存する。
+応答前にprocessが消えた場合は、作成・注入・送信のどれも無条件に再試行しない。
+確定済み段階から再開し、後継IDが既知ならその後継を再利用する。
+結果不明は `unknown`、確定失敗は `failed` とし、失敗した段階を保持する。
+これらは全段階から移り得る終端状態として扱う。
+
+キュー受付成功は送信完了までの証拠であり、モデル可視・作業開始の証拠ではない。
+作業開始は、公式の指示IDとの相関を優先し、相関が公開されない場合は
+試験専用の識別子を持つ成果物とhostのイベントを照合する。
+固定sleepの経過、URL handlerのexit 0、関係ないturn開始を成功条件にしない。
+旧タスクの自動再開、current-thread trim、別memory sourceへの切り替えは行わない。
+
+### 配送方式の採否
+
+検証B・Cを通った場合、`verifyCodexParent` と
+`submitCodexParentAnswer` を新thread ID/Codex環境へ束縛して利用する。
+MCP要求から親を得るhelperは今回使わず、新thread作成結果を宛先にする。
+user指示の配送とdeveloper記憶の注入を分ける。
+新threadはidleなので、公式queueによる開始を先に検証し、
+不要な実行中turn向けSteer hook/channelを導入しない。
+ライブラリが明示的にSteer設定を要求する場合はその理由を確認して検証条件へ加える。
+
+新規idleタスクを起動できない場合は、何が不足したかを確定して採用を棄却し、
+Codexを所有するhost接続による `turn/start` と接続寿命の設計へ改訂する。
+現在のhelperへ `turn/start` を足して即時closeするだけでは完了にしない。
+この変更は検証結果に基づく設計改訂とし、稼働中の暗黙fallbackにしない。
+
+### 成立条件の実機検証
+
+試験は専用project・試験用タスクを使い、親のこのチャットと通常hook設定へ影響させない。
+sandbox外の生産ファイルや実作業を負荷生成に使わない。
+Desktop同梱runtimeとCLI版を混同せず、使用した実行体・hook承認・実効設定を記録する。
+hook承認や画面操作が人にしかできない場合は、止まった位置と必要操作を示す。
+
+| 検証 | 方法 | 合格条件と不合格時の扱い |
+|---|---|---|
+| A: 自動圧縮前の停止 | 隔離したhookに `PreCompact(auto)` を登録し、短い合成入力を段階的に増やして実auto eventを起こす | 圧縮前hook、停止返答、同じ旧turnの終了が順に観測され、圧縮本文が生成されない。manual `/compact` やhook関数の直接呼出しだけでは合格にしない |
+| B: 新タスクの自動開始 | 合成記憶と継続指示を準備し、新タスク作成→注入→Desktop表示→ライブラリ配送を行う | 人の追加promptなしで記憶内の値を使った専用成果物が生成される。source taskや同projectの別taskでは生成されない |
+| C: 配送process終了後の継続 | Bの配送process終了後に、複数段の短い作業をDesktopで継続する | process終了後の作業と最終成果を観測できる。受付や開始イベントだけでは合格にしない |
+| D: 連続引き継ぎ | A→B→Cで別の記憶・制約を追加し、Aの詳細もCから取得する | 元の依頼、途中の結果、合意した制約、L3詳細を保持し、同じ成果物を重複処理しない |
+| E: 中断と実行中状態 | フック重複、既知の後継作成後の終了、送信結果不明、未完了コマンド・子agent・未処理入力・承認待ちを個別に再現する | 各境界で固定理由と段階を残し、同じ後継を再利用する。結果不明の再送と重複副作用がない。未対応状態を成功へ丸めない |
+
+A〜Cを最初に実施し、成立した方式でD〜Eへ進む。
+各検証は境界を一つずつ測り、失敗時は最小再現へ戻る。
+試験中のtoken使用量・context window・入力量・開始までの時間は証拠に含めるが、
+常設統計システムはこの実装へ追加しない。
+容量不足で新タスクが作業開始前に再び圧縮を要求した場合は、
+新タスクを増やし続けず `handoff_memory_not_usable` として未成立を表示する。
+
+### 実装単位と検証
+
+| 対象 | 変更内容 | focused test |
+|---|---|---|
+| `src/hosts/codex.mjs`、`src/cli/codex-hook.mjs` | `PreCompact(auto)` payload、元IDへの束縛、停止返答 | manual非発火、並行task非混入、停止返答と要求保存 |
+| `src/cli/install.mjs`、doctor | 製品設定による自動機能ON/OFF、必要なhook登録・実効runtime・承認・能力の診断 | 既存hook/承認保持、未承認と未対応の明示、解除 |
+| `src/db.mjs`、継続処理module | 要求・境界・snapshot・継承関係・進行状態と再開 | 同じ元turnの重複、確定済み段階の再開、外部結果不明 |
+| `src/codex-capture.mjs`、`src/handoff-record.mjs`、renderer/recall/detail | 不変snapshotと祖先を参照する記憶、全文契約、途中状態の表現 | A→B→C、origin重複排除、source再captureでsnapshot不変、L3非注入と取得 |
+| `src/codex-app-server.mjs`、`src/cli/codex-handoff-start.mjs` | 自動経路の実効設定継承・記憶注入・表示と配送接続 | 設定一致、既知targetの再利用、受付と開始の区別 |
+| 配送profile・製品依存 | 採用した場合だけ公開APIの薄いadapter | 新threadへの配送、固定errorとunknownの伝播。ライブラリ内部の再試験はしない |
+
+未実装の自動経路は手動 `$throughline` の現行仕様と別の明示設定で有効化する。
+手動経路の同名fieldと互換性を保ち、source推測の修正を無断で巻き込まない。
+READMEには実装と受入が完了した動作だけを書く。
+実装中はfocused test、最後に関連試験と実機受入、release時の通し試験を各1回行う。
+公開・対象端末への導入・導入後smokeは [release gate](04_public_release_plan.md#release-gate) に従う。
+
+### 工程の現在地
+
+- [x] 目的・責務・処理順・失敗時の扱い・実機検証手順を設計案へまとめる。
+- [x] 公式仕様と配送ライブラリの固定参照を確認する。
+- [ ] A〜Cを実機検証し、停止観測・配送方式・接続寿命を確定する。
+- [ ] 検証結果を設計へ反映し、実装対象とschemaを確定する。
+- [ ] 機能実装とfocused testを行う。
+- [ ] D〜Eと対象host/OSの受入を完了する。
+- [ ] release・対象端末への導入・導入後smokeを完了する。
+
 ## この文書の位置づけ
 
 この文書は、2026-05-06 時点の次フェーズ実装順を定義する。
