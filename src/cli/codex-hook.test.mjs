@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
+  codexHookFailureCode,
   runCodexPostToolUseHook,
   runCodexStopHook,
   runCodexUserPromptSubmitHook,
@@ -495,6 +496,19 @@ test('codex-hook stop skips cleanly when Codex thread id is unavailable', async 
   } finally {
     db.close();
   }
+});
+
+test('codexHookFailureCodeは、L1要約backendの失敗だけを別のcodeにする', () => {
+  const backend = (reason) => Object.assign(new Error('x'), { source: 'codex-cli', reason });
+  assert.equal(codexHookFailureCode(backend('codex_cli_failed')), 'L1_SUMMARIZER_BACKEND_FAILED');
+  assert.equal(codexHookFailureCode(backend('empty_output')), 'L1_SUMMARIZER_BACKEND_FAILED');
+  // 製品側の誤り（projectPath 欠落・再帰）と、要約以外の失敗は hook 処理の失敗のまま。
+  assert.equal(codexHookFailureCode(backend('missing_project_path')), 'HOOK_CODEX_FAILED');
+  assert.equal(codexHookFailureCode(backend('recursion_guard')), 'HOOK_CODEX_FAILED');
+  assert.equal(codexHookFailureCode(Object.assign(new Error('x'), { reason: 'codex_cli_failed' })), 'HOOK_CODEX_FAILED');
+  assert.equal(codexHookFailureCode(new Error('database is locked')), 'HOOK_CODEX_FAILED');
+  assert.equal(codexHookFailureCode('thrown string'), 'HOOK_CODEX_FAILED');
+  assert.equal(codexHookFailureCode(null), 'HOOK_CODEX_FAILED');
 });
 
 test('codexHomeFromTranscriptPath infers CODEX_HOME from rollout path', () => {

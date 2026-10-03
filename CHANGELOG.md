@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.6] — 2026-10-04
+
+### 修正
+
+- Codex Stop hookで、会話の取り込みが済んだ後のL1要約backend（Codex CLI）の失敗を、`HOOK_CODEX_FAILED`（Codex hook processing failed・high）ではなく`L1_SUMMARIZER_BACKEND_FAILED`（L1 summarizer backend failed・warn）として数える（[ADR 0028](docs/adr/0028-l1-summarizer-backend-failure-code.md)）。Codex CLIが利用上限や認証切れで非0終了すると、取り込みは成功しているのにhook処理の失敗として記録されていた。hookの終了codeとstderrは変えない。要約は次のStopが同じturnからやり直す。
+- 0.9.0と0.12.5の両方で、20 turnを超えるスレッドのStopがCodex CLIの失敗で`HOOK_CODEX_FAILED`を記録することを再現した。Macに残っていた1151回の最後の1回は、そのスレッドが利用上限に当たった時刻と一致する。1151回すべてがこの形だったことを示す記録は無い。
+
+### 変更
+
+- `~/.throughline/logs/hook-failures.log`に、errorが持つ`reason`と、外部CLIの`stderr`の末尾（1000字まで）を足す。`Codex CLI summarizer failed: exit 1`だけでは、利用上限か認証切れかが分からないため。端末内にだけ残し、外へは送らない。
+
 ## [0.12.5] — 2026-10-04
 
 ### 修正
@@ -1588,7 +1599,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.5...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.6...HEAD
+[0.12.6]: https://github.com/kitepon/Throughline/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/kitepon/Throughline/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/kitepon/Throughline/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/kitepon/Throughline/compare/v0.12.2...v0.12.3

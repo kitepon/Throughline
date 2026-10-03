@@ -23,6 +23,24 @@ test('logHookFailureは、失敗の理由を1行のJSONで追記する', () => {
   }
 });
 
+test('logHookFailureは、外部CLIの失敗の理由とstderrの末尾を残す', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
+  try {
+    const err = new Error('Codex CLI summarizer failed: exit 1');
+    err.reason = 'codex_cli_failed';
+    err.stderr = `${'banner '.repeat(300)}ERROR: usage limit`;
+    logHookFailure('L1_SUMMARIZER_BACKEND_FAILED', err, { home });
+    const [entry] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(entry.code, 'L1_SUMMARIZER_BACKEND_FAILED');
+    assert.equal(entry.message, 'Codex CLI summarizer failed: exit 1');
+    assert.equal(entry.reason, 'codex_cli_failed');
+    assert.equal(entry.stderr.length, HOOK_FAILURE_MESSAGE_LIMIT);
+    assert.match(entry.stderr, /ERROR: usage limit$/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('logHookFailureは、長い文面を上限で切る', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
   try {

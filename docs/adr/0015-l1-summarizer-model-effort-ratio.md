@@ -66,6 +66,8 @@ none/low/medium/high/xhigh）のため none を下端とした。
 4. claude-primary の backend 順序を **codex-sidecar → Codex CLI (luna@low) → Haiku →
    raw L2** にする。各段の失敗理由は結果 (`sidecarReason` / `codexCliReason`) に記録
    する宣言済み fallback。codex-primary は従来どおり Codex CLI 一本で explicit error。
+   （2026-10-04 [ADR 0028](0028-l1-summarizer-backend-failure-code.md)で、この explicit error を runtime error store では
+   `L1_SUMMARIZER_BACKEND_FAILED` として数えることにした。hook の終了 code と stderr は変えていない。）
    （実測で Haiku は timeout 完全失敗があり、luna は同等品質・半分以下のレイテンシ・
    失敗ゼロのため、Haiku より先に置く。）
 5. sidecar `summarize-l1` preset のモデルは codex-sidecar（別repo）の所有。本 ADR では

@@ -36,6 +36,12 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
     name: error instanceof Error ? error.name : typeof error,
     message: message.slice(0, HOOK_FAILURE_MESSAGE_LIMIT),
   };
+  // 外部 CLI の失敗は、message が終了 code だけになる。理由（reason）と CLI の stderr の末尾も残す
+  // （CLI は先頭に起動情報を出し、失敗の理由は末尾に出す）。
+  if (typeof error?.reason === 'string' && error.reason) entry.reason = error.reason;
+  if (typeof error?.stderr === 'string' && error.stderr) {
+    entry.stderr = error.stderr.slice(-HOOK_FAILURE_MESSAGE_LIMIT);
+  }
   const path = hookFailureLogPath(home === undefined ? {} : { home });
   try {
     mkdirSync(dirname(path), { recursive: true });

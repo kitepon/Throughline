@@ -52,6 +52,13 @@ const DEFINITIONS = Object.freeze({
     severity: 'high',
     template: 'Throughline Codex hook processing failed',
   }),
+  // Codex Stop の取り込みは済み、L1 要約の backend（Codex CLI）だけが失敗した（ADR 0028）。
+  L1_SUMMARIZER_BACKEND_FAILED: Object.freeze({
+    component: 'codex_l1_summarizer',
+    // BugHub が受ける severity は fatal・high・warn・info だけ。他の値は report 全体が 422 になる。
+    severity: 'warn',
+    template: 'Throughline L1 summarizer backend (Codex CLI) failed',
+  }),
 });
 
 export function defaultRuntimeErrorConfigPath(env = process.env) {

@@ -360,6 +360,22 @@ async function runCodexContextRefreshInstructionHook({
   };
 }
 
+const L1_SUMMARIZER_BACKEND_REASONS = new Set(['codex_cli_failed', 'empty_output']);
+
+/**
+ * Codex hook が失敗した時に記録する runtime error の code を決める（ADR 0028）。
+ * L1 要約の backend（Codex CLI）が非0で終わった、または空を返した失敗は、取り込みの後に起きる
+ * 外部 CLI の失敗なので、hook 処理の失敗とは別の code で数える。hook の終了 code と stderr は変えない。
+ * @param {unknown} error
+ * @returns {'HOOK_CODEX_FAILED' | 'L1_SUMMARIZER_BACKEND_FAILED'}
+ */
+export function codexHookFailureCode(error) {
+  if (error?.source === 'codex-cli' && L1_SUMMARIZER_BACKEND_REASONS.has(error?.reason)) {
+    return 'L1_SUMMARIZER_BACKEND_FAILED';
+  }
+  return 'HOOK_CODEX_FAILED';
+}
+
 export async function run(argv = []) {
   suppressExperimentalWarnings();
   let parsed;
@@ -417,8 +433,9 @@ export async function run(argv = []) {
     // continue=falseは、明示した失敗理由を含めてhostへ停止を届けた返答。背景処理の成否は引き継ぎ状態へ記録する。
     process.exit(result.continue === false || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
-    recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
-    logHookFailure('HOOK_CODEX_FAILED', err);
+    const code = codexHookFailureCode(err);
+    recordRuntimeErrorBestEffort(code, { env: process.env });
+    logHookFailure(code, err);
     const msg = err instanceof Error ? err.message : 'unknown';
     if (parsed.json) {
       process.stdout.write(
