@@ -237,6 +237,8 @@ switch (cmd) {
   if (code) {
     const { recordRuntimeErrorBestEffort } = await import('../src/runtime-error-store.mjs');
     recordRuntimeErrorBestEffort(code);
+    const { logHookFailure } = await import('../src/hook-failure-log.mjs');
+    logHookFailure(code, error);
   }
   throw error;
 }

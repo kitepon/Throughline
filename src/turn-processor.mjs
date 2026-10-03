@@ -45,6 +45,7 @@ import { ensureMonitorTaskFile } from './vscode-task.mjs';
 import { readLatestUsage } from './transcript-usage.mjs';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
+import { logHookFailure } from './hook-failure-log.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 
@@ -65,6 +66,9 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
  * - latest groupにassistant断片がまだ無い（次のturnは本文を書いていない）
  * - 1つ前のgroupの本文がmarkerと一致する
  * - そのturnがまだDBに捕捉されていない（捕捉済みの同文answerは、今回のStopの完了ではない）
+ *
+ * markerとtranscriptの本文は、前後の空白を除いて比べる（ADR 0027）。Claude Codeはmarkerを
+ * `.trim()` して渡すので、本文が空白や改行で始まる（終わる）turnは、そのままでは一致しない。
  */
 export async function waitForClaudeStopTranscriptFlush({
   transcriptPath,
@@ -77,7 +81,7 @@ export async function waitForClaudeStopTranscriptFlush({
   now = Date.now,
   wait = delay,
 }) {
-  if (typeof lastAssistantMessage !== 'string' || lastAssistantMessage.length === 0) {
+  if (typeof lastAssistantMessage !== 'string' || lastAssistantMessage.trim().length === 0) {
     return { status: 'marker_unavailable' };
   }
   const read = readCompletion
@@ -88,11 +92,14 @@ export async function waitForClaudeStopTranscriptFlush({
     userTurnNumber: completion.userTurnNumber,
     assistantTurnNumber: completion.assistantTurnNumber,
   });
+  const marker = lastAssistantMessage.trim();
+  const matchesMarker = (completion) =>
+    typeof completion?.assistantContent === 'string' && completion.assistantContent.trim() === marker;
   const deadline = now() + timeoutMs;
   for (;;) {
     const { latest, previous } = read() ?? { latest: null, previous: null };
-    if (latest?.assistantContent === lastAssistantMessage) return ready(latest);
-    if (previous?.assistantContent === lastAssistantMessage &&
+    if (matchesMarker(latest)) return ready(latest);
+    if (matchesMarker(previous) &&
       latest?.fragmentTurnNumbers?.length === 0 &&
       !isTurnCaptured(previous.fragmentTurnNumbers)) {
       return ready(previous);
@@ -418,6 +425,7 @@ export async function run() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
     recordRuntimeErrorBestEffort('HOOK_PROCESS_TURN_FAILED');
+    logHookFailure('HOOK_PROCESS_TURN_FAILED', err);
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[turn-processor] error: ${msg}\n`);
     process.exit(1);

@@ -32,6 +32,7 @@ import { logDecision } from './decision-log.mjs';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
+import { logHookFailure } from './hook-failure-log.mjs';
 import { hostAdapterForSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
 
@@ -190,6 +191,7 @@ export async function run() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
     recordRuntimeErrorBestEffort('HOOK_SESSION_START_FAILED');
+    logHookFailure('HOOK_SESSION_START_FAILED', err);
     process.stderr.write(`[session-start] error: ${err.message}\n`);
     process.exit(1);
   });

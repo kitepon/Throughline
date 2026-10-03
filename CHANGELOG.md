@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.5] — 2026-10-04
+
+### 修正
+
+- Claudeの応答が空白や改行で始まる（終わる）turnで、Stop hookが2秒待って`HOOK_PROCESS_TURN_FAILED`で失敗していた不具合を直す。Claude CodeはStop payloadの`last_assistant_message`を`.trim()`して渡すが、transcriptにはtrimする前の本文が残る。flush barrierは完全一致で比べていたので、transcriptが出そろっていても一致しなかった。前後の空白を除いて比べる（[ADR 0027](docs/adr/0027-stop-flush-barrier-trimmed-marker.md)）。保存する本文はtranscriptのままで変えない。
+- Macで記録された最後の`HOOK_PROCESS_TURN_FAILED`（2026-08-31）がこの形だった。その時のtranscriptでStopを再生すると、0.10.3・0.12.1・0.12.4のどれも失敗し、この版では成功する。Macに残る8月のtranscriptでは、空白で始まる応答のStopが96回あり、96回とも保存されていなかった。
+
+### 追加
+
+- hookが失敗した時の理由を、端末内の`~/.throughline/logs/hook-failures.log`へ残す。1行のJSONで、項目は`ts`・`code`・`version`・`name`・`message`（1000字まで）。SessionStart・UserPromptSubmit・Stop・Codex hookが対象。runtime errorの収集・送信の設定とは独立に書き、外へは送らない。runtime error storeは定型codeと回数だけを持つので、これまでは失敗の理由が残らず、後から原因を追えなかった。
+
 ## [0.12.4] — 2026-10-04
 
 ### 修正
@@ -1577,7 +1588,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.4...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.5...HEAD
+[0.12.5]: https://github.com/kitepon/Throughline/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/kitepon/Throughline/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/kitepon/Throughline/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/kitepon/Throughline/compare/v0.12.1...v0.12.2

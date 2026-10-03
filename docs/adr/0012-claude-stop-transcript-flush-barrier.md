@@ -17,6 +17,7 @@ turn後に現行parserで読むとlatest logical groupは1件だった。Claude�
 
 1. Stop payloadに非空`last_assistant_message`がある場合、latest user groupの非junk assistant本文が
    その値と一致するまで短いbounded intervalでtranscriptを再読する。
+   （2026-10-04 [ADR 0027](0027-stop-flush-barrier-trimmed-marker.md)で、前後の空白を除いて比べることにした。Claude Codeはmarkerを`.trim()`して渡す。）
 2. `last_assistant_message`はcompletion identity／flush barrierにだけ使い、L2本文やreceipt digestの
    ソースにはしない。本文は従来どおりtranscriptからDBへcommitしたpairだけを使う。
 3. latest user groupを必須にし、過去の同文assistantや前turnを一致として採用しない。

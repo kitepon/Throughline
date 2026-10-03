@@ -1,4 +1,5 @@
 import { recordRuntimeErrorBestEffort } from '../runtime-error-store.mjs';
+import { logHookFailure } from '../hook-failure-log.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -368,6 +369,7 @@ export async function run(argv = []) {
     payload = parsePayload(await readStdin());
   } catch (err) {
     recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
+    logHookFailure('HOOK_CODEX_FAILED', err);
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[codex-hook] ${msg}\n`);
     process.exit(1);
@@ -381,6 +383,7 @@ export async function run(argv = []) {
         result = await requestCodexAutoHandoff({ payload });
       } catch (error) {
         recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
+        logHookFailure('HOOK_CODEX_FAILED', error);
         const code = typeof error.code === 'string' ? error.code : 'handoff_request_failed';
         result = { status: 'failed', continue: false,
           stopReason: `Throughline自動継続が失敗しました: ${code}。記憶の圧縮を停止します。` };
@@ -415,6 +418,7 @@ export async function run(argv = []) {
     process.exit(result.continue === false || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
     recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
+    logHookFailure('HOOK_CODEX_FAILED', err);
     const msg = err instanceof Error ? err.message : 'unknown';
     if (parsed.json) {
       process.stdout.write(

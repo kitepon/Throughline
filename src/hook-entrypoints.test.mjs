@@ -918,6 +918,74 @@ test('process-turn subprocess captures the completed turn when the next user ent
   }
 });
 
+test('process-turn subprocess captures a turn whose transcript text starts with whitespace', () => {
+  const home = makeTempHome();
+  const project = makeTempProject();
+  const transcriptPath = join(project, 'transcript.jsonl');
+  const text = (role, value) => ({ type: role, message: { role, content: [{ type: 'text', text: value }] } });
+  try {
+    // Claude Codeは `last_assistant_message` を `.trim()` して渡す。transcriptの本文はそのまま保存する。
+    writeFileSync(transcriptPath, [
+      text('user', 'request'),
+      text('assistant', ' answer that starts with a space'),
+    ].map((entry) => JSON.stringify(entry)).join('\n'), 'utf8');
+    const result = runNode([join(REPO_ROOT, 'bin/throughline.mjs'), 'process-turn'], {
+      home,
+      cwd: project,
+      input: JSON.stringify({
+        session_id: 'leading-space-session',
+        cwd: project,
+        transcript_path: transcriptPath,
+        last_assistant_message: 'answer that starts with a space',
+      }),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const db = openDb(home);
+    assert.deepEqual(
+      db.prepare('SELECT role, text FROM bodies ORDER BY turn_number, role').all().map((row) => ({ ...row })),
+      [{ role: 'assistant', text: ' answer that starts with a space' }, { role: 'user', text: 'request' }],
+    );
+    db.close();
+    assert.equal(readCompletedTurnReceiptSnapshot({ projectPath: project, env: childEnv(home) }).receipts.length, 1);
+    assert.equal(existsSync(join(home, '.throughline', 'logs', 'hook-failures.log')), false);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a failed hook leaves its reason in the local hook failure log', () => {
+  const home = makeTempHome();
+  const project = makeTempProject();
+  const failures = () => readFileSync(join(home, '.throughline', 'logs', 'hook-failures.log'), 'utf8')
+    .trim().split('\n').map((line) => JSON.parse(line));
+  try {
+    // 公開CLI経由（hookが実際に呼ぶ入口）と、moduleの直接起動の両方で残す。
+    const viaCli = runNode([join(REPO_ROOT, 'bin/throughline.mjs'), 'process-turn'], {
+      home, cwd: project, input: JSON.stringify({ cwd: project }),
+    });
+    assert.notEqual(viaCli.status, 0);
+    const direct = runNode([join(REPO_ROOT, 'src/session-start.mjs')], {
+      home, cwd: project, input: JSON.stringify({ cwd: project }),
+    });
+    assert.notEqual(direct.status, 0);
+
+    const entries = failures();
+    assert.deepEqual(entries.map((entry) => [entry.code, entry.name, entry.message]), [
+      ['HOOK_PROCESS_TURN_FAILED', 'Error', 'Missing session_id in Stop payload'],
+      ['HOOK_SESSION_START_FAILED', 'Error', 'Missing session_id in SessionStart payload'],
+    ]);
+    for (const entry of entries) {
+      assert.deepEqual(Object.keys(entry), ['ts', 'code', 'version', 'name', 'message']);
+      assert.match(entry.ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      assert.match(entry.version, /^\d+\.\d+\.\d+$/);
+    }
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('first prompt backfills a derived predecessor transcript without a state file', {
   skip: process.platform === 'win32' ? 'Windowsはstate file transcriptPath fallback契約' : undefined,
 }, () => {

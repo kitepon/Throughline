@@ -105,6 +105,53 @@ test('Claude Stop flush barrierはlatest userの遅延assistantを待ち、過�
   }
 });
 
+test('Claude Stop flush barrierは、前後の空白を除いてmarkerと本文を比べる', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'throughline-stop-flush-trim-'));
+  const transcriptPath = join(root, 'transcript.jsonl');
+  const text = (role, value) => ({ type: role, message: { role, content: [{ type: 'text', text: value }] } });
+  let elapsed = 0;
+  const clock = { now: () => elapsed, wait: async (milliseconds) => { elapsed += milliseconds; } };
+  const write = (entries) => writeFileSync(
+    transcriptPath, entries.map((entry) => JSON.stringify(entry)).join('\n'), 'utf8');
+  try {
+    // 実測（2026-08-31、Mac）: 本文が空白で始まるturn。Claude Codeはmarkerを `.trim()` して渡す。
+    write([text('user', 'request'), text('assistant', ' answer with a leading space')]);
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'answer with a leading space', timeoutMs: 100, intervalMs: 10, ...clock,
+    }), { status: 'ready', userTurnNumber: 0, assistantTurnNumber: 1 });
+    assert.equal(elapsed, 0, 'a whitespace-only difference must not wait for the deadline');
+
+    write([text('user', 'request'), text('assistant', '\n\nanswer with newlines\n')]);
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'answer with newlines', timeoutMs: 100, intervalMs: 10, ...clock,
+    }), { status: 'ready', userTurnNumber: 0, assistantTurnNumber: 1 });
+
+    // 1つ前のgroupを採用する経路（ADR 0026）も同じ比べ方をする。
+    write([text('user', 'request'), text('assistant', ' answer'), text('user', 'queued request')]);
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'answer', timeoutMs: 100, intervalMs: 10,
+      isTurnCaptured: () => false, ...clock,
+    }), { status: 'ready', userTurnNumber: 0, assistantTurnNumber: 1 });
+    assert.equal(elapsed, 0);
+
+    // 空白以外が違う本文は一致させない。
+    write([text('user', 'request'), text('assistant', ' answer')]);
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'another answer', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), /not visible before deadline/);
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'ans wer', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), /not visible before deadline/);
+
+    // 空白だけのmarkerは、無いものとして扱う。
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: ' \n', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), { status: 'marker_unavailable' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Claude Stop flush barrierは、Stop直後に次のuser行が届いても、未捕捉の完了turnを待たずに採用する', async () => {
   const root = mkdtempSync(join(tmpdir(), 'throughline-stop-flush-next-user-'));
   const transcriptPath = join(root, 'transcript.jsonl');

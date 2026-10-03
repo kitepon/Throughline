@@ -40,6 +40,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
+import { logHookFailure } from './hook-failure-log.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 
 // Phase 0-5 spike marker (SessionStart の spike-inject.flag とは別)
@@ -325,6 +326,7 @@ async function maybeRunPromptSpike({ payload, sessionId, projectPath }) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
     recordRuntimeErrorBestEffort('HOOK_PROMPT_SUBMIT_FAILED');
+    logHookFailure('HOOK_PROMPT_SUBMIT_FAILED', err);
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[prompt-submit] error: ${msg}\n`);
     process.exit(1);
