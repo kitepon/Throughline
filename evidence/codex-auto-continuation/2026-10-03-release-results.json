@@ -1,0 +1,89 @@
+{
+  "schema": "throughline.auto-handoff.release-evidence.v1",
+  "version": "0.11.0",
+  "commit": "c2ee64f40fcd34af382a50a5a22383c791cc909d",
+  "registryShasum": "a62cf97f7d62ee4abe5ece71be238d88cf614ce4",
+  "observedAt": 1791008036880,
+  "manualInterventionsAfterSubmit": 0,
+  "operations": [
+    {
+      "id": "88790ad1-1cdf-450f-bddf-4d770631e4de",
+      "state": "continued",
+      "sourceThreadId": "01a10060-8d46-7213-8539-823aa07d0467",
+      "targetThreadId": "01a10062-260e-79e0-921f-d4bbf25d0d4e",
+      "previous": null,
+      "deliveryId": "a53dd3d4-187f-4b8f-87bf-6220042118e1",
+      "receipt": "01a10062-3f2f-7b13-8172-a9ee3995590e",
+      "startedTurnId": "01a10062-45c4-7aa0-8360-61faa928ef21",
+      "stopAfterRequestMs": 121,
+      "bodyRows": 2,
+      "detailRows": 6,
+      "settingsMatched": true
+    },
+    {
+      "id": "399bad47-0a9f-4d04-9f92-f84486d87877",
+      "state": "continued",
+      "sourceThreadId": "01a10062-260e-79e0-921f-d4bbf25d0d4e",
+      "targetThreadId": "01a10062-dc49-78b2-8a5a-f511ab78cc5d",
+      "previous": "88790ad1-1cdf-450f-bddf-4d770631e4de",
+      "deliveryId": "3cebeea1-e2cc-47e1-874e-f7799d2315c5",
+      "receipt": "01a10062-ecb7-7630-bd3b-0b8a9f43d6da",
+      "startedTurnId": "01a10062-ee5f-7351-92c8-203bcc4ba754",
+      "stopAfterRequestMs": 43,
+      "bodyRows": 2,
+      "detailRows": 6,
+      "settingsMatched": true
+    },
+    {
+      "id": "f6097bd5-3b66-410e-b5fd-633813793106",
+      "state": "continued",
+      "sourceThreadId": "01a10062-dc49-78b2-8a5a-f511ab78cc5d",
+      "targetThreadId": "01a10063-ff08-7493-a262-54ca4cb39e46",
+      "previous": "399bad47-0a9f-4d04-9f92-f84486d87877",
+      "deliveryId": "4353c29d-f74b-44a5-96c8-a934475638fc",
+      "receipt": "01a10064-08d0-7750-acc9-1a5183a083ef",
+      "startedTurnId": "01a10064-79a4-70f2-89ef-3d2ddfd9e8a0",
+      "stopAfterRequestMs": 78,
+      "bodyRows": 2,
+      "detailRows": 12,
+      "settingsMatched": true
+    }
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "valueMatched": true
+    },
+    {
+      "stage": 2,
+      "valueMatched": true
+    },
+    {
+      "stage": 3,
+      "valueMatched": true
+    }
+  ],
+  "firstSourceDetailsReadFromThirdTask": [
+    {
+      "at": "2026-10-03T06:11:23.029Z",
+      "resultRecorded": true
+    },
+    {
+      "at": "2026-10-03T06:11:39.275Z",
+      "resultRecorded": true
+    }
+  ],
+  "ancestorProof": {
+    "sha256": "112466785e5f19098b91aa94646d9f4fba7f09f3e7094334b5775051545f16fd",
+    "bytes": 445
+  },
+  "lastTaskComplete": true,
+  "lastTaskCompacted": 0,
+  "ci": {
+    "runId": 37101617915,
+    "linux": "success",
+    "macos": "success",
+    "windows": "success"
+  },
+  "publishRunId": 37101749091
+}

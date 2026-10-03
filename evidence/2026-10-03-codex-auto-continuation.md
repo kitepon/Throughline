@@ -111,3 +111,25 @@ macOSのDesktop以外のOS/hostは未検証である。
 自分の試験project/hook用設定6 sectionは、完了後に公式APIで削除した。
 通常の他hookやuser設定は巻き戻していない。製品の新しいPreCompact登録は
 標準installの管理対象とし、公開後に正規の導入先へ更新する。
+
+## 公開版の導入と実機確認
+
+[v0.11.0](https://github.com/kitepon/Throughline/releases/tag/v0.11.0)を既定ブランチのcommitからTrusted Publishingで公開した。
+[公開後の結果JSON](codex-auto-continuation/2026-10-03-release-results.json)を正とする。
+
+- [公開workflow](https://github.com/kitepon/Throughline/actions/runs/37101749091): 全試験864成功・失敗0・2 skip。registryのshasumは公開ログと一致した。
+- [製品CI](https://github.com/kitepon/Throughline/actions/runs/37101617915): Linux・macOS・Windowsと最終gateがすべて成功した。
+- registry由来の隔離installでversion、install、migrate、doctor、初回statusを確認した。初回DB不在は`not_applicable`とし、statusはDBを作らない。
+- 対象端末は正規`self-update`で更新し、DB移行と公開diagnosticsの`ready`を確認した。配布実装18ファイルは公開commitとbyte単位で一致した。
+- 公開されたCLIを試験projectから呼び、追加指示なしで3回引き継いだ。3工程の値と順序、CからAの凍結L3取得、最後のタスク完了を確認した。手動resumeと再送は0回である。
+
+| 公開版の引き継ぎ | 要求から旧turn停止 | 配送・実進捗 | 表示後の設定 |
+|---|---:|---|---|
+| 1回目 | 121 ms | continued | 一致 |
+| 2回目 | 43 ms | continued | 一致 |
+| 3回目 | 78 ms | continued | 一致 |
+
+試験projectの自分の設定3 sectionを公式APIで削除し、試験用の自動継続設定を無効化した。
+Throughlineの通常projectは公開CLIの`auto-handoff enable --project`で有効化し、登録・承認と公開statusのenabledを確認した。
+試験modelの選定は`pick-model`経由でJevを使用した。最初の画面確認にもJev Desktopを使用し、
+製品統合と公開後の操作・照合は公式APIと永続イベントで行った。

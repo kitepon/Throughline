@@ -281,7 +281,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 - 現行 install は Throughline 管理 Codex hook の shape を更新する。同じ `throughline codex-hook stop` command が既にあっても、絶対パス型 command / `timeout` / `async` などを [src/cli/install.mjs](src/cli/install.mjs) の生成値に合わせる。旧 `timeoutSec` entry も command identity で除去し、canonical entryへ置換する。
 - **UserPromptSubmit** は二相ハンドオフ第二相 (pending intent 消費 + merge + 予算内注入) + `/tl` バトン書き込み + VSCode tasks.json 自動プロビジョニングの3役 (ADR 0014)。`/clear`互換分岐は残るが、組み込み`/clear`は実測したクライアントからこのhookへ届かない。Grok `/tl` のあとだけ `throughline grok-continue --session <id>` を副作用で呼ぶ。Claude / Codex と Grok `/clear` では呼ばない。注入がこの hook に移ったため、SessionStart 側の注入は廃止（旧「二重注入回避」制約は消滅）。tasks.json 作成は SessionStart / Stop にも同じ呼び出しがあり、どれか 1 つでも発火すれば生成される（冪等）
 - **Claude PostToolUse** は登録しない（schema v4 で廃止）。Codex PostToolUse は別用途で、tool loop 中の rollout capture / monitor state write hook として登録する。current-session refresh instruction は注入しない。
-- **PreCompact** は使っていない（自動コンパクト依存の設計を放棄したため）
+- **Claude PreCompact** は登録しない。Codexは明示有効化した自動新規タスク継続の`PreCompact(auto)`だけを使用する。
 - dev 時に spike 系 hook（`spike/hook-logger.mjs` 等）が並行登録されている場合があるが、動作ログ採取用で実害なし
 
 ---
