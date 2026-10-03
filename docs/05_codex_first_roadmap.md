@@ -5,11 +5,12 @@
 
 ## 自動新規タスク継続の設計案
 
-状態: **設計案を作成済み。成立条件の実機検証・機能実装・設定変更は未実施。**
+状態: **成立条件A〜CはCodex Desktopで実測済み。配送にはaiterm-steer-deliveryを採用する。製品の自動引き継ぎは未実装。**
 
 この節は、自動圧縮が始まる前にThroughlineが新しいタスクへ記憶を渡し、
 人が「続けて」と入力せずに作業を再開するための設計案である。
-次の工程は下記の検証A〜C。配送方式はその結果で確定する。
+実測と証明範囲は[成立検証の記録](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)を参照する。
+次の工程はDesktop表示後の実効設定継承・停止観測の確定と、製品schema/継続処理の実装である。
 以下の既存Phase記録は従来のcurrent-thread trimの経緯として読み、この設計案の
 受入結果と混同しない。現在のautomatic refreshが無効である挙動は変更していない。
 
@@ -36,10 +37,10 @@ VS Code・CLIとClaude/Grok/Cursorの対応はhostごとに同じ条件で検証
 
 | 項目 | 現時点で確認できたこと | 次に実測すること |
 |---|---|---|
-| 圧縮前の停止 | Codex公式仕様は `PreCompact` の `continue: false` で圧縮前に停止すると定義する | Desktopでの実火、旧ターン終了の観測、圧縮本文の非生成 |
-| 新タスクの準備 | `codex-handoff-start` は `thread/start` とdeveloper memory注入を実装する | 同じ実効設定で作成し、Desktopがそのタスクを引き受けること |
-| 自動再開 | `aiterm-steer-delivery` は指定threadへの `thread/queue/add` を公開する | まだ一度も動いていない新タスクが、その指示で作業を開始すること |
-| 接続の寿命 | 現行handoff helperは処理終了時に自身のapp-server接続を閉じる | 配送process終了後もDesktopで作業が続くこと |
+| 圧縮前の停止 | `PreCompact(auto)` と停止返答、同じturnの `turn_aborted`、圧縮記録0件をDesktopで実測した | 既定閾値での長時間作業と、一連の自動引き継ぎ |
+| 新タスクの準備 | 記憶注入後に作成processを閉じたタスクをDesktopで実行できた | Desktopが作成時のsandboxを更新するため、表示後も実効設定を保持・確認する手段 |
+| 自動再開 | 合成developer記憶を持つ未実行タスクへ公開配送APIから指示を送り、自動開始を実測した | 実際のThroughline記憶と、停止から開始までの製品統合 |
+| 接続の寿命 | 配送処理終了後にDesktopで複数段の作業と完了を実測した | 製品統合後の接続寿命と中断時の回復 |
 | 連続継承 | Codex captureは各threadのL1/L2/L3を再構築し、注入developer本文を会話として保存しない | 凍結した記憶と継承関係による2回以上の継続 |
 
 別processの `thread/read` が返した `notLoaded` や空turn一覧を、
@@ -51,7 +52,7 @@ Desktopで旧ターンが停止した証拠として使わない。
 | 所有者 | 担当 |
 |---|---|
 | Throughline | 発火、元thread/turnの特定、記憶の確定、継承関係、引き継ぎの進行状態、新タスク作成・設定継承・表示、開始結果の検証 |
-| `aiterm-steer-delivery`（採用候補） | 指定したCodex threadへの配送、配送ID・受付ID・送信結果不明の区別、必要な配送hookとOS適合 |
+| `aiterm-steer-delivery`（採用） | 指定したCodex threadへの配送、配送ID・受付ID・送信結果不明の区別、必要な配送hookとOS適合 |
 | Codex host | 実際のターン停止、指示・権限の適用、キュー消費、モデル実行とそのイベント |
 | Aiterm | 引き継ぐ作業が利用中の永続PTYの状態と公開API。今回の配送採用のために新たな子agentは起動しない |
 
@@ -74,7 +75,9 @@ Throughline所有領域を指定する。他製品のprofile・channel・hookへ
 フックはDBへ引き継ぎ要求と旧ターンの境界を保存し、独立した継続processを起動して
 `continue: false` を返す。継続processは旧ターンの停止を確認してから後継を準備する。
 **フック内で自身の終了を待たない。**
-フックの返答と旧ターン終了の因果は検証Aで確認する。
+フックの返答と旧ターン終了の因果は検証Aで確認した。
+停止観測はhook由来の同じsession/turnと永続 `turn_aborted` を照合する。
+別processのcold readだけでは、実行中のturnもinterruptedと見える実測がある。
 
 独立processの開始だけを成功にしない。開始不能ならフックが固定理由で失敗を表示する。
 要求の保存後にprocessが終了した場合も、同じ引き継ぎIDを診断・再開できるようにする。
@@ -133,6 +136,7 @@ sequenceDiagram
     W->>W: capture・要約・snapshot確定
     W->>N: 作成・設定継承・記憶注入
     W->>N: Desktopへ表示要求
+    W->>W: 表示後の実効設定を確認
     W->>D: 新threadへ継続指示を一度送信
     D->>N: 公式queueへ登録
     N-->>W: 指示IDに対応する作業開始と進捗
@@ -144,7 +148,7 @@ sequenceDiagram
 | `requested` | フック由来の元thread/turnと要求を保存済み |
 | `source_stopped` | 同じ元turnの停止と、未完了operationの処置を確認済み |
 | `memory_ready` | 最終capture・必要なL1・不変snapshot・実効設定を確定済み |
-| `target_ready` | 新thread IDを保存し、設定一致と注入済み記憶を確認済み |
+| `target_ready` | 新thread IDを保存し、注入済み記憶とDesktop表示後の実効設定一致を確認済み |
 | `submitted` | 一つの配送IDに対する公式キュー受付IDを保存済み |
 | `continued` | その指示に対応する新turnの開始と、実際の継続作業を確認済み |
 
@@ -166,20 +170,24 @@ schema変更は `src/db.mjs` と製品所有migrationへ置き、
 固定sleepの経過、URL handlerのexit 0、関係ないturn開始を成功条件にしない。
 旧タスクの自動再開、current-thread trim、別memory sourceへの切り替えは行わない。
 
-### 配送方式の採否
+### 配送方式の採用
 
-検証B・Cを通った場合、`verifyCodexParent` と
+検証B・Cが成立したため、`verifyCodexParent` と
 `submitCodexParentAnswer` を新thread ID/Codex環境へ束縛して利用する。
 MCP要求から親を得るhelperは今回使わず、新thread作成結果を宛先にする。
 user指示の配送とdeveloper記憶の注入を分ける。
-新threadはidleなので、公式queueによる開始を先に検証し、
-不要な実行中turn向けSteer hook/channelを導入しない。
-ライブラリが明示的にSteer設定を要求する場合はその理由を確認して検証条件へ加える。
+新threadはidleなので、実測済みの公式queueによる開始を使う。
+検証B/Cでは配送用Steer hook/channelの導入は不要だった。
 
-新規idleタスクを起動できない場合は、何が不足したかを確定して採用を棄却し、
-Codexを所有するhost接続による `turn/start` と接続寿命の設計へ改訂する。
-現在のhelperへ `turn/start` を足して即時closeするだけでは完了にしない。
-この変更は検証結果に基づく設計改訂とし、稼働中の暗黙fallbackにしない。
+記憶を注入したタスクを開いた後に指示を送る順序を維持する。
+空タスクを作成して記憶もturnも無いまま接続を閉じると、永続記録が残らず
+後続要求を受け付けない準備失敗を実測した。
+他host/OSで新規idleタスクへの配送が成立しない場合は、その環境の原因を確定して
+明示的な設計改訂を行う。稼働中に別方式へ暗黙fallbackしない。
+
+Desktopは表示時に作成時のsandboxをアプリ設定へ更新した。
+作成応答の設定一致だけで `target_ready` に進まず、表示後の実効設定の保持手段を
+次の実装設計で確定する。保持を確認できない場合は配送前に固定理由で止まる。
 
 ### 成立条件の実機検証
 
@@ -196,7 +204,9 @@ hook承認や画面操作が人にしかできない場合は、止まった位�
 | D: 連続引き継ぎ | A→B→Cで別の記憶・制約を追加し、Aの詳細もCから取得する | 元の依頼、途中の結果、合意した制約、L3詳細を保持し、同じ成果物を重複処理しない |
 | E: 中断と実行中状態 | フック重複、既知の後継作成後の終了、送信結果不明、未完了コマンド・子agent・未処理入力・承認待ちを個別に再現する | 各境界で固定理由と段階を残し、同じ後継を再利用する。結果不明の再送と重複副作用がない。未対応状態を成功へ丸めない |
 
-A〜Cを最初に実施し、成立した方式でD〜Eへ進む。
+A〜Cは独立した試験タスクで成立した。Aの停止からBの作成・開始までの
+一連の製品統合は未実装であり、A〜Cの成功で統合済みとは扱わない。
+表示後の実効設定継承を確認し、実装した統合経路でD〜Eへ進む。
 各検証は境界を一つずつ測り、失敗時は最小再現へ戻る。
 試験中のtoken使用量・context window・入力量・開始までの時間は証拠に含めるが、
 常設統計システムはこの実装へ追加しない。
@@ -212,7 +222,7 @@ A〜Cを最初に実施し、成立した方式でD〜Eへ進む。
 | `src/db.mjs`、継続処理module | 要求・境界・snapshot・継承関係・進行状態と再開 | 同じ元turnの重複、確定済み段階の再開、外部結果不明 |
 | `src/codex-capture.mjs`、`src/handoff-record.mjs`、renderer/recall/detail | 不変snapshotと祖先を参照する記憶、全文契約、途中状態の表現 | A→B→C、origin重複排除、source再captureでsnapshot不変、L3非注入と取得 |
 | `src/codex-app-server.mjs`、`src/cli/codex-handoff-start.mjs` | 自動経路の実効設定継承・記憶注入・表示と配送接続 | 設定一致、既知targetの再利用、受付と開始の区別 |
-| 配送profile・製品依存 | 採用した場合だけ公開APIの薄いadapter | 新threadへの配送、固定errorとunknownの伝播。ライブラリ内部の再試験はしない |
+| 配送profile・製品依存 | 採用した公開APIの薄いadapter | 新threadへの配送、固定errorとunknownの伝播。ライブラリ内部の再試験はしない |
 
 未実装の自動経路は手動 `$throughline` の現行仕様と別の明示設定で有効化する。
 手動経路の同名fieldと互換性を保ち、source推測の修正を無断で巻き込まない。
@@ -224,8 +234,9 @@ READMEには実装と受入が完了した動作だけを書く。
 
 - [x] 目的・責務・処理順・失敗時の扱い・実機検証手順を設計案へまとめる。
 - [x] 公式仕様と配送ライブラリの固定参照を確認する。
-- [ ] A〜Cを実機検証し、停止観測・配送方式・接続寿命を確定する。
-- [ ] 検証結果を設計へ反映し、実装対象とschemaを確定する。
+- [x] A〜Cを実機検証し、停止観測・配送方式・接続寿命を確定する。
+- [x] 検証結果を設計へ反映する。
+- [ ] Desktop表示後の実効設定継承を実測し、実装対象とschemaを確定する。
 - [ ] 機能実装とfocused testを行う。
 - [ ] D〜Eと対象host/OSの受入を完了する。
 - [ ] release・対象端末への導入・導入後smokeを完了する。

@@ -1,0 +1,160 @@
+{
+  "schema": "throughline.auto-continuation-probe.v1",
+  "date": "2026-10-03",
+  "scope": "separate_desktop_primitives_only",
+  "platform": "darwin",
+  "desktopCodexVersion": "0.159.0-alpha.12.1",
+  "deliveryPackage": {
+    "name": "aiterm-steer-delivery",
+    "version": "0.1.9"
+  },
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "modelChoice": "pick-model",
+  "desktopObservation": "jev-desktop",
+  "B_C": {
+    "threadId": "01a0ffcf-b920-7ad1-adbd-af68ef70d98c",
+    "turnId": "01a0ffd0-adb6-7972-b5f2-786a9493bc42",
+    "deliveryId": "c83f5829-6f0b-409c-905e-affba1ed5019",
+    "queuedSubmissionId": "01a0ffd0-9dfd-7b32-ad09-3e0a54c582cd",
+    "senderReturnedAtMs": 1790998257477,
+    "files": [
+      {
+        "name": "bc-step-1.json",
+        "exists": true,
+        "mtimeMs": 1790998282105.1304,
+        "valueMatched": true,
+        "stage": 1,
+        "afterSenderReturnedMs": 24628
+      },
+      {
+        "name": "bc-step-2.json",
+        "exists": true,
+        "mtimeMs": 1790998299616.6775,
+        "valueMatched": true,
+        "stage": 2,
+        "afterSenderReturnedMs": 42140
+      },
+      {
+        "name": "bc-result.json",
+        "exists": true,
+        "mtimeMs": 1790998299617.4138,
+        "valueMatched": true,
+        "verified": true,
+        "afterSenderReturnedMs": 42140
+      }
+    ],
+    "completed": true,
+    "queueEmpty": true,
+    "valueSha256": "96a06207d0578165410c229f3d7eb0ea3b82f2268805b6cdf0abb698cd80f50c",
+    "senderGoneObserved": true
+  },
+  "A": {
+    "threadId": "01a0ffd5-2085-7db1-b7b6-56244a5f0ed5",
+    "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+    "configuredAutoCompactLimit": 8192,
+    "hookTrust": "trusted",
+    "hook": {
+      "at": 1790998591317,
+      "event": "PreCompact",
+      "trigger": "auto",
+      "sessionId": "01a0ffd5-2085-7db1-b7b6-56244a5f0ed5",
+      "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c"
+    },
+    "turnStatus": "interrupted",
+    "events": [
+      {
+        "timestamp": "2026-10-03T03:36:04.754Z",
+        "type": "thread_settings_applied",
+        "turnId": null,
+        "reason": null,
+        "usage": null
+      },
+      {
+        "timestamp": "2026-10-03T03:36:13.143Z",
+        "type": "task_started",
+        "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+        "reason": null,
+        "usage": null
+      },
+      {
+        "timestamp": "2026-10-03T03:36:22.826Z",
+        "type": "item_completed",
+        "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+        "reason": null,
+        "usage": null
+      },
+      {
+        "timestamp": "2026-10-03T03:36:27.751Z",
+        "type": "item_completed",
+        "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+        "reason": null,
+        "usage": null
+      },
+      {
+        "timestamp": "2026-10-03T03:36:29.073Z",
+        "type": "item_completed",
+        "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+        "reason": null,
+        "usage": null
+      },
+      {
+        "timestamp": "2026-10-03T03:36:30.928Z",
+        "type": "token_count",
+        "turnId": null,
+        "reason": null,
+        "usage": {
+          "total_token_usage": {
+            "input_tokens": 40915,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 127,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 41042
+          },
+          "last_token_usage": {
+            "input_tokens": 40915,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 127,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 41042
+          },
+          "model_context_window": 828400
+        }
+      },
+      {
+        "timestamp": "2026-10-03T03:36:31.366Z",
+        "type": "turn_aborted",
+        "turnId": "01a0ffd5-68df-7560-90ff-e716640f9e4c",
+        "reason": "interrupted",
+        "usage": null
+      }
+    ],
+    "compactedRows": 0,
+    "fileStates": {
+      "a-before.txt": true,
+      "a-after.txt": false
+    }
+  },
+  "configurationObservation": {
+    "atThreadStart": "workspace-write",
+    "atDesktopTurn": "danger-full-access",
+    "approvalPolicy": "never",
+    "modelAndEffortPreserved": true,
+    "settingsInheritanceAccepted": false
+  },
+  "cleanup": {
+    "userConfigSemanticallyUnchanged": true,
+    "userHooksBytesUnchanged": true
+  },
+  "notTested": [
+    "integrated_handoff",
+    "real_throughline_memory",
+    "multi_hop_memory",
+    "settings_inheritance",
+    "failure_recovery",
+    "other_hosts",
+    "other_operating_systems"
+  ]
+}

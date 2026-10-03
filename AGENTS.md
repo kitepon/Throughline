@@ -40,7 +40,7 @@ release判定まで完結する。dotagentsは工場への配線と統合契約�
 | [docs/01_l1_l2_l3_redesign.md](docs/01_l1_l2_l3_redesign.md) | **L1/L2/L3 記憶レイヤーの設計仕様**。ブロック分類ルール、Haiku 呼び出し方針、実装順序、進捗表。schema v4 基盤 + v5 L3 分類拡張まで。以後の v6/v7 追加は本文書とは独立 |
 | [docs/02_clear_auto_handoff_plan.md](docs/02_clear_auto_handoff_plan.md) | handoffの現行契約。VS Codeのauto path (`source='clear'`) + 明示baton path (`/tl`) の2経路、Desktop制約、env `THROUGHLINE_DISABLE_AUTO_HANDOFF` |
 | [docs/04_public_release_plan.md](docs/04_public_release_plan.md) | 現行の単独運用入口、明示的失敗、release gate、host配線契約 |
-| [docs/05_codex_first_roadmap.md](docs/05_codex_first_roadmap.md) | Codex自動新規タスク継続の設計案・実機検証手順と、従来のprimary / trim / Claude finalization工程。自動継続の実装・実機成立は未確認 |
+| [docs/05_codex_first_roadmap.md](docs/05_codex_first_roadmap.md) | Codex自動新規タスク継続の設計・実機検証手順と、従来のprimary / trim / Claude finalization工程。A〜Cの成立を実測済み。製品の自動継続は未実装 |
 | [docs/06_codex_trim_rollback_fix_plan.md](docs/06_codex_trim_rollback_fix_plan.md) | Codex rollback / inject incident の調査・修正履歴。controlled user marker の rollback 後 model-visible reproduction は、fresh app-server verify と VS Code reload/reconnect 後 verify の両方で未再現。ただし live token_count 削減が同一 thread で持続しない実測を受け、Codex hooks からの automatic current-thread refresh は無効化し、`$throughline` は app-server 新スレッド handoff に戻す。明示 `trim --execute --host codex` は診断用 current-thread rollback / inject として残す |
 | [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) | Claude / Codex 両対応の architecture brief。Claude path を置き換えず、Codex support を adapter / projection として追加する方針 |
 | [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) | rollback を model-visible context の delete primitive と見る設計メモ。次フェーズでは Codex Rewind 互換の根拠として扱う |
@@ -433,7 +433,7 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 
 ## 2 つの計画の扱い
 
-Codex自動新規タスク継続は[設計案](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)を作成済みで、次工程は成立条件A〜Cの実機検証とする。配送ライブラリの採否は検証結果で確定する。現行の自動refresh無効・手動handoff仕様は変更していない。
+Codex自動新規タスク継続の[成立条件A〜C](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)は実測済みで、配送にはaiterm-steer-deliveryを採用する。次工程はDesktop表示後の実効設定継承の確認と、製品schema/継続処理の実装である。現行の自動refresh無効・手動handoff仕様は変更していない。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 

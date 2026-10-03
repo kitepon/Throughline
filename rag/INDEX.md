@@ -24,7 +24,7 @@ rag/
 
 ## Codex自動新規タスク継続の根拠
 
-- [PreCompact・記憶注入・配送の一次ソース抜粋](01-hooks/raw/codex-auto-handoff-extract.md) — 公式仕様と配送ライブラリの固定sourceを確認。Desktopの自動停止・新規idle taskの起動・配送process終了後の継続は未実測。[設計案と検証手順](../docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)を参照する。
+- [PreCompact・記憶注入・配送の一次ソース抜粋](01-hooks/raw/codex-auto-handoff-extract.md) — 公式仕様と配送ライブラリの固定source。[Desktop実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)でauto停止・新規idle taskの自動開始・配送process終了後の継続が成立した。cold readの途中状態と表示後の権限更新を観測し、[設計](../docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)へ反映した。
 
 ## Question this RAG was built to answer
 
