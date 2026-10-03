@@ -126,7 +126,7 @@ test('observer feed: Claude history floor, host/thread switch, cross-host tie, a
   try {
     const options = box.receiptOptions;
     seedCompletedTurnReceiptStore({ projectPath: box.project, receiptOptions: options, targetSessionId: 'claude-session' });
-    writeCompletedTurnReceipt({ projectPath: box.project, targetSessionId: 'claude-session', originSessionId: 'o257', userBody: 'u257', assistantBody: 'a257', completedAt: 257 }, options);
+    writeCompletedTurnReceipt({ projectPath: box.project, targetSessionId: 'claude-session', originSessionId: 'o257', userBody: 'user-body-257', assistantBody: 'assistant-body-257', completedAt: 257 }, options);
     const latest = resolveObserverTurnFeed({ projectPath: box.project, receiptOptions: options, codexHome: box.home });
     const decoded = decodeObserverCursor(latest.throughCursor);
     const beforeFloor = encodeObserverCursor({ ...decoded, history_floor: 1 });
@@ -137,7 +137,12 @@ test('observer feed: Claude history floor, host/thread switch, cross-host tie, a
     const changedPrefix = encodeObserverCursor({ ...decoded, prefix_sha256: 'f'.repeat(64) });
     assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: changedPrefix, receiptOptions: options, codexHome: box.home }).status, 'resync_required');
     assert.throws(() => encodeObserverCursor({ ...decoded, length: 0 }), /cursor invalid/);
-    assert.doesNotMatch(JSON.stringify(decoded), new RegExp(`${box.project}|claude-session|u257|a257`));
+    // cursor は project の path・session id・本文を持たない。目印は16進に現れない文字列にし、正規表現を使わず
+    // 値をそのまま探す（sha256 の16進に `a257` が偶然現れる、Windows の path が正規表現として壊れる、の2つを避ける）。
+    const cursorValues = Object.values(decoded).map(String).join('\n');
+    for (const secret of [box.project, 'claude-session', 'user-body-257', 'assistant-body-257']) {
+      assert.equal(cursorValues.includes(secret), false, secret);
+    }
     const id = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
     writeRollout(box.home, box.project, id, completeEvents('2026-07-15T00:03:00.000Z'));
     const switched = resolveObserverTurnFeed({ projectPath: box.project, cursor: latest.throughCursor, receiptOptions: options, codexHome: box.home });

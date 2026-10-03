@@ -21,6 +21,10 @@ shipped to npm but were not individually tagged on GitHub.
 
 - `~/.throughline/logs/hook-failures.log`に、errorが持つ`reason`と、外部CLIの`stderr`の末尾（1000字まで）を足す。`Codex CLI summarizer failed: exit 1`だけでは、利用上限か認証切れかが分からないため。端末内にだけ残し、外へは送らない。
 
+### 試験
+
+- Observerのcursorがprojectのpath・session id・本文を持たないことを確かめる試験が、偶然落ちることがあった。sha256の16進に目印の`a257`が現れると失敗し、Windowsではpathをそのまま正規表現にしていた。目印を16進に現れない文字列にし、値をそのまま探す形に直す。製品の動作は変えていない。
+
 ## [0.12.5] — 2026-10-04
 
 ### 修正
