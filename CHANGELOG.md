@@ -10,6 +10,12 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-10-03
+
+### 修正
+
+- 親の会話を引き継いだCodex子agentがいるタスクで、自動継続が`handoff_thread_mismatch`で止まる不具合を直す。子のrolloutにコピーされた親の`session_meta`で子自身のIDを上書きしていたため、先頭のmetadataを識別の正本として保持する。元タスクと子の停止確認、別threadの拒否は維持する。
+
 ## [0.12.0] — 2026-10-03
 
 ### 追加
@@ -1549,7 +1555,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/kitepon/Throughline/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/kitepon/Throughline/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/kitepon/Throughline/compare/v0.10.23...v0.11.0
 

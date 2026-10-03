@@ -104,7 +104,8 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   let completedTools = 0;
   for (const row of rows) {
     const payload = row.payload;
-    if (row.type === 'session_meta') { meta = payload; continue; }
+    // forkの先頭は子自身のmetadata。後続にコピーされた親のmetadataは識別へ使わない。
+    if (row.type === 'session_meta') { meta ??= payload; continue; }
     if (row.type === 'turn_context' && (!turnId || payload.turn_id === turnId)) context = payload;
     if (row.type === 'event_msg' && payload?.type === 'thread_settings_applied') {
       rawSettings = payload.thread_settings;

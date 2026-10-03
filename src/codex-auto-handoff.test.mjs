@@ -273,3 +273,21 @@ test('元turnの停止だけを採用し、配送本文と開始・進捗を相�
   assert.equal(settingsMatch(state.settings, { ...state.settings, effort: 'low' }), false);
   assert.throws(() => readCodexHandoffState(file, { threadId: 'other' }), /handoff_thread_mismatch/);
 }));
+
+test('forkした子の先頭metadataを保持し、継承された親metadataでIDを上書きしない', async () => withDb((db, home) => {
+  const file = join(home, 'child-rollout.jsonl');
+  const rows = [
+    { type: 'session_meta', payload: { id: 'child', session_id: 'parent', parent_thread_id: 'parent' } },
+    { type: 'session_meta', payload: { id: 'parent', session_id: 'parent' } },
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: 'parent-turn' } },
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: 'child-turn' } },
+    { type: 'event_msg', payload: { type: 'turn_aborted', turn_id: 'child-turn' } },
+  ];
+  writeFileSync(file, rows.map(row => JSON.stringify({ timestamp: '2026-10-03T00:00:01.000Z', ...row })).join('\n') + '\n');
+  const state = readCodexHandoffState(file, { threadId: 'child' });
+  assert.equal(state.meta.id, 'child');
+  assert.equal(state.meta.parent_thread_id, 'parent');
+  assert.equal(state.latestTurnId, 'child-turn');
+  assert.equal(state.stoppedAt, state.turnStartAt);
+  assert.throws(() => readCodexHandoffState(file, { threadId: 'parent' }), /handoff_thread_mismatch/);
+}));
