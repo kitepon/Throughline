@@ -19,6 +19,8 @@ L2 lives in `~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl` wi
 ## Decision
 
 - Detect Cursor envelope (`cursor_version` or `hook_event_name` in the Cursor event set) as host=cursor.
+- Shared hook stdin parsing accepts one leading UTF-8 BOM, as emitted by Windows Cursor. It preserves BOM characters inside JSON strings and still rejects malformed JSON.
+- When `transcript_path` is absent, derive the project folder with Cursor's `utils/workspace-paths` rule: replace non-ASCII-alphanumeric characters with `-`, collapse consecutive hyphens, and remove leading/trailing hyphens. A supplied `transcript_path` remains authoritative.
 - Normalize to the existing snake_case hook contract and prefix ids with `cursor:`. Strip optional `bc-` from cloud conversation ids when looking up transcripts.
 - Prefer payload `transcript_path`. If absent, derive the agent-transcripts path. Do not invent a Claude-shaped transcript.
 - `throughline install` upserts product hooks into `~/.cursor/hooks.json`. Keep factory / personal commands. Command is absolute `node` + `bin/throughline.mjs`. Do not write factory.json. Do not write bare `throughline`.

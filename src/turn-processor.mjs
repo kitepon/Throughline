@@ -46,7 +46,7 @@ import { readLatestUsage } from './transcript-usage.mjs';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
-import { hostAdapterForSessionId, normalizeHookPayload } from './hosts/index.mjs';
+import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 
 /** 直近 N ターンは bodies を生で残し、それより古いものだけ L1 要約する。 */
 export const L2_WINDOW = 20;
@@ -219,7 +219,7 @@ export async function run() {
     process.stdin.on('end', resolve);
   });
 
-  const payload = normalizeHookPayload(JSON.parse(raw || '{}'), { env: process.env });
+  const payload = parseHookPayload(raw || '{}', { env: process.env });
   const { session_id, transcript_path, cwd, last_assistant_message } = payload;
   if (!session_id) throw new Error('Missing session_id in Stop payload');
 

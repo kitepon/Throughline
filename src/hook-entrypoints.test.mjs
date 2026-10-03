@@ -1278,3 +1278,67 @@ test('Phase 0-5: /tl and /clear prompts do NOT trigger spike', () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+
+test('Cursor hooks accept the UTF-8 BOM emitted by Windows and capture the turn', () => {
+  const home = makeTempHome();
+  const project = makeTempProject();
+  const id = '23c59dba-f4b5-4ce7-a2de-27a2fbbb4193';
+  const transcript = join(project, 'cursor.jsonl');
+  writeFileSync(transcript, [
+    { role: 'user', message: { content: [{ type: 'text', text: 'BOM hook capture' }] } },
+    { role: 'assistant', message: { content: [{ type: 'text', text: 'Captured' }] } },
+  ].map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+  try {
+    for (const [event, command] of [
+      ['sessionStart', 'session-start'],
+      ['beforeSubmitPrompt', 'prompt-submit'],
+      ['stop', 'process-turn'],
+    ]) {
+      const result = runNode([join(REPO_ROOT, 'bin/throughline.mjs'), command], {
+        home,
+        cwd: project,
+        input: '\uFEFF' + JSON.stringify({
+          conversation_id: id,
+          session_id: id,
+          hook_event_name: event,
+          cursor_version: '2026.10.01-e373342',
+          workspace_roots: [project],
+          transcript_path: transcript,
+          prompt: '/tl',
+        }),
+      });
+      assert.equal(result.status, 0, `${event}: ${result.stderr}`);
+    }
+    const db = openDb(home);
+    try {
+      assert.equal(db.prepare('SELECT session_id FROM sessions').get().session_id, `cursor:${id}`);
+      assert.equal(db.prepare('SELECT session_id FROM handoff_batons').get().session_id, `cursor:${id}`);
+      const bodies = db.prepare('SELECT role, text FROM bodies ORDER BY role').all();
+      assert.deepEqual(bodies.map((row) => [row.role, row.text]), [
+        ['assistant', 'Captured'], ['user', 'BOM hook capture'],
+      ]);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a leading BOM does not hide malformed hook JSON', () => {
+  const home = makeTempHome();
+  try {
+    for (const command of ['session-start', 'prompt-submit', 'process-turn']) {
+      const result = runNode([join(REPO_ROOT, 'bin/throughline.mjs'), command], {
+        home, input: '\uFEFF{"conversation_id":',
+      });
+      assert.notEqual(result.status, 0, command);
+      assert.match(result.stderr, /SyntaxError/, command);
+    }
+    assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

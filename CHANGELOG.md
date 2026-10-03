@@ -10,6 +10,13 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.4] — 2026-10-04
+
+### 修正
+
+- WindowsのCursorがhookの標準入力へ付けるUTF-8 BOMをJSONとして読もうとして、SessionStart・UserPromptSubmit・Stopが失敗する不具合を直す。共有の読取処理で先頭のBOMを1つ取り除いてから解析する。JSONの文字列中のBOMは保ち、不正なJSONは引き続き失敗として扱う。Windowsの実hook入力でSessionStartの例外を再現し、3種類のhookで会話の保存と不正JSONの拒否を試験した。
+- Cursorの`transcript_path`が未指定の場合、projectのフォルダ名をCursor自身と同じ規則で作る。以前はアンダースコアやドットを残していたため、foxの`C:\Users\kite_\.cache\…`などで実際の記録フォルダを見つけられなかった。英数字以外をハイフンに置き換え、連続するハイフンと両端を整える。指定された`transcript_path`はそのまま優先する。
+
 ## [0.12.3] — 2026-10-03
 
 ### 修正
@@ -1570,7 +1577,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.3...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.4...HEAD
+[0.12.4]: https://github.com/kitepon/Throughline/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/kitepon/Throughline/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/kitepon/Throughline/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/kitepon/Throughline/compare/v0.12.0...v0.12.1

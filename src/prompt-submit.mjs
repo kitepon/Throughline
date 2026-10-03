@@ -40,7 +40,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
-import { hostAdapterForSessionId, normalizeHookPayload } from './hosts/index.mjs';
+import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 
 // Phase 0-5 spike marker (SessionStart の spike-inject.flag とは別)
 const PROMPT_SPIKE_MARKER_PATH = join(homedir(), '.throughline', 'spike-prompt.flag');
@@ -152,7 +152,7 @@ export async function run() {
     process.stdin.on('end', resolve);
   });
 
-  const payload = normalizeHookPayload(JSON.parse(raw), { env: process.env });
+  const payload = parseHookPayload(raw, { env: process.env });
   const { session_id, cwd, prompt } = payload;
   const hostAdapter = hostAdapterForSessionId(session_id);
 

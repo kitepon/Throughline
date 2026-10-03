@@ -55,8 +55,8 @@ export function isCursorEnvelope(payload) {
 
 export function encodeCursorProjectDir(projectPath) {
   if (typeof projectPath !== 'string' || projectPath.length === 0) return null;
-  const posix = projectPath.replace(/\\/g, '/').replace(/^\/+/, '');
-  const encoded = posix.replace(/:/g, '').replace(/\//g, '-');
+  // Cursor's utils/workspace-paths normalizes every non-ASCII-alphanumeric run.
+  const encoded = projectPath.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   return encoded.length > 0 ? encoded : null;
 }
 

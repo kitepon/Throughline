@@ -2,7 +2,7 @@
  * hosts/index.mjs — host 境界の入口
  *
  * 共有 hook 入口 (session-start / prompt-submit / turn-processor) はここから
- * `normalizeHookPayload` と `hostAdapterForSessionId` だけを使い、
+ * `parseHookPayload` と `hostAdapterForSessionId` だけを使い、
  * ベンダー分岐を直接書かない。
  */
 import { hostOfSessionId, CLAUDE_HOST, CODEX_HOST, GROK_HOST, CURSOR_HOST } from './identity.mjs';
@@ -26,6 +26,11 @@ const ADAPTERS = Object.freeze({
   [GROK_HOST]: grokHostAdapter,
   [CURSOR_HOST]: cursorHostAdapter,
 });
+
+/** Parse hook stdin, including the leading UTF-8 BOM emitted by Windows Cursor. */
+export function parseHookPayload(raw, options = {}) {
+  return normalizeHookPayload(JSON.parse(raw.replace(/^\uFEFF/, '')), options);
+}
 
 /**
  * hook stdin payload を Claude snake_case 契約へ正規化する。

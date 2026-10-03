@@ -32,7 +32,7 @@ import { logDecision } from './decision-log.mjs';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
-import { hostAdapterForSessionId, NON_CLAUDE_SESSION_PREFIXES, normalizeHookPayload } from './hosts/index.mjs';
+import { hostAdapterForSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
@@ -101,7 +101,7 @@ export async function run() {
     process.stdin.on('end', resolve);
   });
 
-  const payload = normalizeHookPayload(JSON.parse(raw), { env: process.env });
+  const payload = parseHookPayload(raw, { env: process.env });
   const { session_id, cwd, source, transcript_path } = payload;
 
   if (!session_id) throw new Error('Missing session_id in SessionStart payload');

@@ -7,7 +7,23 @@ import {
   encodeCursorProjectDir,
   isCursorEnvelope,
   normalizeHookPayload,
+  parseHookPayload,
 } from './index.mjs';
+
+test('parseHookPayload accepts one leading BOM and preserves BOM inside prompt text', () => {
+  const raw = JSON.stringify({
+    conversation_id: 'cursor-bom',
+    hook_event_name: 'beforeSubmitPrompt',
+    workspace_roots: ['/project'],
+    prompt: 'keep \uFEFF in text',
+  });
+  const expected = parseHookPayload(raw);
+  assert.deepEqual(parseHookPayload('\uFEFF' + raw), expected);
+  assert.equal(expected.session_id, 'cursor:cursor-bom');
+  assert.equal(expected.prompt, 'keep \uFEFF in text');
+  assert.throws(() => parseHookPayload('\uFEFF\uFEFF' + raw), SyntaxError);
+  assert.throws(() => parseHookPayload('\uFEFF{"conversation_id":'), SyntaxError);
+});
 
 test('isCursorEnvelope detects Cursor events and cursor_version', () => {
   assert.equal(
@@ -99,6 +115,11 @@ test('encodeCursorProjectDir matches ~/.cursor/projects slug', () => {
   );
   assert.equal(
     encodeCursorProjectDir(String.raw`C:\Users\kite_\Developer\dotagents`),
-    'C-Users-kite_-Developer-dotagents',
+    'C-Users-kite-Developer-dotagents',
   );
+  assert.equal(
+    encodeCursorProjectDir(String.raw`C:\Users\kite_\.cache\aiterm-branch-test\steer-test`),
+    'C-Users-kite-cache-aiterm-branch-test-steer-test',
+  );
+  assert.equal(encodeCursorProjectDir('/work/part_with.dot space/'), 'work-part-with-dot-space');
 });
