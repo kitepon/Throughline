@@ -890,7 +890,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline runtime-errors compact --json`    | Remove only acknowledged, resolved aggregates after retention; open or unacknowledged records remain |
 | `throughline runtime-errors report-enable --credential-file <path> --json` | Opt in to sending aggregates to the receiver named in that credential file; sending is disabled by default |
 | `throughline runtime-errors report-disable --json` | Stop sending aggregates |
-| `throughline runtime-errors report --json`     | Send unacknowledged aggregates once now; exits 0 only for `sent` or `nothing_pending` |
+| `throughline runtime-errors report --json`     | Send unacknowledged aggregates once now (or an empty report when the receiver has not seen this version yet); exits 0 only for `sent` or `nothing_pending` |
 | `throughline runtime-errors report-status --json` | Read the last attempt time and fixed result code without exposing the receiver, credential, or paths |
 | `throughline handoff-preview --session <id>`   | Print a Codex-facing `throughline_handoff` JSON projection    |
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | Print the SessionStart inheritance context without moving memory rows. Project mode selects the newest captured session with dialogue, supports `--disclosure silent`, and returns `empty` when no dialogue exists. Session mode may add a project-bound supplement inside the same 9,500-character budget |
@@ -948,8 +948,10 @@ throughline runtime-errors report-status --json
 ```
 
 Once enabled, the Claude and Codex hook entry points start a detached sender at
-most once per hour, and only contact the receiver when unacknowledged records
-exist; the hooks do not wait for it. The body carries the public snapshot fields
+most once per hour; the hooks do not wait for it. It contacts the receiver when
+unacknowledged records exist, or once after the installed version changed (a
+report with empty `runtime_errors` and `resolutions`, so the receiver learns the
+version; see [ADR 0030](docs/adr/0030-report-installed-version-once.md)). The body carries the public snapshot fields
 only (fixed error code, template, count, timestamps, version, resolutions). The
 secret is never transmitted: the body is signed with
 `HMAC-SHA256(secret, ts + "\n" + SHA-256(body))`, redirects are not followed,

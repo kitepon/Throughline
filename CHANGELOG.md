@@ -10,6 +10,13 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.8] — 2026-10-04
+
+### 変更
+
+- runtime errorの送信を有効にした端末は、未受領の記録が無くても、受け口へ最後に届いた版と今の版が違う時に、`runtime_errors`と`resolutions`が空のreportを1回送る（[ADR 0030](docs/adr/0030-report-installed-version-once.md)）。reportは`installed_version`を持つので、受け口は記録が出ていない端末の版も分かる。届いた後は、版が変わるまで送らない。reportの形、署名、送る時機と間隔は変えない。送信を有効にしていない端末（既定）と、収集が無効な端末は、今までどおり何も送らない。
+- 0.12.7以前は、未受領の記録が無ければ通信しなかった。更新した端末で何も起きなければ、受け口は古い版を持ち続けていた。
+
 ## [0.12.7] — 2026-10-04
 
 ### 修正
@@ -1614,7 +1621,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.7...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.8...HEAD
+[0.12.8]: https://github.com/kitepon/Throughline/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/kitepon/Throughline/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/kitepon/Throughline/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/kitepon/Throughline/compare/v0.12.4...v0.12.5

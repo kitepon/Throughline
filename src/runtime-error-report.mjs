@@ -131,22 +131,30 @@ export async function reportRuntimeErrors(options = {}) {
 
   // 記録が無効な端末でも次の時刻は書く。書かないと、hookのたびに送信processが起きる。
   const outcome = isRuntimeErrorCollectionEnabled({ env })
-    ? await sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credentialFile: config.reporting.credential_file })
+    ? await sendPendingRecords({
+      env, nowMs, fetchImpl, storeOptions,
+      credentialFile: config.reporting.credential_file,
+      lastReportedVersion: claimed.last_reported_version,
+    })
     : result('collection_disabled');
   updateState(lockOptions, (state) => ({
     ...state,
     last_result: outcome.status,
     last_success_at: outcome.status === 'sent' ? new Date(nowMs).toISOString() : state.last_success_at,
+    last_reported_version: outcome.status === 'sent' ? PACKAGE_VERSION : state.last_reported_version,
     next_attempt_at: new Date(nowMs + (LONG_BACKOFF_STATUSES.has(outcome.status)
       ? REPORT_REJECTED_BACKOFF_MS : REPORT_INTERVAL_MS)).toISOString(),
   }));
   return outcome;
 }
 
-async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credentialFile }) {
+async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credentialFile, lastReportedVersion }) {
   const acknowledged = readRuntimeErrorSnapshot({ ...storeOptions, limit: 1 }).cursor.acknowledged_through;
   const snapshot = readRuntimeErrorSnapshot({ ...storeOptions, afterCursor: acknowledged });
-  if (snapshot.runtime_errors.length === 0 && snapshot.resolutions.length === 0) {
+  // 未受領の記録が無くても、受け口へ最後に届いた版と今の版が違う時は、記録が空のreportを1回送る
+  // （ADR 0030）。受け口は installed_version を端末の導入版として持つ。届いた後は、版が変わるまで送らない。
+  if (snapshot.runtime_errors.length === 0 && snapshot.resolutions.length === 0 &&
+    lastReportedVersion === PACKAGE_VERSION) {
     return result('nothing_pending', { acknowledged_through: acknowledged });
   }
 
@@ -321,6 +329,7 @@ function emptyState() {
     last_result: null,
     last_success_at: null,
     next_attempt_at: null,
+    last_reported_version: null,
   };
 }
 
@@ -332,6 +341,9 @@ function normalizeState(value) {
     if (isCanonicalTimestamp(value[key])) state[key] = value[key];
   }
   if (RESULT_STATUSES.has(value.last_result)) state.last_result = value.last_result;
+  if (typeof value.last_reported_version === 'string' && /^[0-9A-Za-z.+-]{1,64}$/.test(value.last_reported_version)) {
+    state.last_reported_version = value.last_reported_version;
+  }
   return state;
 }
 

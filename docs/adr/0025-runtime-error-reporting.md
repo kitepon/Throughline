@@ -38,7 +38,7 @@ BugHub は、端末に入る CLI 製品が自分の分だけを送る受け口�
 7. 送る時機は hook 入口。`process-turn`・`session-start`・`prompt-submit`・`codex-hook` の開始時に、
    送信が有効で、次に試してよい時刻を過ぎていれば、切り離した子 process を1つ起こす。
    hook の終了は待たせない。子 process が store lock の下で時刻を先に書くので、同時に起きても送るのは1つ。
-   未受領の記録が無ければ通信しない。間隔は1時間。credential や report の形で断られた時は24時間空ける。
+   未受領の記録が無ければ通信しない（2026-10-04 [ADR 0030](0030-report-installed-version-once.md)で、受け口へ届いた版と今の版が違う時だけ、空の report を1回送ることにした）。間隔は1時間。credential や report の形で断られた時は24時間空ける。
    `throughline runtime-errors report --json` は間隔を待たずに1回送る。
 8. 送信の状態（最後に試した時刻・結果の固定 code・次の時刻）は `runtime-errors.report.state.json` に持ち、
    `runtime-errors report-status --json` で読む。宛先・credential・path は出さない。
