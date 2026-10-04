@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { backfillBodies, deriveTranscriptPath } from './turn-backfill.mjs';
+import { backfillBodies, captureInFlightTurn, deriveTranscriptPath } from './turn-backfill.mjs';
 
 function makeDb() {
   const db = new DatabaseSync(':memory:');
@@ -277,3 +277,77 @@ test('backfillBodies: 圧縮の要約行を数えていた頃に保存したタ�
     },
   );
 });
+
+// --- 作業途中で止めたターンの取り込み (ADR 0033) ---
+
+function withDetails(db) {
+  db.exec(`
+    CREATE TABLE details (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, origin_session_id TEXT,
+      turn_number INTEGER, tool_name TEXT NOT NULL, input_text TEXT, output_text TEXT, token_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL, kind TEXT, source_id TEXT);
+    CREATE UNIQUE INDEX uq_details_source ON details(session_id, origin_session_id, source_id) WHERE source_id IS NOT NULL;
+  `);
+  return db;
+}
+
+const toolUse = (id, name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
+const toolResult = (id, content) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
+
+test('captureInFlightTurn: 止めたターンの発言を全部つないで本文にし、末尾の道具まで details に入れる。合流時の回収は重ねない', () => {
+  withData(
+    [
+      entry('user', '前の依頼', '2026-10-04T02:00:00Z'),
+      entry('assistant', '前の回答', '2026-10-04T02:00:05Z'),
+      entry('user', '3つ読んで', '2026-10-04T03:00:00Z'),
+      toolUse('t1', 'Read', { file_path: '/w/1' }),
+      toolResult('t1', 'one'),
+      entry('assistant', '1 を読みました。', '2026-10-04T03:00:02Z'),
+      toolUse('t2', 'Read', { file_path: '/w/2' }),
+      toolResult('t2', 'two'),
+      entry('assistant', '2 を読みました。', '2026-10-04T03:00:04Z'),
+      toolUse('t3', 'Read', { file_path: '/w/3' }),
+      toolResult('t3', 'PreToolUse:Read hook error'),
+    ],
+    (path) => {
+      const db = withDetails(makeDb());
+      const captured = captureInFlightTurn(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 9_000 });
+      assert.deepEqual(captured, { turnNumber: 4, userAt: Date.parse('2026-10-04T03:00:00Z'),
+        assistantAt: Date.parse('2026-10-04T03:00:04Z'), insertedBodies: true, details: 6 });
+      assert.deepEqual(db.prepare('SELECT turn_number, role, text, turn_start FROM bodies ORDER BY id').all().map((row) => ({ ...row })), [
+        { turn_number: 4, role: 'user', text: '3つ読んで', turn_start: 'unknown' },
+        { turn_number: 4, role: 'assistant', text: '1 を読みました。\n\n2 を読みました。', turn_start: null },
+      ]);
+      assert.deepEqual(db.prepare('SELECT source_id, turn_number FROM details ORDER BY id').all().map((row) => `${row.source_id}@${row.turn_number}`),
+        ['t1@4', 't1:result@4', 't2@4', 't2:result@4', 't3@4', 't3:result@4'], '最後の発言の後に呼んだ、止めた道具も入る');
+
+      // もう一度取り込んでも増えない
+      const again = captureInFlightTurn(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 9_500 });
+      assert.equal(again.turnNumber, 4);
+      assert.equal(again.insertedBodies, false);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM details').get().n, 6);
+
+      // 後継が前任を合流させる時の回収: 完了した前のターンだけを入れ、止めたターンへ代表断片を重ねない
+      const backfill = backfillBodies(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 9_900 });
+      assert.equal(backfill.insertedTurns, 1);
+      assert.equal(backfill.skippedExisting, 1);
+      assert.equal(db.prepare(`SELECT text FROM bodies WHERE turn_number = 4 AND role = 'assistant'`).get().text,
+        '1 を読みました。\n\n2 を読みました。');
+    },
+  );
+});
+
+test('captureInFlightTurn: 発言が1つも無いターンは、user の行と道具の入出力だけを入れる', () => {
+  withData(
+    [entry('user', '黙って読んで', '2026-10-04T03:00:00Z'), toolUse('t1', 'Read', { file_path: '/w/1' }), toolResult('t1', 'one'),
+      toolUse('t2', 'Read', { file_path: '/w/2' })],
+    (path) => {
+      const db = withDetails(makeDb());
+      const captured = captureInFlightTurn(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 9_000 });
+      assert.deepEqual(captured, { turnNumber: 0, userAt: Date.parse('2026-10-04T03:00:00Z'), assistantAt: null, insertedBodies: true, details: 3 });
+      assert.deepEqual(db.prepare('SELECT turn_number, role, text FROM bodies').all().map((row) => ({ ...row })),
+        [{ turn_number: 0, role: 'user', text: '黙って読んで' }]);
+      assert.equal(captureInFlightTurn(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: join(path, 'none'), now: 1 }), null);
+    },
+  );
+});
+

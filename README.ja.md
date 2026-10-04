@@ -59,7 +59,7 @@ throughline auto-handoff disable --host claude
 1. 自動圧縮の直前に、圧縮を止めます。`/tl`と同じ印を残します。
 2. 旧い会話の次の道具を、実行させずに止めます。旧い会話は止めるだけで、空にしません。
 3. 同じprojectに、新しいClaudeの会話を裏で立てます（`claude --bg`）。モデル・推論強度・権限は旧い会話から引き継ぎます。
-4. 新しい会話へ継続の指示を1通送ります。届いた時に、止めた時点の依頼と直近の会話の原文を注入します（上限9,500字）。
+4. 新しい会話へ継続の指示を1通送ります。届いた時に、止めた時点の依頼、そのターンでここまでにしたこと（発言と道具の呼び出し）、実行されなかった道具、直近の会話の原文を注入します（上限9,500字）。止めたターンの道具の入出力は、後継が`throughline detail`で取り出せます。
 
 続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopの画面には出ず、後継のターンが終わって入力待ちになった後にDesktopで開けます。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は対象に含めません。
 
@@ -69,7 +69,7 @@ throughline auto-handoff status --host claude --operation <handoff-id> --json
 
 後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
 
-有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回走ります。LinuxのClaude Code 2.1.289で実機確認済みです。macOS・Windows、Claude Desktopから始まる会話は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
+有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回走ります。LinuxとmacOSのClaude Code（2.1.289、Claude Desktop同梱の2.1.286）で実機確認済みです。Windowsと、Claude Desktopの画面から始めた会話は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
 
 ## 所有境界
 

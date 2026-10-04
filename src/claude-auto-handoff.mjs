@@ -7,7 +7,8 @@
  *   1. PreCompact (trigger=auto) : 圧縮を止め（exit code 2）、/tl と同じ印（baton）と引き継ぎの記録を残す。
  *   2. PreToolUse                : 記録がある会話の次の道具を、実行させずに止める（deny + continue:false）。
  *                                  止めた時点の依頼・設定を記録へ写し、後継を立てる worker を起動する。
- *   3. worker                    : `claude --bg` で、指示を待つ新しい会話を同じ project に立てる。
+ *   3. worker                    : 止めたターンを DB へ取り込み（発言の全部と道具の入出力）、ここまでにしたことを
+ *                                  記録へ写す。`claude --bg` で、指示を待つ新しい会話を同じ project に立てる。
  *   4. worker                    : 後継の SessionStart が残した受け口へ、配送ライブラリで継続の指示を1通送る。
  *                                  届いた時の UserPromptSubmit が baton を消費し、記憶を注入する。
  *
@@ -25,7 +26,15 @@ import { sendClaudeInbox } from 'aiterm-steer-delivery';
 import { readClaudeAutoHandoffConfig, claudeAutoHandoffEnabledFor } from './claude-auto-handoff-config.mjs';
 import { CLAUDE_HOST, hostOfSessionId } from './hosts/identity.mjs';
 import { claudeHostAdapter } from './hosts/claude.mjs';
-import { normalizeTerminalText, readLatestUserGroup, readRawEntries } from './transcript-reader.mjs';
+import {
+  isJunkAssistantText,
+  normalizeTerminalText,
+  readLatestUserGroup,
+  readRawEntries,
+  sliceInFlightTurnEntries,
+} from './transcript-reader.mjs';
+import { captureInFlightTurn } from './turn-backfill.mjs';
+import { resolveMergeTarget } from './session-merger.mjs';
 import { writeBaton } from './baton.mjs';
 import { sameProjectPath } from './project-path.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
@@ -113,11 +122,13 @@ export function listClaudeAutoHandoffs({ dir = claudeAutoHandoffDir() } = {}) {
     .sort((a, b) => a.requested_at - b.requested_at);
 }
 
-/** 外へ見せる項目だけ。依頼の本文と受け口は含めない。 */
+/** 外へ見せる項目だけ。依頼の本文・発言・道具の対象と、受け口は含めない。 */
 export function publicClaudeAutoHandoff(record) {
   const { handoff_id, source_session_id, project_path, state, error_code, requested_at, updated_at, successor } = record;
   return { handoff_id, source_session_id, project_path, state, error_code: error_code ?? null,
     successor_session_id: successor?.session_id ?? null, successor_short_id: successor?.short_id ?? null,
+    // 止めたターンを DB へ取り込めたか。false の時、後継は `throughline detail` でそのターンの入出力を取れない。
+    in_flight_captured: Boolean(record.in_flight?.turn),
     requested_at, updated_at };
 }
 
@@ -227,22 +238,130 @@ function readLatestModel(transcriptPath) {
 
 const CONTINUATION_MARKER = /Throughline自動継続 ([0-9a-f-]{36})/;
 
+// 後継へ渡す「このターンでここまでにしたこと」。1件の長さと件数を抑える。全文は取り込んだ details にある。
+const STEP_TEXT_MAX_CHARS = 300;
+const STEP_TARGET_MAX_CHARS = 160;
+const STEPS_KEPT = 80;
+const STOPPED_TOOLS_KEPT = 10;
+// 道具の呼び出しを1行にする時に見せる入力。知らない道具は名前だけにする。
+const TOOL_TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'command', 'pattern', 'url', 'description', 'query', 'prompt', 'skill'];
+
+function clipLine(text, maxChars) {
+  const line = String(text).replace(/\s+/g, ' ').trim();
+  return line.length <= maxChars ? line : `${line.slice(0, maxChars - 1)}…`;
+}
+
+const TOOL_PATH_KEYS = new Set(['file_path', 'notebook_path', 'path']);
+
+/** 作業ディレクトリの中の場所は相対で書く（後継の記憶のヘッダに作業ディレクトリがある）。長い場所は末尾を残す。 */
+function clipPath(value, projectPath) {
+  let line = value.trim();
+  if (projectPath && line.startsWith(projectPath) && /^[\\/]/.test(line.slice(projectPath.length))) {
+    line = line.slice(projectPath.length + 1);
+  }
+  return line.length <= STEP_TARGET_MAX_CHARS ? line : `…${line.slice(-(STEP_TARGET_MAX_CHARS - 1))}`;
+}
+
+function toolTarget(input, projectPath) {
+  if (!input || typeof input !== 'object') return '';
+  for (const key of TOOL_TARGET_KEYS) {
+    if (typeof input[key] !== 'string' || !input[key].trim()) continue;
+    return TOOL_PATH_KEYS.has(key) ? clipPath(input[key], projectPath) : clipLine(input[key], STEP_TARGET_MAX_CHARS);
+  }
+  return '';
+}
+
+/**
+ * 止めたターンで、止めるまでにした発言と道具の呼び出し（古い順）と、止めた道具。
+ *
+ * 圧縮を止めた後の応答が呼んだ道具は、どれも実行されていない（同じ応答に並んだ道具は全部止める）。
+ * hook が並んで走るので、記録に残る止めた道具の id は、応答の中の最初の道具とは限らない。
+ * 同じ応答（message.id）の道具を、まとめて「止めた道具」にする。
+ */
+function readInFlightSteps(transcriptPath, stoppedToolUseId, projectPath) {
+  const steps = [];
+  const toolById = new Map();
+  for (const entry of sliceInFlightTurnEntries(readRawEntries(transcriptPath)).slice(1)) {
+    const blocks = entry?.message?.content;
+    if (!Array.isArray(blocks)) continue;
+    if (entry.type === 'assistant') {
+      const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
+      for (const block of blocks) {
+        if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() && !isJunkAssistantText(block.text)) {
+          steps.push({ kind: 'text', content: clipLine(block.text, STEP_TEXT_MAX_CHARS), timestamp: Number.isNaN(at) ? null : at });
+        } else if (block?.type === 'tool_use' && typeof block.id === 'string') {
+          const step = { kind: 'tool', id: block.id, response: entry.message.id ?? null, name: block.name ?? 'unknown',
+            target: toolTarget(block.input, projectPath), failed: false };
+          steps.push(step);
+          toolById.set(block.id, step);
+        }
+      }
+    } else if (entry.type === 'user') {
+      for (const block of blocks) {
+        if (block?.type === 'tool_result' && block.is_error === true && toolById.has(block.tool_use_id)) {
+          toolById.get(block.tool_use_id).failed = true;
+        }
+      }
+    }
+  }
+  const stopped = toolById.get(stoppedToolUseId);
+  const firstStopped = stopped
+    ? steps.findIndex(step => step.kind === 'tool' &&
+        (step.id === stopped.id || (stopped.response !== null && step.response === stopped.response)))
+    : -1;
+  const done = firstStopped < 0 ? steps : steps.slice(0, firstStopped);
+  const stoppedTools = firstStopped < 0 ? [] : steps.slice(firstStopped).filter(step => step.kind === 'tool');
+  const earlier = done.slice(0, Math.max(0, done.length - STEPS_KEPT));
+  const tools = {};
+  for (const step of earlier) if (step.kind === 'tool') tools[step.name] = (tools[step.name] ?? 0) + 1;
+  return {
+    steps: done.slice(earlier.length).map(step => step.kind === 'text'
+      ? { kind: 'text', content: step.content, timestamp: step.timestamp }
+      : { kind: 'tool', name: step.name, target: step.target, failed: step.failed }),
+    earlier_steps: earlier.length > 0 ? { texts: earlier.filter(step => step.kind === 'text').length, tools } : null,
+    stopped_tools: stoppedTools.slice(0, STOPPED_TOOLS_KEPT).map(step => ({ name: step.name, target: step.target })),
+    stopped_tools_total: stoppedTools.length,
+  };
+}
+
 /**
  * 止めた時点の作業途中のターン。後継の会話が止められた時は、最後の user 発言が前の引き継ぎの
  * 継続の指示になっている。その時は、前の引き継ぎが運んだ元の依頼を引き続き運ぶ。
+ * turn は、このターンを DB へ取り込んだ時の場所（worker が取り込みの後に入れる）。
  */
-function snapshotInFlight(transcriptPath, dir) {
-  const latest = readLatestUserGroup(transcriptPath);
+function snapshotInFlight(record, dir) {
+  const latest = readLatestUserGroup(record.transcript_path);
   if (!latest) return null;
-  const lastFragment = latest.fragments.at(-1) ?? null;
+  const lastFragment = latest.fragments.filter(fragment => !isJunkAssistantText(fragment.content)).at(-1) ?? null;
   const previousHandoffId = CONTINUATION_MARKER.exec(latest.user.content)?.[1];
   const carried = previousHandoffId
-    ? listClaudeAutoHandoffs({ dir }).find(record => record.handoff_id === previousHandoffId)?.in_flight?.user
+    ? listClaudeAutoHandoffs({ dir }).find(other => other.handoff_id === previousHandoffId)?.in_flight?.user
     : null;
   return {
     user: carried ?? { content: latest.user.content, timestamp: latest.user.timestamp },
     last_fragment: lastFragment ? { content: lastFragment.content, timestamp: lastFragment.timestamp } : null,
+    ...readInFlightSteps(record.transcript_path, record.stopped_tool_use_id, record.project_path),
+    turn: null,
   };
+}
+
+/**
+ * 止めたターンを DB へ取り込む (Codex の自動継続が、記憶を作る前に止めたターンを取り込むのと同じ)。
+ * 後継が前任を合流させる前に済ませる。取り込めなくても引き継ぎは止めない。依頼と、ここまでにしたことは
+ * 記録から後継へ渡る。取り込めなかった理由は worker のログに残り、記録の turn が null のままになる。
+ */
+function captureStoppedTurn(record, openDb) {
+  try {
+    const db = openDb();
+    const { target, origin } = resolveMergeTarget(db, record.source_session_id);
+    const captured = captureInFlightTurn(db, { targetSessionId: target, originSessionId: origin,
+      transcriptPath: record.transcript_path, now: Date.now() });
+    return captured && { origin_session_id: origin, turn_number: captured.turnNumber, user_at: captured.userAt,
+      assistant_at: captured.assistantAt, details: captured.details };
+  } catch (error) {
+    process.stderr.write(`[auto-handoff] in-flight turn capture failed: ${error instanceof Error ? error.message : 'unknown'}\n`);
+    return null;
+  }
 }
 
 /** 止めた道具の呼び出しが transcript に書かれるまで待つ。その前の発言が出そろった印になる。 */
@@ -426,6 +545,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   env = process.env,
   spawn = spawnPortableSync,
   send = sendClaudeInbox,
+  openDb = null,
   transcriptTimeoutMs = 5_000,
   targetTimeoutMs = 30_000,
   sendTimeoutMs = 30_000,
@@ -437,12 +557,15 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   const update = fields => { record = updateRecord(sessionId, fields, { dir }); return record; };
   const fail = code => update({ state: 'failed', error_code: code });
 
-  // 止めた時点の依頼と、その時のモデルを写す。後継の最初の指示が、この依頼を現在地として受け取る。
+  // 止めた時点の依頼・ここまでにしたこと・その時のモデルを写し、止めたターンを DB へ取り込む。
+  // 後継の最初の指示が、これを現在地として受け取る。
   await waitForStoppedToolUse(record, { timeoutMs: transcriptTimeoutMs, pollMs });
+  const inFlight = record.transcript_path ? snapshotInFlight(record, dir) : null;
+  if (inFlight && openDb) inFlight.turn = captureStoppedTurn(record, openDb);
   update({
     state: 'launching',
     settings: { ...record.settings, model: record.transcript_path ? readLatestModel(record.transcript_path) : null },
-    in_flight: record.transcript_path ? snapshotInFlight(record.transcript_path, dir) : null,
+    in_flight: inFlight,
   });
   const launched = spawn('claude', successorArgs(record), {
     cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'],

@@ -388,6 +388,28 @@ export function sliceCurrentTurnEntries(entries) {
 }
 
 /**
+ * 作業途中で止めたターンのエントリ範囲 (ADR 0033)。最後の user 本文の行から、transcript の末尾まで。
+ *
+ * sliceCurrentTurnEntries は最後の assistant 本文で切るので、その後に呼んだ道具が入らない。
+ * hook で止めたターンは、止めた道具の呼び出しと結果が末尾に並ぶ。それも同じターンとして返す。
+ *
+ * @param {Array<object>} entries readRawEntries の結果
+ * @returns {Array<object>}
+ */
+export function sliceInFlightTurnEntries(entries) {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (entryKind(e) !== 'user' || isCompactSummaryEntry(e)) continue;
+    const blocks = e.message?.content;
+    const hasText = Array.isArray(blocks)
+      ? blocks.some((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)
+      : typeof blocks === 'string' && blocks.length > 0;
+    if (hasText) return entries.slice(i);
+  }
+  return [];
+}
+
+/**
  * 論理ターン内の全エントリから L3 (details) 用の生レコードを抽出する。
  *
  * 返す各レコード:

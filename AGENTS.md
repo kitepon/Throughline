@@ -73,11 +73,11 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-rollout-memory.mjs](src/codex-rollout-memory.mjs) | Codex rollout JSONL から active turns / restore-safety diagnostics / trim source を構築する。trim source では現在進行中の in-flight turn と latest rollback 後の未完了 assistant continuation を rollback 候補から除外する。実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で rollback 数を補正する |
 | [src/codex-usage.mjs](src/codex-usage.mjs) | Codex rollout の `event_msg` / `token_count` verified shape から monitor 用 usage sample を抽出する。open turn 中は `input_tokens + output_tokens` を live footprint として返し、`task_complete` 後は verified `input_tokens` のみに戻す。`token_count` が無い rollout では active rollout text の `chars / 4` estimate を `estimated: true` として返す |
 | [src/codex-auto-handoff.mjs](src/codex-auto-handoff.mjs) | `PreCompact(auto)`から同turnの停止・記憶確定・後継作成/表示・設定確認・一度だけの配送・実際の進捗観測を行う。要求とsnapshot/祖先はstore、記憶描画はmemory、vendor設定はhosts/codex-handoff-stateに置く |
-| [src/claude-auto-handoff.mjs](src/claude-auto-handoff.mjs) | Claude Codeの自動継続（ADR 0033）。`PreCompact(auto)`で圧縮を止めてbatonと記録を残し、`PreToolUse`で旧い会話の道具を実行させずに止め、workerが`claude --bg`で指示待ちの後継を立てて、後継の`SessionStart`が控えた受け口へ`aiterm-steer-delivery`の`sendClaudeInbox`で継続の指示を1通送る。記録は`~/.throughline/claude-auto-handoff/<旧会話のsession_id>.json`（schema変更なし）。結果不明は再送しない。設定は[src/claude-auto-handoff-config.mjs](src/claude-auto-handoff-config.mjs)（`~/.throughline/claude-auto-handoff.json`、既定無効） |
+| [src/claude-auto-handoff.mjs](src/claude-auto-handoff.mjs) | Claude Codeの自動継続（ADR 0033）。`PreCompact(auto)`で圧縮を止めてbatonと記録を残し、`PreToolUse`で旧い会話の道具を実行させずに止め、workerが止めたターンをDBへ取り込み（`captureInFlightTurn`）、ここまでにしたことと実行されなかった道具を記録へ写してから`claude --bg`で指示待ちの後継を立てて、後継の`SessionStart`が控えた受け口へ`aiterm-steer-delivery`の`sendClaudeInbox`で継続の指示を1通送る。記録は`~/.throughline/claude-auto-handoff/<旧会話のsession_id>.json`（schema変更なし）。結果不明は再送しない。設定は[src/claude-auto-handoff-config.mjs](src/claude-auto-handoff-config.mjs)（`~/.throughline/claude-auto-handoff.json`、既定無効） |
 | [src/codex-auto-refresh.mjs](src/codex-auto-refresh.mjs) | Codex automatic refresh helper。current-thread rollback / inject の判定と backoff ロジックは残すが、helper 自体も default disabled で、現行 Codex hooks はこの helper を呼ばず、常に `codex_auto_refresh_disabled` で quiet にする。明示 `trim --execute --host codex` は診断用 current-thread path として残す |
 | [src/codex-handoff.mjs](src/codex-handoff.mjs) | `HandoffRecord` から Codex-facing `throughline_handoff` v1 JSON block と Codex developer-message 用 active-work context を生成。`source='throughline'` / `trust='local'` / `kind='throughline_handoff'` を固定 |
 | [src/token-estimator.mjs](src/token-estimator.mjs) | 補助的なトークン数推定 (length/4) |
-| [src/turn-backfill.mjs](src/turn-backfill.mjs) | 共通バックフィルルーチン: 群レベル dedup・junk 代表除外・timestamp `created_at`・`deriveTranscriptPath` |
+| [src/turn-backfill.mjs](src/turn-backfill.mjs) | 共通バックフィルルーチン: 群レベル dedup・junk 代表除外・timestamp `created_at`・`deriveTranscriptPath`。`captureInFlightTurn` は、hook で止めたターン（Stop が走らない）を取り込む。発言を全部つないで本文にし、transcript の末尾までの道具の入出力を details に入れる（ADR 0033。自動継続の worker が後継を立てる前に呼ぶ） |
 
 ### host 境界 `src/hosts/`（ベンダー依存の唯一の置き場）
 
@@ -220,8 +220,8 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/session-merger.test.mjs](src/session-merger.test.mjs) | `resolveMergeTarget` / `mergeSpecificPredecessor` |
 | [src/state-file.test.mjs](src/state-file.test.mjs) | `writeSessionState` / `readAllSessionStates` / `snapshotStateMtimes` / stale 閾値 / `usage` スナップショット / 旧フォーマット互換 / Codex state filename encoding |
 | [src/turn-processor.test.mjs](src/turn-processor.test.mjs) | `countDistinctBodyTurns` / `pickOldestUnsummarizedTurn` / 20 ターン境界 |
-| [src/claude-auto-handoff.test.mjs](src/claude-auto-handoff.test.mjs) | Claude自動継続（ADR 0033）: PreCompact が止める条件・止めない条件、PreToolUse の停止と worker の1回だけの起動、worker の立ち上げ・受け口・配送の成功と各失敗（結果不明は再送しない）、色付き出力の ID、連続引き継ぎで元の依頼を運ぶこと、後継の受け口の控え、受領の照合、`--host claude` の引数面と hook 登録、temp HOME での `pre-compact` → `pre-tool-use` → `session-start` → `prompt-submit` の一連 |
-| [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging / `turn_start` |
+| [src/claude-auto-handoff.test.mjs](src/claude-auto-handoff.test.mjs) | Claude自動継続（ADR 0033）: PreCompact が止める条件・止めない条件、PreToolUse の停止と worker の1回だけの起動、worker の立ち上げ・受け口・配送の成功と各失敗（結果不明は再送しない）、止めたターンの取り込みと「ここまでにしたこと」「実行されなかった道具」の記録（並んだ道具・相対の場所・取り込めない時）、色付き出力の ID、連続引き継ぎで元の依頼を運ぶこと、後継の受け口の控え、受領の照合、`--host claude` の引数面と hook 登録、temp HOME での `pre-compact` → `pre-tool-use` → `session-start` → `prompt-submit` の一連 |
+| [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging / `turn_start`。`captureInFlightTurn`: 止めたターンの発言の全部と末尾の道具までの取り込み、再取り込みで増えないこと、合流時の回収が重ならないこと、発言の無いターン |
 | [src/turn-start.test.mjs](src/turn-start.test.mjs) | Claude / Grok / Cursor の始まり方判定と、旧行NULLのunknown写像 |
 | [src/hosts/claude.test.mjs](src/hosts/claude.test.mjs) | 完了受領の project（Claude は起動 project、他 host は hook cwd） |
 | [src/token-monitor.test.mjs](src/token-monitor.test.mjs) | CLI 引数、cell 幅、bar/色覚マーカー、`formatTimeAgo`、`shouldForceFullRedraw`、`formatLine` の ago 配置 / Codex estimated marker |
@@ -450,7 +450,7 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 
 Codex自動新規タスク継続は[実装契約と受入](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)に従う。macOSのDesktopで連続継承と最終完了を確認済み。既定では無効とし、`auto-handoff enable`で有効化する。実測JSONと公開履歴はevidenceへ置く。
 
-Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、`claude --bg`で立てた新しい会話へ、配送ライブラリで継続の指示を1通送る。Linuxの対話画面から3回連続の引き継ぎを確認済み。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
+Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、`claude --bg`で立てた新しい会話へ、配送ライブラリで継続の指示を1通送る。LinuxとmacOSの対話の会話から、連続の引き継ぎを確認済み（Windowsと、Claude Desktopの画面から始めた会話は未確認）。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 

@@ -46,8 +46,8 @@ function makeBatonDb() {
 const user = (text, timestamp, extra = {}) => ({ type: 'user', timestamp, ...extra, message: { role: 'user', content: text } });
 const assistant = (text, timestamp, model = 'claude-fable-5-1') =>
   ({ type: 'assistant', timestamp, message: { role: 'assistant', model, content: [{ type: 'text', text }] } });
-const toolUse = (id, name) =>
-  ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id, name, input: {} }] } });
+const toolUse = (id, name, input = {}) =>
+  ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id, name, input }] } });
 const toolResult = (id, text) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text }] } });
 const jsonl = entries => entries.map(entry => JSON.stringify(entry)).join('\n') + '\n';
 
@@ -308,6 +308,14 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   assert.deepEqual(first.record.in_flight, {
     user: { content: '14個のファイルを順に読んで', timestamp: Date.parse('2026-10-04T03:00:10Z') },
     last_fragment: { content: 'part05 を読みました。次に part06 を読みます。', timestamp: Date.parse('2026-10-04T03:00:14Z') },
+    steps: [
+      { kind: 'text', content: 'part04 を読みました。', timestamp: Date.parse('2026-10-04T03:00:12Z') },
+      { kind: 'text', content: 'part05 を読みました。次に part06 を読みます。', timestamp: Date.parse('2026-10-04T03:00:14Z') },
+    ],
+    earlier_steps: null,
+    stopped_tools: [{ name: 'Read', target: '' }],
+    stopped_tools_total: 1,
+    turn: null,
   }, '止めた道具の直前の発言まで出そろってから写す');
 
   // 後継 B が止められた時、最後の user 発言は A からの継続の指示。現在地には元の依頼を運ぶ
@@ -323,7 +331,118 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   assert.deepEqual(second.record.in_flight, {
     user: { content: '14個のファイルを順に読んで', timestamp: Date.parse('2026-10-04T03:00:10Z') },
     last_fragment: { content: 'part09 を読みました。次に part10 を読みます。', timestamp: Date.parse('2026-10-04T03:01:20Z') },
+    steps: [{ kind: 'text', content: 'part09 を読みました。次に part10 を読みます。', timestamp: Date.parse('2026-10-04T03:01:20Z') }],
+    earlier_steps: null,
+    stopped_tools: [{ name: 'Read', target: '' }],
+    stopped_tools_total: 1,
+    turn: null,
   });
+}));
+
+function makeMemoryDb() {
+  const db = makeBatonDb();
+  db.exec(`
+    CREATE TABLE sessions (session_id TEXT PRIMARY KEY, merged_into TEXT);
+    CREATE TABLE bodies (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, origin_session_id TEXT NOT NULL,
+      turn_number INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, token_count INTEGER, created_at INTEGER NOT NULL,
+      turn_start TEXT, UNIQUE(session_id, origin_session_id, turn_number, role));
+    CREATE TABLE details (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, origin_session_id TEXT,
+      turn_number INTEGER, tool_name TEXT NOT NULL, input_text TEXT, output_text TEXT, token_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL, kind TEXT, source_id TEXT);
+    CREATE UNIQUE INDEX uq_details_source ON details(session_id, origin_session_id, source_id) WHERE source_id IS NOT NULL;
+  `);
+  return db;
+}
+
+test('worker: 止めたターンを DB へ取り込み、ここまでにしたことと、実行されなかった道具を記録へ写す', () => withDir(async dir => {
+  const block = (id, content, timestamp) =>
+    ({ type: 'assistant', timestamp, message: { id, role: 'assistant', model: 'claude-opus-5', content: [content] } });
+  const result = (id, text, isError = false) =>
+    ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text, ...(isError ? { is_error: true } : {}) }] } });
+  const transcript = join(dir, 'work.jsonl');
+  writeFileSync(transcript, jsonl([
+    user('前の依頼', '2026-10-04T02:00:00Z'),
+    assistant('前の回答', '2026-10-04T02:00:05Z', 'claude-opus-5'),
+    user('a.mjs を直して', '2026-10-04T03:00:00Z'),
+    block('m1', { type: 'text', text: '読みます。' }, '2026-10-04T03:00:01Z'),
+    block('m1', { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/work/a.mjs' } }, '2026-10-04T03:00:01Z'),
+    result('t1', 'export const a = 1;'),
+    block('m2', { type: 'text', text: '直します。' }, '2026-10-04T03:00:03Z'),
+    block('m2', { type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: '/work/app/src/a.mjs', old_string: '1', new_string: '2' } }, '2026-10-04T03:00:03Z'),
+    result('t2', 'ok'),
+    block('m3', { type: 'tool_use', id: 't3', name: 'Bash', input: { command: 'npm test\n  --silent' } }, '2026-10-04T03:00:05Z'),
+    result('t3', 'Exit code 1', true),
+    // ここで自動圧縮を止めた。次の応答が呼んだ道具は、2つとも実行されていない
+    block('m4', { type: 'text', text: '試験が落ちました。\n原因を見ます。' }, '2026-10-04T03:00:08Z'),
+    block('m4', { type: 'tool_use', id: 't4', name: 'Read', input: { file_path: `/work/app/test/${'d'.repeat(200)}/a.test.mjs` } }, '2026-10-04T03:00:08Z'),
+    block('m4', { type: 'tool_use', id: 't5', name: 'Grep', input: { pattern: 'expect\\(' } }, '2026-10-04T03:00:08Z'),
+    result('t5', 'PreToolUse:Grep hook error', true),
+    result('t4', 'PreToolUse:Read hook error', true),
+  ]));
+  const db = makeMemoryDb();
+  requestClaudeAutoHandoff({ payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: transcript },
+    env: {}, config: ENABLED, openDb: () => db, dir });
+  // hook は並んで走る。記録に残る止めた道具は、応答の中の2つ目のこともある
+  await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 't5' },
+    dir, launchWorker: async () => {} });
+  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, targetTimeoutMs: 300, transcriptTimeoutMs: 300,
+    openDb: () => db,
+    send: async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' }),
+    spawn: () => {
+      recordClaudeSuccessorTarget({ payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
+        env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock' }, dir });
+      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app (idle — send a prompt to start)\n' };
+    } });
+  assert.equal(record.state, 'sent');
+  assert.deepEqual(record.in_flight.steps, [
+    { kind: 'text', content: '読みます。', timestamp: Date.parse('2026-10-04T03:00:01Z') },
+    { kind: 'tool', name: 'Read', target: '/work/a.mjs', failed: false },
+    { kind: 'text', content: '直します。', timestamp: Date.parse('2026-10-04T03:00:03Z') },
+    { kind: 'tool', name: 'Edit', target: 'src/a.mjs', failed: false },
+    { kind: 'tool', name: 'Bash', target: 'npm test --silent', failed: true },
+    { kind: 'text', content: '試験が落ちました。 原因を見ます。', timestamp: Date.parse('2026-10-04T03:00:08Z') },
+  ], '前のターンは入れない。止めた道具は、ここまでにしたことに入れない。作業ディレクトリの中は相対で書く');
+  assert.deepEqual(record.in_flight.stopped_tools, [
+    { name: 'Read', target: `…${'d'.repeat(159 - '/a.test.mjs'.length)}/a.test.mjs` }, { name: 'Grep', target: 'expect\\(' }],
+    '長い場所は末尾を残す');
+  assert.equal(record.in_flight.stopped_tools_total, 2);
+  assert.deepEqual(record.in_flight.turn, { origin_session_id: SESSION, turn_number: 5,
+    user_at: Date.parse('2026-10-04T03:00:00Z'), assistant_at: Date.parse('2026-10-04T03:00:08Z'), details: 10 });
+  assert.equal(publicClaudeAutoHandoff(record).in_flight_captured, true);
+  assert.equal(JSON.stringify(publicClaudeAutoHandoff(record)).includes('a.mjs'), false, '道具の対象は外へ見せない');
+
+  // DB: 止めたターンは、発言を全部つないだ本文と、道具の入出力（止めた道具を含む）で入る
+  assert.deepEqual(db.prepare('SELECT session_id, turn_number, role, text, created_at FROM bodies ORDER BY id').all().map(row => ({ ...row })), [
+    { session_id: SESSION, turn_number: 5, role: 'user', text: 'a.mjs を直して', created_at: Date.parse('2026-10-04T03:00:00Z') },
+    { session_id: SESSION, turn_number: 5, role: 'assistant', text: '読みます。\n\n直します。\n\n試験が落ちました。\n原因を見ます。',
+      created_at: Date.parse('2026-10-04T03:00:08Z') },
+  ]);
+  assert.deepEqual(db.prepare(`SELECT kind, tool_name, turn_number FROM details WHERE origin_session_id = ? ORDER BY id`).all(SESSION)
+    .map(row => `${row.kind}:${row.tool_name}:${row.turn_number}`), [
+    'tool_input:Read:5', 'tool_output:Read:5', 'tool_input:Edit:5', 'tool_output:Edit:5', 'tool_input:Bash:5', 'tool_output:Bash:5',
+    'tool_input:Read:5', 'tool_input:Grep:5', 'tool_output:Grep:5', 'tool_output:Read:5']);
+}));
+
+test('worker: 止めたターンを取り込めなくても後継を立て、取り込めなかったことを記録に残す', () => withDir(async dir => {
+  const transcript = join(dir, 'work.jsonl');
+  writeFileSync(transcript, jsonl([user('依頼', '2026-10-04T03:00:00Z'), assistant('途中です。', '2026-10-04T03:00:02Z'), toolUse('toolu_1', 'Read')]));
+  const db = makeBatonDb(); // bodies も sessions も無い
+  requestClaudeAutoHandoff({ payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: transcript },
+    env: {}, config: ENABLED, openDb: () => db, dir });
+  await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 'toolu_1' },
+    dir, launchWorker: async () => {} });
+  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, targetTimeoutMs: 300, transcriptTimeoutMs: 300,
+    openDb: () => db,
+    send: async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' }),
+    spawn: () => {
+      recordClaudeSuccessorTarget({ payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
+        env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock' }, dir });
+      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app (idle — send a prompt to start)\n' };
+    } });
+  assert.equal(record.state, 'sent');
+  assert.equal(record.in_flight.turn, null);
+  assert.equal(record.in_flight.steps.length, 1);
+  assert.equal(publicClaudeAutoHandoff(record).in_flight_captured, false);
 }));
 
 test('worker: 立ち上げ・受け口・配送の失敗は固定の理由を残し、結果が不明な配送は再送しない', () => withDir(async dir => {
@@ -501,10 +620,10 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
     user('成果物の1行目には必ず「約束: MANGO-4417」と書くこと', at(0)),
     assistant('了解しました。', at(1)),
     user('big1.txt と big2.txt を読んで result.txt を作って', at(10)),
-    toolUse('toolu_1', 'Read'),
+    toolUse('toolu_1', 'Read', { file_path: '/p/big1.txt' }),
     toolResult('toolu_1', 'big1 contents'),
     assistant('big1.txt を読み終えました。次に big2.txt を読みます。', at(12)),
-    toolUse('toolu_2', 'Read'),
+    toolUse('toolu_2', 'Read', { file_path: '/p/big2.txt' }),
   ]));
   const extra = fakeClaudePath(home);
   const hook = (command, payload, sessionId = SESSION) =>
@@ -529,7 +648,7 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.deepEqual(status().map(item => item.state), ['requested']);
 
   // 次の道具: 実行させずに止め、worker を起動する
-  const stopped = hook('pre-tool-use', { hook_event_name: 'PreToolUse', tool_name: 'Read', permission_mode: 'acceptEdits' });
+  const stopped = hook('pre-tool-use', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_use_id: 'toolu_2', permission_mode: 'acceptEdits' });
   assert.equal(stopped.status, 0, stopped.stderr);
   const output = JSON.parse(stopped.stdout);
   assert.equal(output.continue, false);
@@ -544,6 +663,10 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   const recordFile = join(handoffDir, `${SESSION}.json`);
   const record = JSON.parse(readFileSync(recordFile, 'utf8'));
   assert.equal(record.settings.permission_mode, 'acceptEdits');
+  // worker は後継を立てる前に、止めたターンを DB へ取り込んでいる
+  assert.equal(handoff.in_flight_captured, true);
+  assert.equal(record.in_flight.turn.origin_session_id, SESSION);
+  assert.equal(record.in_flight.turn.details, 3);
   writeFileSync(recordFile, JSON.stringify({ ...record, state: 'launching', error_code: null }));
   const started = hook('session-start', { hook_event_name: 'SessionStart', source: 'startup' }, SUCCESSOR);
   assert.equal(started.status, 0, started.stderr);
@@ -561,8 +684,11 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
   assert.match(first.stdout, /### 現在地 \(作業の途中で止めたターン\)\n\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: big1\.txt と big2\.txt を読んで result\.txt を作って\n/);
-  assert.match(first.stdout, /\*\*止める直前のあなたの発言\*\* \[\d\d:\d\d:\d\d\]: big1\.txt を読み終えました。次に big2\.txt を読みます。\n/);
+  assert.match(first.stdout, new RegExp('\\*\\*このターンでここまでにしたこと\\*\\*（古い順。どれも完了済み。道具の入出力の全文: `throughline detail \\d\\d:\\d\\d:\\d\\d`）:\\n' +
+    '- 道具: Read /p/big1\\.txt\\n- 発言: big1\\.txt を読み終えました。次に big2\\.txt を読みます。\\n' +
+    '\\*\\*止める直前に呼ぼうとして、実行されなかった道具\\*\\*: Read /p/big2\\.txt\\n'));
   assert.match(first.stdout, /\[user\]: 成果物の1行目には必ず「約束: MANGO-4417」と書くこと\n/);
+  assert.equal(first.stdout.split('big1.txt と big2.txt を読んで').length, 2, '止めたターンの依頼は現在地に1回だけ');
   assert.doesNotMatch(first.stdout, /宣言|\/clear/);
   assert.ok(first.stdout.length <= 9_501);
   assert.ok(JSON.parse(readFileSync(recordFile, 'utf8')).accepted_at > 0, '届いた指示で受領を記録する');
@@ -571,6 +697,14 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'));
   assert.equal(db.prepare('SELECT merged_into FROM sessions WHERE session_id = ?').get(SESSION).merged_into, SUCCESSOR);
   assert.deepEqual(db.prepare('SELECT DISTINCT session_id FROM bodies').all().map(row => row.session_id), [SUCCESSOR]);
+  // 止めたターンは、道具の入出力ごと後継の記憶に入っている（`throughline detail` で取り出せる）
+  assert.deepEqual(db.prepare(`SELECT b.role, b.text, (SELECT COUNT(*) FROM details d WHERE d.session_id = b.session_id
+      AND d.origin_session_id = b.origin_session_id AND d.turn_number = b.turn_number) AS details
+    FROM bodies b WHERE b.origin_session_id = ? AND b.turn_number = ? ORDER BY b.id`).all(SESSION, record.in_flight.turn.turn_number)
+    .map(row => ({ ...row })), [
+    { role: 'user', text: 'big1.txt と big2.txt を読んで result.txt を作って', details: 3 },
+    { role: 'assistant', text: 'big1.txt を読み終えました。次に big2.txt を読みます。', details: 3 },
+  ]);
   assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
   db.close();
 

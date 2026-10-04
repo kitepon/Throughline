@@ -10,6 +10,7 @@ import {
   getLogicalTurnGroups,
   readLatestUserGroup,
   sliceCurrentTurnEntries,
+  sliceInFlightTurnEntries,
   extractDetailBlocks,
 } from './transcript-reader.mjs';
 import { DETAIL_KIND } from './constants.mjs';
@@ -528,3 +529,26 @@ test('extractDetailBlocks: 複数ツール連続呼び出しを全て拾う', ()
     [DETAIL_KIND.TOOL_INPUT, DETAIL_KIND.TOOL_OUTPUT, DETAIL_KIND.TOOL_INPUT, DETAIL_KIND.TOOL_OUTPUT],
   );
 });
+
+test('sliceInFlightTurnEntries: 最後の user 本文から末尾まで。最後の発言の後に呼んだ道具と、圧縮の要約行より前の本文も扱う', () => {
+  const entries = [
+    { type: 'user', message: { role: 'user', content: '前の依頼' } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '前の回答' }] } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '今の依頼' }] } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '途中です。' }] } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }] } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'hook error' }] } },
+    { type: 'attachment', attachment: { type: 'hook_stopped_continuation' } },
+  ];
+  const slice = sliceInFlightTurnEntries(entries);
+  assert.equal(slice.length, 5);
+  assert.equal(slice[0].message.content[0].text, '今の依頼');
+  assert.equal(sliceCurrentTurnEntries(entries).length, 2, '完了したターン用の切り出しは、最後の発言で終わる');
+  assert.deepEqual(extractDetailBlocks(slice).map((d) => d.source_id), ['t1', 't1:result', null]);
+
+  // 圧縮の要約行はターンの始まりにしない
+  const summary = { type: 'user', isCompactSummary: true, message: { role: 'user', content: '要約…' } };
+  assert.equal(sliceInFlightTurnEntries([entries[2], entries[3], summary, entries[4]]).length, 4);
+  assert.deepEqual(sliceInFlightTurnEntries([entries[1]]), []);
+});
+

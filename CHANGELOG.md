@@ -10,6 +10,26 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-10-05
+
+### 修正
+
+- Claude Codeの自動継続で、後継が完了済みの作業をやり直すことがあった不具合を直す。0.14.0は、止めたターンについて「止める直前の発言」1つしか後継へ渡していなかった。そのターンでそこまでにした発言と道具の呼び出しは、記憶に入っていなかった。macOSの実機（Haiku 4.5）で、後継2つが読み終えたファイルを最初から読み直した。
+- Codexの自動継続と同じく、後継を立てる前に、止めたターンをDBへ取り込む。発言は全部をつないで本文（L2）に、道具の入出力は止めた道具の呼び出しまで詳細（L3）に入れる。後継は`throughline detail HH:MM:SS`で、止めたターンの入出力を取り出せる。0.14.0では、止めたターンの入出力はどこにも残らなかった。
+- 後継へ渡す現在地に、次の2つを足す。
+  - **このターンでここまでにしたこと**: 発言と道具の呼び出しを古い順に並べる。作業フォルダの中のファイルは相対で書く。多い時は新しい側から2,400字まで載せ、残りは件数にする。
+  - **止める直前に呼ぼうとして、実行されなかった道具**: 圧縮を止めた後の応答が呼んだ道具。同じ応答に並んだ道具は全部ここに入る。
+- 止めたターンは現在地にだけ載せ、直前の対話（L2）の一覧に重ねない。依頼の上限は4,000字から3,500字にする。
+
+### 追加
+
+- `throughline auto-handoff status --host claude --json`の各引き継ぎに`in_flight_captured`を足す。止めたターンをDBへ取り込めた時に`true`。取り込めなくても引き継ぎは止めず、依頼とここまでにしたことは後継へ渡る。
+
+### 確認した範囲
+
+- macOS 27.0のClaude Code。端末の会話（2.1.289）と、Claude Desktopが同梱する本体（2.1.286）を端末から起動した会話の両方から始めた。直した版で、Haiku 4.5は4回、Opus 5.5は7回、連続で引き継いで作業を完了した。読み直しも読み飛ばしも無く、どの会話でも自動圧縮は走っていない。
+- Claude Desktopの画面から始めた会話、Windows、Fable、subagentが動いている最中の引き継ぎは確かめていない。
+
 ## [0.14.0] — 2026-10-05
 
 ### 変更
@@ -1676,7 +1696,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/kitepon/Throughline/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/kitepon/Throughline/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/kitepon/Throughline/compare/v0.12.9...v0.13.0
 [0.12.9]: https://github.com/kitepon/Throughline/compare/v0.12.8...v0.12.9

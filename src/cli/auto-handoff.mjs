@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { withCodexReceiver, platformDesktopFinder, realCodexHome } from 'aiterm-steer-delivery';
-import { openReadOnlyDb, DB_PATH, CURRENT_VERSION } from '../db.mjs';
+import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from '../db.mjs';
 import { listAutoHandoffs, getAutoHandoff } from '../codex-auto-handoff-store.mjs';
 import { renderFrozenDetail } from '../codex-auto-handoff-memory.mjs';
 import { readAutoHandoffConfig, writeAutoHandoffConfig } from '../codex-auto-handoff-config.mjs';
@@ -84,7 +84,7 @@ async function runClaude(parsed) {
     removeClaudeAutoHandoffHooks();
     return { status: 'disabled', host: 'claude', config };
   }
-  if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation));
+  if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation, { openDb: getDb }));
   const handoffs = listClaudeAutoHandoffs()
     .filter(record => !parsed.project || sameProjectPath(record.project_path, parsed.project))
     .filter(record => !parsed.operation || record.handoff_id === parsed.operation || record.source_session_id === parsed.operation)

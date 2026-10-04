@@ -68,16 +68,19 @@ const AUTO_CONTINUATION_HEADER = (projectPath) =>
   `- 前の会話は文脈の上限に近づいたため、Throughline が自動圧縮の前に止めて、この新しい会話へ引き継ぎました。` +
   `下記は、前の会話で **あなた自身とユーザーが交わした会話の原文** です。\n` +
   `- 「現在地」のターンは **作業の途中で止めたもの** です。ユーザーの追加入力を待たず、未完了の作業をそのまま続けてください。\n` +
-  `- 完了済みの操作を繰り返さないでください。止める直前に呼ぼうとした道具は実行されていません。` +
-  `直前の実行結果が分からない時は、作業ツリーや記録を確かめてから続けてください。\n` +
-  '- **完了したターンの詳細**: **`Bash` ツールで `throughline detail HH:MM:SS` を実行** ' +
-  `(該当ターンの本文＋詳細を stdout に返します)`;
+  `- 「ここまでにしたこと」と「直前の対話」に載っている操作は **完了しています**。繰り返さないでください。` +
+  `未実行なのは「実行されなかった道具」だけです。そこから続けてください。\n` +
+  `- 直前の実行結果が分からない時は、作業ツリーや詳細を確かめてから続けてください。\n` +
+  '- **各ターンの詳細**（止めたターンを含む）: **`Bash` ツールで `throughline detail HH:MM:SS` を実行** ' +
+  `(該当ターンの本文＋道具の入出力を stdout に返します)`;
 
 const AUTO_CONTINUATION_ANCHOR_TITLE = '### 現在地 (作業の途中で止めたターン)';
-// 途中で止めたターンは、本文の断片が無ければ bodies に入らない。依頼の原文を必ず渡せる場所は
-// ここだけなので、/clear のアンカー (600 字) より厚く取る。
-const IN_FLIGHT_USER_MAX_CHARS = 4_000;
+// 止めたターンは現在地にだけ載せ、L2 の一覧からは外す（同じ依頼を二度載せない）。
+// /clear のアンカー (600 字) より厚く取る。3つの上限を足しても、ヘッダと案内を合わせて予算に収まる。
+const IN_FLIGHT_USER_MAX_CHARS = 3_500;
 const IN_FLIGHT_ASSISTANT_MAX_CHARS = 1_500;
+// 止めたターンでここまでにしたこと（発言と道具の呼び出し）。新しい側から、入るだけ載せる。
+const IN_FLIGHT_STEPS_MAX_CHARS = 2_400;
 
 // v0.10.12以前にThroughline自身がassistantへ付与させていた宣言行。
 // 製品由来のメタ情報だけを引き継ぎ材料から除き、会話本文への模倣連鎖を止める。
@@ -501,7 +504,8 @@ function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxC
   const older = loadOlderTurnStats(db, {
     sessionId,
     excludeOriginId,
-    windowKeys: new Set(turns.map((t) => t.turnKey)),
+    // 現在地にだけ載せたターン（自動継続の止めたターン）は、窓の外の古いターンに数えない。
+    windowKeys: new Set([...turns.map((t) => t.turnKey), ...(sections.anchorTurnKeys ?? [])]),
   });
 
   const guidanceLines = buildGuidanceLines({
@@ -550,10 +554,61 @@ function truncateInFlight(text, maxChars) {
 }
 
 /**
+ * 止めたターンでここまでにしたことを、現在地の行にする。
+ * 新しい側から予算に入るだけ載せ、載せなかった古い側は件数だけを1行にまとめる。
+ * @returns {{lines: string[], shownTexts: Set<string>}}
+ */
+function renderInFlightSteps(inFlight, detailClock) {
+  const steps = [...(inFlight.steps ?? [])];
+  const earlier = inFlight.earlier_steps ?? null;
+  // 一覧の最後が止める直前の発言で、1行に詰めると元の文と変わる（改行がある・長い）時は、
+  // 一覧から外して、下の「止める直前のあなたの発言」に全文で載せる。
+  const last = steps.at(-1);
+  const lastFragment = inFlight.last_fragment;
+  if (last?.kind === 'text' && lastFragment && last.timestamp === lastFragment.timestamp &&
+      last.content !== lastFragment.content.trim()) {
+    steps.pop();
+  }
+  if (steps.length === 0 && !earlier) return { lines: [], shownTexts: new Set() };
+
+  const rendered = steps.map((step) =>
+    step.kind === 'text'
+      ? `- 発言: ${step.content}`
+      : `- 道具: ${step.name}${step.target ? ` ${step.target}` : ''}${step.failed ? ' → 失敗' : ''}`,
+  );
+  let budget = IN_FLIGHT_STEPS_MAX_CHARS;
+  let first = rendered.length;
+  while (first > 0 && budget - (rendered[first - 1].length + 1) >= 0) {
+    first -= 1;
+    budget -= rendered[first].length + 1;
+  }
+  const omitted = steps.slice(0, first);
+  const omittedTexts = (earlier?.texts ?? 0) + omitted.filter((step) => step.kind === 'text').length;
+  const omittedTools =
+    Object.values(earlier?.tools ?? {}).reduce((sum, count) => sum + count, 0) +
+    omitted.filter((step) => step.kind === 'tool').length;
+
+  const lines = [
+    `**このターンでここまでにしたこと**（古い順。どれも完了済み` +
+      (detailClock ? `。道具の入出力の全文: \`throughline detail ${detailClock}\`` : '') +
+      `）:`,
+  ];
+  if (omittedTexts + omittedTools > 0) {
+    lines.push(`- （これより前に、発言 ${omittedTexts} 件・道具 ${omittedTools} 回）`);
+  }
+  lines.push(...rendered.slice(first));
+  return {
+    lines,
+    shownTexts: new Set(steps.slice(first).filter((step) => step.kind === 'text').map((step) => step.content)),
+  };
+}
+
+/**
  * 自動継続で立てた新しい会話へ注入するテキスト (ADR 0033)。
  *
  * 構成は /clear の引き継ぎと同じ予算付き（ヘッダ + 現在地 + 案内 + 入るだけの L2）。違いは現在地で、
- * DB の最新ターンではなく、止めた時点に記録した作業途中のターンを載せる。
+ * DB の最新ターンではなく、止めた時点に記録した作業途中のターンを載せる。依頼、ここまでにしたこと
+ * （発言と道具の呼び出し）、止める直前の発言、実行されなかった道具の順。止めたターンは L2 の一覧から外す。
  *
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {{
@@ -561,6 +616,11 @@ function truncateInFlight(text, maxChars) {
  *   inFlight: {
  *     user: {content: string, timestamp: number|null},
  *     last_fragment: {content: string, timestamp: number|null} | null,
+ *     steps?: Array<{kind: 'text', content: string, timestamp: number|null} | {kind: 'tool', name: string, target: string, failed: boolean}>,
+ *     earlier_steps?: {texts: number, tools: Record<string, number>} | null,
+ *     stopped_tools?: Array<{name: string, target: string}>,
+ *     stopped_tools_total?: number,
+ *     turn?: {origin_session_id: string, turn_number: number, user_at: number, assistant_at: number|null} | null,
  *   } | null,
  *   projectPath?: string | null,  前の会話の作業ディレクトリ。依頼の中の相対的な場所の基準として渡す
  *   maxChars?: number,
@@ -573,15 +633,29 @@ export function buildAutoContinuationContext(
   const stored = buildResumeSections(db, { sessionId, isInheritance: true, handoffDisclosure: 'silent' });
   const stamp = (timestamp) => (timestamp == null ? '' : ` [${formatClock(timestamp)}]`);
   const anchorLines = [];
+  const turn = inFlight?.turn ?? null;
+  const turnKey = turn ? `${turn.origin_session_id}\x00${turn.turn_number}` : null;
   if (inFlight) {
     anchorLines.push(
       `**作業中のユーザー依頼**${stamp(inFlight.user.timestamp)}: ` +
         truncateInFlight(inFlight.user.content, IN_FLIGHT_USER_MAX_CHARS),
     );
-    if (inFlight.last_fragment) {
+    const steps = renderInFlightSteps(inFlight, turn ? formatClock(turn.assistant_at ?? turn.user_at) : null);
+    anchorLines.push(...steps.lines);
+    // 一覧に同じ文がそのまま載っている時は、重ねて載せない。改行のある発言や長い発言は、ここに全文を載せる。
+    if (inFlight.last_fragment && !steps.shownTexts.has(inFlight.last_fragment.content.trim())) {
       anchorLines.push(
         `**止める直前のあなたの発言**${stamp(inFlight.last_fragment.timestamp)}: ` +
           truncateInFlight(inFlight.last_fragment.content, IN_FLIGHT_ASSISTANT_MAX_CHARS),
+      );
+    }
+    const stoppedTools = inFlight.stopped_tools ?? [];
+    if (stoppedTools.length > 0) {
+      const more = (inFlight.stopped_tools_total ?? stoppedTools.length) - stoppedTools.length;
+      anchorLines.push(
+        `**止める直前に呼ぼうとして、実行されなかった道具**: ` +
+          stoppedTools.map((tool) => `${tool.name}${tool.target ? ` ${tool.target}` : ''}`).join('、') +
+          (more > 0 ? `（ほか ${more} 件）` : ''),
       );
     }
   }
@@ -593,8 +667,10 @@ export function buildAutoContinuationContext(
       header: AUTO_CONTINUATION_HEADER(projectPath),
       anchorTitle: AUTO_CONTINUATION_ANCHOR_TITLE,
       anchorLines,
+      anchorTurnKeys: turnKey ? [turnKey] : [],
       l1Lines: [],
-      l2Lines: stored?.l2Lines ?? [],
+      // 止めたターンは現在地に載せた。L2 の一覧には、それより前のターンだけを載せる。
+      l2Lines: (stored?.l2Lines ?? []).filter((line) => line.turnKey !== turnKey),
     },
     { sessionId, excludeOriginId: null, maxChars },
   );

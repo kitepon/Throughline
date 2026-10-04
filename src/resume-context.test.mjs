@@ -939,7 +939,7 @@ test('buildAutoContinuationContext: 現在地は止めた時点のターンで�
   assert.doesNotMatch(anchor, /前の依頼/);
   assert.match(result.text, /### 直前の対話 \(L2 \/ active work thread, 古い順\)\n\[\d\d:\d\d:\d\d\] \[user\]: 前の依頼\n\[\d\d:\d\d:\d\d\] \[assistant\]: 前の回答/);
   assert.doesNotMatch(result.text, /宣言|\/clear|圧縮の要約/);
-  assert.match(result.text, /止める直前に呼ぼうとした道具は実行されていません/);
+  assert.match(result.text, /未実行なのは「実行されなかった道具」だけです/);
   assert.equal(result.injectedL2Turns, 1);
 });
 
@@ -957,8 +957,8 @@ test('buildAutoContinuationContext: 長い依頼は先頭と末尾を残し、�
     },
   });
   assert.ok(result.totalChars <= INJECTION_BUDGET_CHARS, `${result.totalChars}`);
-  assert.match(result.text, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: 先頭の指示ヰ+ …\(長いため中略 2010 字\)… ヰ+末尾の指示\n/);
-  assert.equal((result.text.match(/ヰ/g) ?? []).length, 3_990);
+  assert.match(result.text, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: 先頭の指示ヰ+ …\(長いため中略 2510 字\)… ヰ+末尾の指示\n/);
+  assert.equal((result.text.match(/ヰ/g) ?? []).length, 3_490);
   assert.equal((result.text.match(/ヱ/g) ?? []).length, 1_500);
   assert.match(result.text, /ヱ …\(長いため中略 1500 字\)… ヱ/);
   assert.ok(result.injectedL2Turns >= 1, '最新の保存済みターンは入る');
@@ -966,3 +966,71 @@ test('buildAutoContinuationContext: 長い依頼は先頭と末尾を残し、�
   assert.equal(result.injectedL2Turns + result.remainingL2Turns, 12);
   assert.match(result.text, /throughline recall --l2 --session S /);
 });
+
+test('buildAutoContinuationContext: 止めたターンでここまでにしたことと、実行されなかった道具を現在地に載せ、そのターンをL2に重ねない', () => {
+  const db = makeDb();
+  insertBody(db, { session: 'S', origin: 'P0', turn: 1, role: 'user', text: '前の依頼', createdAt: 1_000 });
+  insertBody(db, { session: 'S', origin: 'P0', turn: 1, role: 'assistant', text: '前の回答', createdAt: 2_000 });
+  // worker が取り込んだ止めたターン（発言を全部つないだ本文）
+  insertBody(db, { session: 'S', origin: 'P', turn: 7, role: 'user', text: '今の依頼', createdAt: 3_000 });
+  insertBody(db, { session: 'S', origin: 'P', turn: 7, role: 'assistant', text: 'a を直しました。\n\nb を読みます。', createdAt: 5_000 });
+  const result = buildAutoContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: {
+      user: { content: '今の依頼', timestamp: 3_000 },
+      last_fragment: { content: 'b を読みます。', timestamp: 5_000 },
+      steps: [
+        { kind: 'tool', name: 'Edit', target: '/work/a.mjs', failed: false },
+        { kind: 'tool', name: 'Bash', target: 'npm test', failed: true },
+        { kind: 'text', content: 'a を直しました。', timestamp: 4_000 },
+        { kind: 'text', content: 'b を読みます。', timestamp: 5_000 },
+      ],
+      earlier_steps: null,
+      stopped_tools: [{ name: 'Read', target: '/work/b.mjs' }, { name: 'Read', target: '/work/c.mjs' }],
+      stopped_tools_total: 3,
+      turn: { origin_session_id: 'P', turn_number: 7, user_at: 3_000, assistant_at: 5_000 },
+    },
+  });
+  const anchor = result.text.slice(result.text.indexOf('### 現在地'), result.text.indexOf('### さらに前の記憶'));
+  assert.match(anchor, new RegExp(
+    '\\*\\*作業中のユーザー依頼\\*\\* \\[\\d\\d:\\d\\d:\\d\\d\\]: 今の依頼\\n' +
+    '\\*\\*このターンでここまでにしたこと\\*\\*（古い順。どれも完了済み。道具の入出力の全文: `throughline detail \\d\\d:\\d\\d:\\d\\d`）:\\n' +
+    '- 道具: Edit /work/a\\.mjs\\n- 道具: Bash npm test → 失敗\\n- 発言: a を直しました。\\n- 発言: b を読みます。\\n' +
+    '\\*\\*止める直前に呼ぼうとして、実行されなかった道具\\*\\*: Read /work/b\\.mjs、Read /work/c\\.mjs（ほか 1 件）\\n'));
+  assert.doesNotMatch(anchor, /止める直前のあなたの発言/, '一覧に同じ文が載っている発言は重ねない');
+  const l2 = result.text.slice(result.text.indexOf('### 直前の対話'));
+  assert.match(l2, /\[user\]: 前の依頼\n\[\d\d:\d\d:\d\d\] \[assistant\]: 前の回答/);
+  assert.doesNotMatch(l2, /今の依頼|a を直しました/, '止めたターンは現在地だけに載せる');
+  assert.equal(result.injectedL2Turns, 1);
+  assert.equal(result.olderTurns, 0, '止めたターンを、窓の外の古いターンに数えない');
+});
+
+test('buildAutoContinuationContext: 改行のある直前の発言は全文を載せ、多い手順は新しい側から入るだけ載せて残りは件数にする', () => {
+  const db = makeDb();
+  const steps = [];
+  for (let n = 1; n <= 80; n++) {
+    steps.push({ kind: 'tool', name: 'Read', target: `/work/file-${String(n).padStart(3, '0')}-${'x'.repeat(40)}.mjs`, failed: false });
+  }
+  steps.push({ kind: 'text', content: '方針: 1. 型を直す 2. 試験を足す', timestamp: 9_000 });
+  const result = buildAutoContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: {
+      user: { content: '大きな依頼', timestamp: 1_000 },
+      last_fragment: { content: '方針:\n1. 型を直す\n2. 試験を足す', timestamp: 9_000 },
+      steps,
+      earlier_steps: { texts: 4, tools: { Read: 30, Edit: 6 } },
+      stopped_tools: [{ name: 'Edit', target: '/work/types.mjs' }],
+      stopped_tools_total: 1,
+      turn: null,
+    },
+  });
+  assert.ok(result.totalChars <= INJECTION_BUDGET_CHARS, `${result.totalChars}`);
+  assert.match(result.text, /\*\*このターンでここまでにしたこと\*\*（古い順。どれも完了済み）:\n- （これより前に、発言 4 件・道具 (\d+) 回）\n- 道具: Read /);
+  const omittedTools = Number(/これより前に、発言 4 件・道具 (\d+) 回/.exec(result.text)[1]);
+  const shownTools = (result.text.match(/^- 道具: Read /gm) ?? []).length;
+  assert.equal(omittedTools + shownTools, 36 + 80, '載せた分と件数にした分で全部');
+  assert.ok(shownTools >= 20 && shownTools < 80, `${shownTools}`);
+  assert.doesNotMatch(result.text, /- 発言: 方針/, '下に全文を載せる発言は、一覧に重ねない');
+  assert.match(result.text, /- 道具: Read \/work\/file-080-x+\.mjs\n\*\*止める直前のあなたの発言\*\* \[\d\d:\d\d:\d\d\]: 方針:\n1\. 型を直す\n2\. 試験を足す\n\*\*止める直前に呼ぼうとして、実行されなかった道具\*\*: Edit \/work\/types\.mjs\n/);
+});
+
