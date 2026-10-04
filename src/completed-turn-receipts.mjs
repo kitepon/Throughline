@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { CLAUDE_HOST } from './hosts/identity.mjs';
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -13,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { hashAuditorBody } from './body-digest.mjs';
 import { normalizeProjectPathForCompare } from './project-path.mjs';
-import { applyAndVerifyWindowsAcl, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
+import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
 import { windowsLocalAppData, xdgStateHome } from './os/app-dirs.mjs';
 
 export const COMPLETED_TURN_RECEIPT_STORE_SCHEMA = 'throughline.completed_turn_receipts.v1';
@@ -157,15 +158,16 @@ function withStoreLock(normalized, options, operation) {
   ensurePrivateDirectory(directory, options.env);
   const lockPath = `${storePath}.lock.sqlite`;
   let created = false;
-  try {
-    writeFileSync(lockPath, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    created = true;
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-  }
-  if (created) {
-    if (isWindows(options.env)) applyAndVerifyWindowsAcl(lockPath, false);
-    else chmodSync(lockPath, 0o600);
+  if (isWindows(options.env)) {
+    created = !existsSync(lockPath) && createWindowsPrivateFile(lockPath);
+  } else {
+    try {
+      writeFileSync(lockPath, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      created = true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    if (created) chmodSync(lockPath, 0o600);
   }
   if (created && isWindows(options.env)) assertPrivateFileShape(lstatSync(lockPath));
   else assertPrivateFile(lstatSync(lockPath), options.env, lockPath);

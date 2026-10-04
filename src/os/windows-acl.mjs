@@ -16,6 +16,8 @@
  * export 経由で mock するため、named import に変えないこと。
  */
 import childProcess from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { linkSync, rmSync, writeFileSync } from 'node:fs';
 import { platform as hostPlatform } from 'node:os';
 
 export const WINDOWS_ACL_TIMEOUT_MS = 15_000;
@@ -30,6 +32,31 @@ export function applyAndVerifyWindowsAcl(path, directory) {
 
 export function verifyWindowsAcl(path, directory) {
   runWindowsAclScript(path, directory, WINDOWS_ACL_VERIFY_SCRIPT);
+}
+
+/**
+ * owner-only ACL の付いた空 file を、最終 path へ排他的に作る。作れたら true、既に在れば false。
+ *
+ * 最終 path へ作ってから ACL を適用すると、適用が終わるまで (PowerShell の起動で 1 秒前後)
+ * 継承 ACL のまま見える。同時に走った別 process がその間に verify して落ちた
+ * (fox 2026-10-05、Cursor が同じ Stop hook を 2 本同時に起動)。別名で作って ACL を
+ * 適用・検証し、hard link で公開する。hard link は同じ file なので ACL はそのまま付く。
+ */
+export function createWindowsPrivateFile(path) {
+  const temporary = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    writeFileSync(temporary, '', { encoding: 'utf8', flag: 'wx' });
+    applyAndVerifyWindowsAcl(temporary, false);
+    try {
+      linkSync(temporary, path);
+      return true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      return false;
+    }
+  } finally {
+    rmSync(temporary, { force: true, maxRetries: 3, retryDelay: 50 });
+  }
 }
 
 function runWindowsAclScript(path, directory, script) {

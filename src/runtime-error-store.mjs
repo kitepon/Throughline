@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { applyAndVerifyWindowsAcl, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
+import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
 import { windowsLocalAppData, xdgConfigHome, xdgStateHome } from './os/app-dirs.mjs';
 
 const require = createRequire(import.meta.url);
@@ -419,15 +419,16 @@ function withStoreLock(options, operation) {
   ensurePrivateStoreDirectory(directory, options.env);
   const lockPath = `${storePath}.lock.sqlite`;
   let created = false;
-  try {
-    writeFileSync(lockPath, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    created = true;
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-  }
-  if (created) {
-    if (isWindows(options.env)) applyAndVerifyWindowsAcl(lockPath, false);
-    else chmodSync(lockPath, 0o600);
+  if (isWindows(options.env)) {
+    created = !existsSync(lockPath) && createWindowsPrivateFile(lockPath);
+  } else {
+    try {
+      writeFileSync(lockPath, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      created = true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    if (created) chmodSync(lockPath, 0o600);
   }
   if (created && isWindows(options.env)) assertPrivateStoreFileShape(lstatSync(lockPath));
   else assertPrivateStoreFile(lstatSync(lockPath), options.env, lockPath);

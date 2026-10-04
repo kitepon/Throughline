@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -154,6 +154,29 @@ test('completed turn receipt: one Windows mutation spends ACL processes only on 
     writeCompletedTurnReceipt(input(2), options);
     assert.equal(calls.length, 4, 'directory apply, existing lock/store verify, and replacement store apply are distinct');
     assert.ok(calls.every((call) => call.options.timeout === 15_000));
+  } finally {
+    rmSync(box.root, { recursive: true, force: true });
+  }
+});
+
+test('completed turn receipt: Windows lock file reaches its final path only after its ACL is applied', (t) => {
+  const box = sandbox();
+  const env = { OS: 'Windows_NT', HOME: box.root, USERPROFILE: box.root };
+  const lockPath = `${box.storePath}.lock.sqlite`;
+  const applied = new Set();
+  const exposed = [];
+  // 同時に走る別のhookは、lockが見えた時点でそのACLを検証する。ACL processの起動を、その検証が入りうる瞬間として見る。
+  t.mock.method(childProcess, 'spawnSync', (command, args, options) => {
+    if (existsSync(lockPath) && !applied.has(statSync(lockPath, { bigint: true }).ino)) exposed.push(options.env.THROUGHLINE_ACL_PATH);
+    if (args.at(-1).includes('Set-Acl')) applied.add(statSync(options.env.THROUGHLINE_ACL_PATH, { bigint: true }).ino);
+    return { status: 0, signal: null, error: undefined };
+  });
+
+  try {
+    writeCompletedTurnReceipt(input(1), { env, storePath: box.storePath });
+    assert.deepEqual(exposed, [], 'the lock must not be visible with an inherited ACL');
+    assert.ok(applied.has(statSync(lockPath, { bigint: true }).ino));
+    assert.deepEqual(readdirSync(dirname(lockPath)).filter((name) => name.endsWith('.tmp')), []);
   } finally {
     rmSync(box.root, { recursive: true, force: true });
   }

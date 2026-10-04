@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess, { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -140,6 +140,27 @@ test('runtime error store: one Windows mutation spends ACL processes only on dis
   assert.equal(observeRuntimeError({ code: 'HOOK_CODEX_FAILED' }, options).status, 'recorded');
   assert.equal(calls.length, 4, 'directory apply, existing lock/store verify, and replacement store apply are distinct');
   assert.ok(calls.every((call) => call.options.timeout === 15_000));
+});
+
+test('runtime error store: Windows lock file reaches its final path only after its ACL is applied', (t) => {
+  const box = sandbox();
+  box.env.OS = 'Windows_NT';
+  enableCollection(box);
+  const lockPath = `${box.storePath}.lock.sqlite`;
+  const applied = new Set();
+  const exposed = [];
+  // 同時に走る別のhookは、lockが見えた時点でそのACLを検証する。ACL processの起動を、その検証が入りうる瞬間として見る。
+  t.mock.method(childProcess, 'spawnSync', (command, args, options) => {
+    if (existsSync(lockPath) && !applied.has(statSync(lockPath, { bigint: true }).ino)) exposed.push(options.env.THROUGHLINE_ACL_PATH);
+    if (args.at(-1).includes('Set-Acl')) applied.add(statSync(options.env.THROUGHLINE_ACL_PATH, { bigint: true }).ino);
+    return { status: 0, signal: null, error: undefined };
+  });
+  const options = { env: box.env, configPath: box.configPath, storePath: box.storePath };
+
+  assert.equal(observeRuntimeError({ code: 'HOOK_CODEX_FAILED' }, options).status, 'recorded');
+  assert.deepEqual(exposed, [], 'the lock must not be visible with an inherited ACL');
+  assert.ok(applied.has(statSync(lockPath, { bigint: true }).ino));
+  assert.deepEqual(readdirSync(dirname(lockPath)).filter((name) => name.endsWith('.tmp')), []);
 });
 
 test('runtime error store: Windows temporary ACL failure leaves the previous atomic store intact', (t) => {

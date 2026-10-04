@@ -96,7 +96,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | 役割 |
 |---|---|
-| [src/os/windows-acl.mjs](src/os/windows-acl.mjs) | Windows owner-only ACL の apply / verify (PowerShell) と `isWindows`。runtime-error-store と completed-turn-receipts に二重実装されていたものを集約 (15 秒 timeout・explicit failure 契約は不変) |
+| [src/os/windows-acl.mjs](src/os/windows-acl.mjs) | Windows owner-only ACL の apply / verify (PowerShell) と `isWindows`。runtime-error-store と completed-turn-receipts に二重実装されていたものを集約 (15 秒 timeout・explicit failure 契約は不変)。`createWindowsPrivateFile` は lock file を別名で作って ACL を適用・検証し、hard link で最終 path へ排他的に公開する (最終 path に継承 ACL のまま見える瞬間を作らない) |
 | [src/os/portable-spawn-sync.mjs](src/os/portable-spawn-sync.mjs) | 同期・非同期の子プロセス起動。WindowsはnpmのPowerShell起動ファイルを解決し、PowerShell 7で標準入出力をUTF-8へ統一する。macOS/LinuxはNodeの起動APIをそのまま使う |
 | [src/os/macos-terminal.mjs](src/os/macos-terminal.mjs) | macOS Terminal.app 起動 (detached exec 形 / do script 形)。grok-continue と codex-handoff-start が共用 |
 | [src/os/open-url.mjs](src/os/open-url.mjs) | URL を OS 既定 handler で開く (darwin `open` / win32 `start` / linux `xdg-open`) |
@@ -200,7 +200,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/db-schema.test.mjs](src/db-schema.test.mjs) | 現行schemaの table / field / index 名固定 |
 | [src/auditor-context.test.mjs](src/auditor-context.test.mjs) | Spotter auditor projection の freshness、role 除外、bound、schema / DB 状態、Claude / Codex transcript freshness、read-only WAL 契約 |
 | [src/cli/auditor-context.test.mjs](src/cli/auditor-context.test.mjs) | `auditor-context` JSON-only CLI、freshness source 排他、固定秘匿 error、bin help / dispatch |
-| [src/runtime-error-store.test.mjs](src/runtime-error-store.test.mjs) | collection fail-closed、privacy reject、固定 fingerprint 集約、cursor/ack、resolve/reopen、retention、private mode、atomic write、bounded diagnostics |
+| [src/runtime-error-store.test.mjs](src/runtime-error-store.test.mjs) | collection fail-closed、privacy reject、固定 fingerprint 集約、cursor/ack、resolve/reopen、retention、private mode、atomic write、bounded diagnostics、Windows の lock が ACL 適用後にだけ最終 path へ現れること |
 | [src/runtime-error-hook.test.mjs](src/runtime-error-hook.test.mjs) | Claude/Codex top-level hook failure の単一 owner 観測、重複排除、store failure 時の固定 stderr と本体 failure 維持、Codex Stop の L1 要約 backend 失敗を `L1_SUMMARIZER_BACKEND_FAILED` で数えること（ADR 0028） |
 | [src/cli/runtime-errors.test.mjs](src/cli/runtime-errors.test.mjs) | runtime error CLI の厳格な引数面、JSON-only snapshot/diagnostics、固定秘匿 failure |
 | [src/runtime-error-report.test.mjs](src/runtime-error-report.test.mjs) | 受け口契約の署名試験値、既定で送らないこと、送る項目と署名、検証できない200でackしないこと、拒否ごとの間隔、background の間隔と hook 入口の trigger、不正な credential file を使わないこと、CLI が宛先・credential・path を出さないこと |

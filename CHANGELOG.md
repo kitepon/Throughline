@@ -10,6 +10,20 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.14.3] — 2026-10-05
+
+### 修正
+
+- Windowsで、同じhookが2本同時に走った時に、片方が`Windows owner-only ACL verification failed`で失敗することがあった不具合を直す。Cursorは同じStop hookを2本ほぼ同時に起動する。新しいフォルダでの最初の応答では、1本目が受領記録のlockファイルを作り、その後で所有者だけの権限（ACL）を付けていた。権限を付け終わるまでの約1秒、lockファイルはフォルダから継承した権限のまま見える。2本目がその間に権限を検証して落ち、`HOOK_PROCESS_TURN_FAILED`に数えられていた。会話の保存は同じStopで済んでいて、失われていない。
+- lockファイルは、別名で作って権限を付け、検証してから、hard linkで最終の場所へ出す。最終の場所に現れた時点で、所有者だけの権限が付いている。先に出した側が勝ち、後から来た側は既にあるlockを検証して使う。
+- 実行時エラーの記録（`runtime-errors`）のlockファイルも同じ作りだったので、同じ形に直す。
+- macOSとLinuxの動作は変わらない（作る時点で`0600`を指定しているので、この隙間は無い）。既にあるlockファイルの検証は変えていない。
+
+### 確認した範囲
+
+- Windows 11（10.0.26200）の実機。0.14.2では、lockファイルが作られて権限がまだ付いていない状態で2本目を走らせると、Cursorの実際の失敗と同じ文面・同じ呼び出し位置で落ちる。0.14.3は、同じ場面（1本目が別名を作った直後）で2本とも成功し、lockファイルと受領記録の権限は所有者だけになる。
+- 同じ実機で、新しい置き場に2本・4本を同時に起動する確認を、受領記録で51回、実行時エラーの記録で15回行い、失敗0。0.14.2は同じ確認18回のうち1回で失敗した。
+
 ## [0.14.2] — 2026-10-05
 
 ### 修正
@@ -1710,7 +1724,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.2...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/kitepon/Throughline/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/kitepon/Throughline/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/kitepon/Throughline/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/kitepon/Throughline/compare/v0.13.0...v0.14.0
