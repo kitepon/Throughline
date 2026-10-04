@@ -11,7 +11,7 @@
 | `/tl` | `UserPromptSubmit` が現在の session id を baton として保存する。次の実セッションがその前任を確定的に引き継ぐ |
 | VS Code の `/clear` | 組み込みコマンドは `UserPromptSubmit` に届かない。`SessionStart source='clear'` を使う auto path が、同じ project の直近前任を凍結して引き継ぐ |
 | Claude Desktop の `/clear` | `UserPromptSubmit` に届かず、`SessionStart source='clear'` も来ないため自動継承しない。続ける場合は `/clear` の前に `/tl` を実行する |
-| Claude Code の自動圧縮 | 会話は切り替わらない。`auto-handoff enable --host claude` で有効にした時だけ、`PreCompact`（`trigger: auto`）が印を残し、圧縮直後の `SessionStart source='compact'` が作業途中のターンと直近の会話を同じ会話へ注入する。既定は無効。手動 `/compact` は対象外。正本は [ADR 0032](adr/0032-claude-compact-continuation.md) |
+| Claude Code の自動圧縮 | `auto-handoff enable --host claude` で有効にした時だけ、`PreCompact`（`trigger: auto`）が圧縮を止めて `/tl` と同じ印を残し、`PreToolUse` が旧い会話を止める。Throughline が `claude --bg` で新しい会話を立て、継続の指示を1通送る。その指示の `UserPromptSubmit` が印を消費して記憶を注入する。既定は無効。手動 `/compact` は対象外。正本は [ADR 0033](adr/0033-claude-auto-handoff-new-session.md) |
 
 `/clear` が `UserPromptSubmit` に届かないことは、VS Code と Desktop の対照実測で
 確定している。`prompt-submit` に残る `/clear` 分岐は host が将来その文字列を渡した場合の
@@ -44,7 +44,7 @@ baton path と auto path は同じ `buildBudgetedResumeContext` を使う。注�
 
 ## host 別境界
 
-- Claude Code: VS Code `/clear` は auto path、Desktop `/clear` は `/tl` 併用。自動圧縮は、有効にした時だけ同じ会話へ注入する（ADR 0032）。
+- Claude Code: VS Code `/clear` は auto path、Desktop `/clear` は `/tl` 併用。自動圧縮は、有効にした時だけ、圧縮を止めて新しい会話へ引き継ぐ（ADR 0033）。
 - Grok: `/tl` の baton 成功後に `throughline grok-continue --session <id>` で後継席を
   起動する。`/clear` では起動しない。正本は [ADR 0021](adr/0021-grok-host-capture.md)。
 - Cursor: `/tl` は baton を残すが後継会話を自動起動しない。次の会話が baton を消費する。

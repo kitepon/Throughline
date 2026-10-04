@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-05
+
+### 変更
+
+- Claude Codeの自動継続を作り直す（[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)）。0.13.0の方式（自動圧縮を通し、圧縮の直後に同じ会話へ記憶を注入する）は取り下げた。Throughlineは自動圧縮を置き換えるもので、圧縮が走る前に旧い会話を止め、記憶を持った新しい会話で作業を続ける。Codexの自動継続と同じ並びにした。
+  1. 自動圧縮の直前に、`PreCompact`フックが圧縮を止め、`/tl`と同じ印を残す。
+  2. `PreToolUse`フックが、旧い会話の次の道具を実行させずに止める。旧い会話は空にしない。
+  3. 同じprojectに、`claude --bg`で指示を待つ新しい会話を立てる。モデル・推論強度・権限は旧い会話から引き継ぐ。
+  4. 新しい会話の受け口へ、配送ライブラリ（`aiterm-steer-delivery` 0.1.13の`sendClaudeInbox`）で継続の指示を1通送る。届いた時に、止めた時点の依頼と直近の会話の原文を注入する。
+- `throughline auto-handoff enable --host claude`が`PreCompact`と`PreToolUse`のフックを登録し、`disable`が外す。`throughline install`は登録しない。0.13.0の`install`が置いた`PreCompact`フックは、自動継続が無効な端末の`install`で外す。
+- 続きは裏の会話で動く。`claude agents`の一覧と`claude attach <id>`で見られる。Claude Desktopの画面には出ず、後継のターンが終わって入力待ちになった後に開ける。
+- 別の会話から届いた発言（`Another Claude session sent a message:`）は、Claude Codeが後ろに付ける定型の注意書きを落として保存する。
+- 依存の`aiterm-steer-delivery`を0.1.9から0.1.13に上げる。
+
+### 0.13.0から変わらないもの
+
+- 圧縮の要約行（`isCompactSummary`）をユーザー発言として保存しない修理は、そのまま有効。
+
+### 確認した範囲
+
+- LinuxのClaude Code 2.1.289。対話画面の会話から始めて後継へ3回連続で引き継ぎ、最後の後継が作業を完了した。4つの会話のどれにも圧縮の記録は無く、止めた道具は実行されていなかった。
+- macOS・Windows、Claude Desktopから始まる会話、subagentが動いている最中の引き継ぎは確かめていない。
+
 ## [0.13.0] — 2026-10-04
 
 ### 追加
@@ -1653,7 +1676,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/kitepon/Throughline/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/kitepon/Throughline/compare/v0.12.9...v0.13.0
 [0.12.9]: https://github.com/kitepon/Throughline/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/kitepon/Throughline/compare/v0.12.7...v0.12.8

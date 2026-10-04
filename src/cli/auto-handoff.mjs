@@ -6,14 +6,15 @@ import { listAutoHandoffs, getAutoHandoff } from '../codex-auto-handoff-store.mj
 import { renderFrozenDetail } from '../codex-auto-handoff-memory.mjs';
 import { readAutoHandoffConfig, writeAutoHandoffConfig } from '../codex-auto-handoff-config.mjs';
 import { autoHandoffDeliveryProfile, runAutoHandoffWorker } from '../codex-auto-handoff.mjs';
-import { installCodexAutoHandoffHook, installClaudeAutoHandoffHook, claudeAutoHandoffHookRegistered } from './install.mjs';
+import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaudeAutoHandoffHooks,
+  claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
 import { readClaudeAutoHandoffConfig, writeClaudeAutoHandoffConfig } from '../claude-auto-handoff-config.mjs';
-import { listClaudeCompactRequests } from '../claude-auto-handoff.mjs';
+import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWorker } from '../claude-auto-handoff.mjs';
 
-// Claude の自動継続は圧縮後の同じ会話へ記憶を注入する (ADR 0032)。引き継ぎ操作の記録を持たないので、
-// 使える action は有効化・無効化・状態だけ。
-const CLAUDE_ACTIONS = ['enable', 'disable', 'status'];
+// Claude の自動継続 (ADR 0033)。引き継ぎの記録は旧い会話の session id で持つ。結果が不明な配送は
+// 再送しないので、resume は持たない。記憶の取得は通常の recall / detail を使うので、detail も持たない。
+const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker'];
 
 export function parseAutoHandoffArgs(args) {
   const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false };
@@ -30,7 +31,7 @@ export function parseAutoHandoffArgs(args) {
     out[key] = args[++i];
   }
   if (!['codex', 'claude'].includes(out.host)) throw Error('auto_handoff_host_invalid');
-  if (out.host === 'claude' && (!CLAUDE_ACTIONS.includes(out.action) || out.operation)) throw Error('auto_handoff_action_unsupported');
+  if (out.host === 'claude' && !CLAUDE_ACTIONS.includes(out.action)) throw Error('auto_handoff_action_unsupported');
   if (out.project && !isAbsolute(out.project)) out.project = resolve(out.project);
   if (out.project && out.operation) throw Error('auto_handoff_argument_invalid');
   if (['worker', 'resume', 'detail'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
@@ -67,24 +68,29 @@ export async function enableAutoHandoff({ project = null, codexHome = realCodexH
   return { status: 'enabled', config, hookKeys, host: 'desktop' };
 }
 
-export function enableClaudeAutoHandoff({ project = null, register = installClaudeAutoHandoffHook } = {}) {
+export function enableClaudeAutoHandoff({ project = null, register = installClaudeAutoHandoffHooks } = {}) {
   const registration = register();
   const current = readClaudeAutoHandoffConfig();
   const projects = project ? [...new Set([...(current.enabled ? current.projects : []), project])] : [];
   const config = writeClaudeAutoHandoffConfig({ enabled: true, projects });
-  return { status: 'enabled', config, hook: { ...registration, registered: true }, host: 'claude' };
+  return { status: 'enabled', config, hooks: { ...registration, registered: true }, host: 'claude' };
 }
 
-function runClaude(parsed) {
+async function runClaude(parsed) {
   if (parsed.action === 'enable') return enableClaudeAutoHandoff({ project: parsed.project });
   if (parsed.action === 'disable') {
-    return { status: 'disabled', host: 'claude',
-      config: writeClaudeAutoHandoffConfig({ ...readClaudeAutoHandoffConfig(), enabled: false }) };
+    const config = writeClaudeAutoHandoffConfig({ ...readClaudeAutoHandoffConfig(), enabled: false });
+    // PreToolUse は道具の呼び出しのたびに走る。使わない間は置いたままにしない。
+    removeClaudeAutoHandoffHooks();
+    return { status: 'disabled', host: 'claude', config };
   }
-  const pending = listClaudeCompactRequests()
-    .filter(request => !parsed.project || sameProjectPath(request.project_path, parsed.project));
+  if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation));
+  const handoffs = listClaudeAutoHandoffs()
+    .filter(record => !parsed.project || sameProjectPath(record.project_path, parsed.project))
+    .filter(record => !parsed.operation || record.handoff_id === parsed.operation || record.source_session_id === parsed.operation)
+    .map(publicClaudeAutoHandoff);
   return { host: 'claude', config: readClaudeAutoHandoffConfig(),
-    hook: { registered: claudeAutoHandoffHookRegistered() }, pending };
+    hooks: { registered: claudeAutoHandoffHooksRegistered() }, handoffs };
 }
 
 export function publicOperation(operation) {
@@ -102,14 +108,14 @@ export async function run(args = []) {
     const parsed = parseAutoHandoffArgs(args);
     let result;
     if (parsed.host === 'claude') {
-      result = runClaude(parsed);
+      result = await runClaude(parsed);
       if (parsed.json) process.stdout.write(JSON.stringify(result) + '\n');
       else if (parsed.action === 'status') {
         process.stdout.write(`自動継続: ${result.config.enabled ? '有効' : '無効'}（Claude Code）\n`);
-        process.stdout.write(`PreCompact hook: ${result.hook.registered ? '登録済み' : '未登録'}\n`);
-        for (const item of result.pending) process.stdout.write(`${item.session_id}  圧縮待ち  ${new Date(item.requested_at).toISOString()}\n`);
+        process.stdout.write(`hook（PreCompact・PreToolUse）: ${result.hooks.registered ? '登録済み' : '未登録'}\n`);
+        for (const item of result.handoffs) process.stdout.write(`${item.handoff_id}  ${item.state}  ${item.error_code ?? ''}\n`);
       } else process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-      return 0;
+      return result.state === 'failed' || result.state === 'unknown' ? 1 : 0;
     }
     if (parsed.action === 'enable') result = await enableAutoHandoff({ project: parsed.project });
     else if (parsed.action === 'disable') result = { status: 'disabled', config: writeAutoHandoffConfig({ ...readAutoHandoffConfig(), enabled: false }) };

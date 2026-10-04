@@ -3,7 +3,7 @@
  *
  * 呼び出し元:
  *   - handoff-executor.mjs（最初のUserPromptSubmitでauto path / baton path共通注入）
- *   - claude-auto-handoff.mjs（自動圧縮の直後のSessionStartで同じ会話へ注入。ADR 0032）
+ *   - handoff-executor.mjs（前任が自動継続で引き継いだ会話の、最初のUserPromptSubmit。ADR 0033）
  *
  * 設計 (docs/02_clear_auto_handoff_plan.md):
  *   - 予算付き注入: ヘッダ + 現在地アンカー + pull案内を固定部とし、残りへ
@@ -58,23 +58,24 @@ const NORMAL_HEADER = '## Throughline: セッション記憶';
 
 const DEFAULT_ANCHOR_TITLE = '### 現在地 (直前のやりとり)';
 
-// 自動圧縮の直後に、同じ会話へ注入する時のヘッダ (ADR 0032)。/clear の引き継ぎと違い、
-// 作業の途中で、次のユーザー入力は来ない。宣言はさせず、そのまま続けさせる。
-const COMPACT_HEADER =
-  `## Throughline: 自動圧縮後の継続用コンテキスト\n` +
+// 自動継続で立てた新しい会話へ注入する時のヘッダ (ADR 0033)。/clear の引き継ぎと違い、
+// 前の会話は作業の途中で止めてあり、次のユーザー入力は来ない。宣言はさせず、そのまま続けさせる。
+const AUTO_CONTINUATION_HEADER = (projectPath) =>
+  `## Throughline: 自動継続の文脈\n` +
+  (projectPath ? `作業ディレクトリ: ${projectPath}\n` : '') +
   `\n` +
   `**読み方 (重要):**\n` +
-  `- この会話は、たった今 Claude Code の自動圧縮で要約に置き換わりました。下記は Throughline が` +
-  `圧縮の前に保存した **あなた自身とユーザーの会話の原文** です。\n` +
-  `- 圧縮の要約と下記の記録が食い違う時は、下記の記録（元のユーザーの依頼・合意）を正としてください。\n` +
-  `- 「現在地」のターンは **作業の途中** です。ユーザーの追加入力を待たず、未完了の作業をそのまま続けてください。\n` +
-  `- 完了済みの操作を繰り返さないでください。直前の実行結果が分からない時は、作業ツリーや記録を確かめてから続けてください。\n` +
+  `- 前の会話は文脈の上限に近づいたため、Throughline が自動圧縮の前に止めて、この新しい会話へ引き継ぎました。` +
+  `下記は、前の会話で **あなた自身とユーザーが交わした会話の原文** です。\n` +
+  `- 「現在地」のターンは **作業の途中で止めたもの** です。ユーザーの追加入力を待たず、未完了の作業をそのまま続けてください。\n` +
+  `- 完了済みの操作を繰り返さないでください。止める直前に呼ぼうとした道具は実行されていません。` +
+  `直前の実行結果が分からない時は、作業ツリーや記録を確かめてから続けてください。\n` +
   '- **完了したターンの詳細**: **`Bash` ツールで `throughline detail HH:MM:SS` を実行** ' +
   `(該当ターンの本文＋詳細を stdout に返します)`;
 
-const COMPACT_ANCHOR_TITLE = '### 現在地 (作業途中のターン)';
-// 作業途中のターンは Stop の前で、まだ bodies に無い。依頼の原文を残せる場所はここだけなので、
-// /clear のアンカー (600 字) より厚く取る。
+const AUTO_CONTINUATION_ANCHOR_TITLE = '### 現在地 (作業の途中で止めたターン)';
+// 途中で止めたターンは、本文の断片が無ければ bodies に入らない。依頼の原文を必ず渡せる場所は
+// ここだけなので、/clear のアンカー (600 字) より厚く取る。
 const IN_FLIGHT_USER_MAX_CHARS = 4_000;
 const IN_FLIGHT_ASSISTANT_MAX_CHARS = 1_500;
 
@@ -549,28 +550,25 @@ function truncateInFlight(text, maxChars) {
 }
 
 /**
- * 自動圧縮の直後に、同じ会話へ注入するテキスト (ADR 0032)。
+ * 自動継続で立てた新しい会話へ注入するテキスト (ADR 0033)。
  *
  * 構成は /clear の引き継ぎと同じ予算付き（ヘッダ + 現在地 + 案内 + 入るだけの L2）。違いは現在地で、
- * DB の最新ターンではなく、transcript から読んだ作業途中のターンを載せる。作業途中のターンは
- * Stop の前で bodies に無いので、L2 セクションには出ない。
- *
- * 完了したターンが 1 つも無い会話（最初のターンの途中で圧縮）でも、現在地だけを返す。
+ * DB の最新ターンではなく、止めた時点に記録した作業途中のターンを載せる。
  *
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {{
- *   sessionId: string,
+ *   sessionId: string,  合流を終えた後継の session id
  *   inFlight: {
  *     user: {content: string, timestamp: number|null},
- *     fragments: Array<{content: string, timestamp: number|null}>,
+ *     last_fragment: {content: string, timestamp: number|null} | null,
  *   } | null,
- *   inFlightUnreadable?: boolean,  transcript に今の依頼がまだ書かれていない（hook の prompt_id と合わない）
+ *   projectPath?: string | null,  前の会話の作業ディレクトリ。依頼の中の相対的な場所の基準として渡す
  *   maxChars?: number,
  * }} params
  */
-export function buildCompactContinuationContext(
+export function buildAutoContinuationContext(
   db,
-  { sessionId, inFlight, inFlightUnreadable = false, maxChars = INJECTION_BUDGET_CHARS },
+  { sessionId, inFlight, projectPath = null, maxChars = INJECTION_BUDGET_CHARS },
 ) {
   const stored = buildResumeSections(db, { sessionId, isInheritance: true, handoffDisclosure: 'silent' });
   const stamp = (timestamp) => (timestamp == null ? '' : ` [${formatClock(timestamp)}]`);
@@ -580,26 +578,20 @@ export function buildCompactContinuationContext(
       `**作業中のユーザー依頼**${stamp(inFlight.user.timestamp)}: ` +
         truncateInFlight(inFlight.user.content, IN_FLIGHT_USER_MAX_CHARS),
     );
-    const lastFragment = inFlight.fragments.at(-1);
-    if (lastFragment) {
+    if (inFlight.last_fragment) {
       anchorLines.push(
-        `**圧縮直前のあなたの発言**${stamp(lastFragment.timestamp)}: ` +
-          truncateInFlight(lastFragment.content, IN_FLIGHT_ASSISTANT_MAX_CHARS),
+        `**止める直前のあなたの発言**${stamp(inFlight.last_fragment.timestamp)}: ` +
+          truncateInFlight(inFlight.last_fragment.content, IN_FLIGHT_ASSISTANT_MAX_CHARS),
       );
     }
-  }
-  if (!inFlight && inFlightUnreadable) {
-    anchorLines.push(
-      '**作業中のユーザー依頼**: （記録からまだ読めません。圧縮後の文脈にある最新のユーザー依頼を続けてください）',
-    );
   }
   if (!stored && anchorLines.length === 0) return null;
 
   return renderBudgetedSections(
     db,
     {
-      header: COMPACT_HEADER,
-      anchorTitle: COMPACT_ANCHOR_TITLE,
+      header: AUTO_CONTINUATION_HEADER(projectPath),
+      anchorTitle: AUTO_CONTINUATION_ANCHOR_TITLE,
       anchorLines,
       l1Lines: [],
       l2Lines: stored?.l2Lines ?? [],

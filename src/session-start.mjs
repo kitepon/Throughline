@@ -22,11 +22,11 @@
  *   バトンの消費・merge・注入は最初の UserPromptSubmit (= 実体の証明) で行う。
  *   幽霊はプロンプトを発火しないため記憶を奪えない。
  *
- * 【自動圧縮後の継続】 ADR 0032
+ * 【自動継続の後継】 ADR 0033
  *
- *   source='compact' は新しい会話ではなく、圧縮を終えた同じ会話。PreCompact hook が
- *   自動圧縮の印を残していた時だけ、作業途中のターンと直近の会話の原文を stdout へ書く。
- *   host がそのまま作業を続けるので、次の UserPromptSubmit は待たない。
+ *   同じ project で後継の立ち上げ中の引き継ぎがある時だけ、この会話の受け口（inbox socket）を
+ *   控える。worker がそれを読んで、継続の指示を1通送る。記憶の注入は、その指示が届いた時の
+ *   UserPromptSubmit（上の二相ハンドオフの第二相）が行う。
  */
 
 import { getDb } from './db.mjs';
@@ -41,7 +41,7 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { CLAUDE_HOST, hostAdapterForSessionId, hostOfSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
-import { consumeClaudeCompactRequest, buildClaudeCompactContinuation } from './claude-auto-handoff.mjs';
+import { recordClaudeSuccessorTarget } from './claude-auto-handoff.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
 
@@ -170,29 +170,9 @@ export async function run() {
     pending_registered: true,
   });
 
-  // 自動圧縮の直後: 印があれば、圧縮前の記録を同じ会話へ注入する (ADR 0032)。
-  // subagent の中で走った hook は、親の会話の印を消費しない。
-  if (source === 'compact' && hostOfSessionId(session_id) === CLAUDE_HOST && !payload.agent_id) {
-    const request = consumeClaudeCompactRequest({ sessionId: session_id });
-    if (request) {
-      const continuation = buildClaudeCompactContinuation(db, {
-        sessionId: session_id,
-        transcriptPath: transcript_path ?? request.transcript_path,
-        promptId: payload.prompt_id ?? null,
-        now,
-      });
-      if (continuation) process.stdout.write(continuation.text + '\n');
-      logDecision({
-        ts: new Date(now).toISOString(),
-        phase: 'compact-continuation',
-        session_id,
-        project_path: request.project_path,
-        transcript_path: transcript_path ?? request.transcript_path ?? null,
-        requested_at: new Date(request.requested_at).toISOString(),
-        injected: Boolean(continuation),
-        ...(continuation?.stats ?? {}),
-      });
-    }
+  // 自動継続の後継として立ち上がった会話なら、worker が指示を送れるように受け口を控える (ADR 0033)。
+  if (hostOfSessionId(session_id) === CLAUDE_HOST) {
+    recordClaudeSuccessorTarget({ payload, env: process.env, now });
   }
 
   // Cursor は beforeSubmitPrompt が additional_context を持たない。

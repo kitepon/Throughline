@@ -3,6 +3,7 @@
 - 実測日: 2026-10-04（Asia/Tokyo）
 - 対象: Claude Code 2.1.289、Linux（BellTeam コンテナ）、model `claude-haiku-4-5-20251001`
 - 設計: [ADR 0032](../docs/adr/0032-claude-compact-continuation.md)
+- **この方式（自動圧縮を通して、圧縮の後に記憶を足す）は 2026-10-04 にオーナーが却下し、0.14.0 で置き換えた。現行の方式と実測は [2026-10-05 の記録](2026-10-05-claude-auto-handoff.md) と [ADR 0033](../docs/adr/0033-claude-auto-handoff-new-session.md)。以下は 0.13.0 の実測の記録として残す。**
 - 状態: **`claude -p` と対話画面のそれぞれで、自動圧縮2回をまたいで作業が完了した。macOS・Windows、VS Code 拡張・Desktop、subagent の中の圧縮は確かめていない。**
 
 ## 条件

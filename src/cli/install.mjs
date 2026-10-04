@@ -19,6 +19,7 @@ import { join, dirname, resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { ensureMonitorTaskFile, shouldRecommendGitignore } from '../vscode-task.mjs';
+import { readClaudeAutoHandoffConfig } from '../claude-auto-handoff-config.mjs';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SLASH_COMMANDS_SRC = join(PACKAGE_ROOT, '.claude', 'commands');
@@ -37,6 +38,7 @@ const SC_COMMANDS = [
   'throughline session-start',
   'throughline prompt-submit',
   'throughline pre-compact',
+  'throughline pre-tool-use',
   // 旧コマンド（アンインストール時に除去する）
   'throughline inject-context',
   'throughline capture-tool',
@@ -56,14 +58,22 @@ const SC_HOOKS = {
   UserPromptSubmit: {
     hooks: [{ type: 'command', command: 'throughline prompt-submit' }],
   },
-  // 自動継続の第一段 (ADR 0032)。matcher は付けない: 手動の /compact でも呼ばれ、古い印を消す。
-  // 自動継続が無効な時は何も残さずに抜ける。
+};
+
+// Claude の自動継続 (ADR 0033) の hook。install は登録しない。`auto-handoff enable --host claude` が登録し、
+// `disable` が外す。PreToolUse は道具の呼び出しのたびに走るので、使わない端末には置かない。
+// PreCompact に matcher は付けない: 手動の /compact でも呼ばれ、止める前の記録を取り下げる。
+const CLAUDE_AUTO_HANDOFF_HOOKS = {
   PreCompact: {
     hooks: [{ type: 'command', command: 'throughline pre-compact' }],
   },
+  PreToolUse: {
+    hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }],
+  },
 };
-
-const CLAUDE_PRE_COMPACT_COMMAND = SC_HOOKS.PreCompact.hooks[0].command;
+const CLAUDE_AUTO_HANDOFF_COMMANDS = new Set(
+  Object.values(CLAUDE_AUTO_HANDOFF_HOOKS).map(entry => entry.hooks[0].command),
+);
 
 const CODEX_COMMANDS = [
   'throughline codex-hook stop',
@@ -637,23 +647,57 @@ function installCodexHooks() {
   return { hooksPath, configPath };
 }
 
-export function claudeAutoHandoffHookRegistered(settingsPath = join(homedir(), '.claude', 'settings.json')) {
-  const groups = readSettings(settingsPath).hooks?.PreCompact ?? [];
-  // matcher 付きの登録は手動の /compact で呼ばれず、古い印が残る。matcher 無しだけを登録済みとする。
-  return groups.some(group => !group.matcher && (group.hooks ?? []).some(hook => hook.command === CLAUDE_PRE_COMPACT_COMMAND));
+const defaultClaudeSettingsPath = () => join(homedir(), '.claude', 'settings.json');
+
+function isClaudeAutoHandoffEntry(group, event) {
+  const entry = CLAUDE_AUTO_HANDOFF_HOOKS[event];
+  return !group.matcher && (group.hooks ?? []).length === 1 &&
+    group.hooks[0].command === entry.hooks[0].command && group.hooks[0].timeout === entry.hooks[0].timeout;
 }
 
-/** `auto-handoff enable --host claude` 用。古い版で install した端末にも PreCompact hook を足す。 */
-export function installClaudeAutoHandoffHook(settingsPath = join(homedir(), '.claude', 'settings.json')) {
-  if (!claudeAutoHandoffHookRegistered(settingsPath)) {
-    const current = readSettings(settingsPath);
-    current.hooks ??= {};
-    const preserved = (current.hooks.PreCompact ?? []).map(group => ({ ...group,
-      hooks: (group.hooks ?? []).filter(hook => hook.command !== CLAUDE_PRE_COMPACT_COMMAND) })).filter(group => group.hooks.length);
-    current.hooks.PreCompact = [SC_HOOKS.PreCompact, ...preserved];
-    writeSettings(settingsPath, current);
+/** 自動継続の hook が、今の形で2つとも登録されているか。 */
+export function claudeAutoHandoffHooksRegistered(settingsPath = defaultClaudeSettingsPath()) {
+  const hooks = readSettings(settingsPath).hooks ?? {};
+  return Object.keys(CLAUDE_AUTO_HANDOFF_HOOKS).every(event =>
+    (hooks[event] ?? []).filter(group => isClaudeAutoHandoffEntry(group, event)).length === 1 &&
+    (hooks[event] ?? []).flatMap(group => group.hooks ?? [])
+      .filter(hook => CLAUDE_AUTO_HANDOFF_COMMANDS.has(hook.command)).length === 1);
+}
+
+function withoutClaudeAutoHandoffHooks(hooks) {
+  const next = {};
+  for (const [event, groups] of Object.entries(hooks)) {
+    const kept = groups.map(group => ({ ...group,
+      hooks: (group.hooks ?? []).filter(hook => !CLAUDE_AUTO_HANDOFF_COMMANDS.has(hook.command)) }))
+      .filter(group => group.hooks.length);
+    if (kept.length) next[event] = kept;
   }
-  return { settingsPath, command: CLAUDE_PRE_COMPACT_COMMAND };
+  return next;
+}
+
+/** `auto-handoff enable --host claude` 用。他製品の hook とその並びは保ち、自分の2つを今の形で置く。 */
+export function installClaudeAutoHandoffHooks(settingsPath = defaultClaudeSettingsPath()) {
+  if (!claudeAutoHandoffHooksRegistered(settingsPath)) {
+    const current = readSettings(settingsPath);
+    const hooks = withoutClaudeAutoHandoffHooks(current.hooks ?? {});
+    for (const [event, entry] of Object.entries(CLAUDE_AUTO_HANDOFF_HOOKS)) hooks[event] = [...(hooks[event] ?? []), entry];
+    writeSettings(settingsPath, { ...current, hooks });
+  }
+  return { settingsPath, commands: [...CLAUDE_AUTO_HANDOFF_COMMANDS] };
+}
+
+/** `auto-handoff disable --host claude` と、無効な端末の install 用。自分の2つだけを外す。 */
+export function removeClaudeAutoHandoffHooks(settingsPath = defaultClaudeSettingsPath()) {
+  if (!existsSync(settingsPath)) return { settingsPath, removed: false };
+  const current = readSettings(settingsPath);
+  const before = current.hooks ?? {};
+  const hooks = withoutClaudeAutoHandoffHooks(before);
+  if (JSON.stringify(hooks) === JSON.stringify(before)) return { settingsPath, removed: false };
+  const next = { ...current };
+  if (Object.keys(hooks).length) next.hooks = hooks;
+  else delete next.hooks;
+  writeSettings(settingsPath, next);
+  return { settingsPath, removed: true };
 }
 
 export function installCodexAutoHandoffHook(codexHome = join(homedir(), '.codex')) {
@@ -773,6 +817,12 @@ export async function run(args = []) {
 
   current.hooks = existingHooks;
   writeSettings(settingsPath, current);
+  // Claude の自動継続の hook は、有効にした端末にだけ置く (ADR 0033)。0.13.0 の install が置いた
+  // PreCompact も、無効な端末からは外す。project の install では触らない。
+  if (!args.includes('--project')) {
+    if (readClaudeAutoHandoffConfig().enabled) installClaudeAutoHandoffHooks(settingsPath);
+    else removeClaudeAutoHandoffHooks(settingsPath);
+  }
   const { installed: installedCommands, skipped } = installSlashCommands(commandsDir);
   const codex = args.includes('--project') ? null : installCodexHooks();
   const grok = args.includes('--project') ? null : installGrokHooks();
@@ -804,7 +854,6 @@ export async function run(args = []) {
   console.log('  SessionStart     → throughline session-start  (セッション記録・バトン消費・引き継ぎ注入)');
   console.log('  Stop             → throughline process-turn   (L1 要約 + L2 本文保存 + L3 詳細保存)');
   console.log('  UserPromptSubmit → throughline prompt-submit  (/tl & /clear バトン書き込み)');
-  console.log('  PreCompact       → throughline pre-compact    (自動継続の印。既定は無効: auto-handoff enable --host claude)');
   if (codex) {
     console.log(`  Codex UserPromptSubmit → ${buildCodexUserPromptSubmitHookCommand()} (capture / monitor state only; auto refresh disabled)`);
     console.log(`  Codex PostToolUse      → ${buildCodexPostToolUseHookCommand()} (capture / monitor state only; auto refresh disabled)`);

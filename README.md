@@ -51,17 +51,24 @@ throughline auto-handoff status --host claude --json
 throughline auto-handoff disable --host claude
 ```
 
-既定では無効です。`--project`を省略すると全projectを対象にします。Codexの設定とは別で、互いに影響しません。
+既定では無効です。`enable`は必要な`PreCompact`と`PreToolUse`のフックを登録し、`disable`が外します。`--project`を省略すると全projectを対象にします。Codexの設定とは別で、互いに影響しません。
 
-Claude Codeは、自動圧縮の前にhookから作業を止めることも、新しい会話へ指示を送ることもできません。自動圧縮の後は、同じ会話で作業をそのまま続けます。Throughlineは会話を切り替えず、圧縮の直後に、圧縮前の記録を同じ会話へ注入します（[ADR 0032](docs/adr/0032-claude-compact-continuation.md)）。
+自動圧縮を置き換えます。圧縮が走る前に旧い会話を止め、記憶を持った新しい会話で作業を続けます（[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)）。
 
-- `PreCompact`フックが、自動圧縮の時だけ印を残します。圧縮は止めません。
-- 圧縮直後の`SessionStart`（`source: "compact"`）フックが、作業途中のユーザー依頼と圧縮直前の発言、直近の会話の原文を注入します。上限は9,500字で、入り切らない古いターンは`throughline recall`の案内になります。
-- モデルは追加の入力なしで作業を続けます。圧縮の要約と記録が食い違う時は、記録を正とするよう指示します。
+1. 自動圧縮の直前に、圧縮を止めます。`/tl`と同じ印を残します。
+2. 旧い会話の次の道具を、実行させずに止めます。旧い会話は止めるだけで、空にしません。
+3. 同じprojectに、新しいClaudeの会話を裏で立てます（`claude --bg`）。モデル・推論強度・権限は旧い会話から引き継ぎます。
+4. 新しい会話へ継続の指示を1通送ります。届いた時に、止めた時点の依頼と直近の会話の原文を注入します（上限9,500字）。
 
-手動`/compact`は対象に含めません。圧縮をまたいだターンは、元の依頼と最終回答の1ターンとして保存します（0.12.9以前は、圧縮の要約をユーザー発言として保存していました）。
+続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopの画面には出ず、後継のターンが終わって入力待ちになった後にDesktopで開けます。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は対象に含めません。
 
-LinuxのClaude Code 2.1.289（`claude -p`と対話画面）で実機確認済みです。macOS・Windows、VS Code拡張・Desktop、subagentの中の圧縮は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-04-claude-compact-continuation.md)を参照してください。
+```bash
+throughline auto-handoff status --host claude --operation <handoff-id> --json
+```
+
+後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
+
+有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回走ります。LinuxのClaude Code 2.1.289で実機確認済みです。macOS・Windows、Claude Desktopから始まる会話は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
 
 ## Ownership boundary
 

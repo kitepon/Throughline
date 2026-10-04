@@ -29,7 +29,7 @@ rag/
 
 ## Claude自動継続の根拠
 
-- [圧縮まわりのhookの一次ソース抜粋](01-hooks/raw/claude-compact-hooks-extract.md) — `PreCompact`は圧縮を止められるが作業は止められない。`SessionStart(source=compact)`の出力は圧縮後の文脈へ足される。新しい会話へ指示を送る公開の口は無い。[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-04-claude-compact-continuation.md)で、自動圧縮の直後に注入が届き、入力なしで作業が続いた。Finding 6・第三仮説（PreCompactでの再投影）に対する現行の答えは[ADR 0032](../docs/adr/0032-claude-compact-continuation.md)。
+- [圧縮・会話の起動・受け口の一次ソース抜粋](01-hooks/raw/claude-compact-hooks-extract.md) — `PreCompact`は圧縮を止められる（exit code 2）が`continue`は捨てられる。`PreToolUse`の`deny`+`continue:false`で道具を実行させずにターンを止められる。`claude --bg`は指示なしで起動すると指示待ちの会話が立つ。会話ごとの受け口（inbox socket）へ外から1通送ると、入力待ちの会話でターンが始まる。[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)で、対話の会話から後継へ3回連続で引き継ぎ、圧縮は1回も走らなかった。Finding 6・第三仮説（PreCompactでの再投影）に対する現行の答えは[ADR 0033](../docs/adr/0033-claude-auto-handoff-new-session.md)。
 
 ## Question this RAG was built to answer
 

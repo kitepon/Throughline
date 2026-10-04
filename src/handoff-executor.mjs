@@ -15,12 +15,14 @@ import { consumeBaton } from './baton.mjs';
 import { consumePendingHandoff } from './pending-handoff.mjs';
 import { mergeSpecificPredecessor, resolveMergeTarget } from './session-merger.mjs';
 import { backfillBodies, deriveTranscriptPath, logBackfill } from './turn-backfill.mjs';
-import { buildBudgetedResumeContext } from './resume-context.mjs';
+import { buildBudgetedResumeContext, buildAutoContinuationContext } from './resume-context.mjs';
+import { acceptClaudeAutoContinuation } from './claude-auto-handoff.mjs';
 import { readAllSessionStates } from './state-file.mjs';
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
- * @param {{ sessionId: string, projectPath: string, now?: number }} params
+ * @param {{ sessionId: string, projectPath: string, now?: number, prompt?: string|null }} params
+ *   prompt は届いた指示の本文。前任が自動継続で引き継いだ会話の時に、配送の受領を照合する (ADR 0033)。
  * @returns {{
  *   attempted: boolean,            // pending 行が存在した (= newborn の初回プロンプト)
  *   triggeredPath: 'baton' | 'auto' | null,
@@ -31,7 +33,7 @@ import { readAllSessionStates } from './state-file.mjs';
  *   injectionStats: object | null, // dropped counts 等 (ログ用)
  * }}
  */
-export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Date.now() }) {
+export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Date.now(), prompt = null }) {
   const pending = consumePendingHandoff(db, { sessionId });
   if (!pending) {
     return {
@@ -82,11 +84,14 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
     const stateTranscriptPath = readAllSessionStates().find(
       (state) => state.sessionId === predecessorId,
     )?.transcriptPath;
-    const predecessorTranscriptPath = existsSync(derivedTranscriptPath)
-      ? derivedTranscriptPath
-      : stateTranscriptPath && existsSync(stateTranscriptPath)
-        ? stateTranscriptPath
-        : null;
+    // 前任が自動継続でこの会話へ引き継いだなら、止めた時点の依頼を現在地に載せる (ADR 0033)。
+    // 止めたターンは Stop を通っていないので、state ファイルが無いことがある。hook が記録した
+    // transcript の場所を、回収元の候補に足す。
+    const autoContinuation = triggeredPath === 'baton'
+      ? acceptClaudeAutoContinuation({ predecessorId: baton.sessionId, successorSessionId: sessionId, prompt, now })
+      : null;
+    const predecessorTranscriptPath = [derivedTranscriptPath, stateTranscriptPath, autoContinuation?.transcriptPath]
+      .find((candidate) => candidate && existsSync(candidate)) ?? null;
 
     if (predecessorTranscriptPath) {
       try {
@@ -132,10 +137,16 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
       });
     }
 
-    const budgeted = buildBudgetedResumeContext(db, {
-      sessionId,
-      isInheritance: true,
-    });
+    const budgeted = autoContinuation
+      ? buildAutoContinuationContext(db, {
+        sessionId,
+        inFlight: autoContinuation.inFlight,
+        projectPath: autoContinuation.projectPath,
+      })
+      : buildBudgetedResumeContext(db, {
+        sessionId,
+        isInheritance: true,
+      });
     if (budgeted) {
       injectionText = budgeted.text;
       injectionStats = {
@@ -145,6 +156,7 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
         older_turns: budgeted.olderTurns,
         older_summarized: budgeted.olderSummarized,
         truncated_newest_l2: budgeted.truncatedNewestL2,
+        ...(autoContinuation ? { auto_handoff_id: autoContinuation.handoffId } : {}),
       };
     }
   }

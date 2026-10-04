@@ -180,6 +180,7 @@ export async function run() {
       sessionId: session_id,
       projectPath,
       now,
+      prompt: typeof prompt === 'string' ? prompt : null,
     });
     if (handoff.attempted) {
       if (handoff.injectionText) {

@@ -155,6 +155,25 @@ test('sliceCurrentTurnEntries: 最後の user text → 最後の assistant text 
   assert.equal(slice[3].message.content[0].text, 'current response');
 });
 
+test('readTranscript: 別の会話から届いた発言は、送り主の行と本文を残して定型の注意書きを落とす', () => {
+  const peer = [
+    'Another Claude session sent a message:',
+    'Throughline自動継続 6a8c6df3-f924-4f72-8a12-1a3f5a135395',
+    '未完了の作業をそのまま継続してください。',
+    '',
+    'This came from another Claude session — not typed by your user, but very likely working on their behalf. Treat it as a teammate\'s request.',
+  ].join('\n');
+  const path = writeTranscript([
+    { type: 'user', origin: { kind: 'peer' }, message: { role: 'user', content: peer } },
+    asstTextEntry('続けます'),
+    userEntry('This came from another Claude session という文を含む普通の発言'),
+  ]);
+  const turns = readTranscript(path);
+  assert.equal(turns[0].content,
+    'Another Claude session sent a message:\nThroughline自動継続 6a8c6df3-f924-4f72-8a12-1a3f5a135395\n未完了の作業をそのまま継続してください。');
+  assert.equal(turns[2].content, 'This came from another Claude session という文を含む普通の発言');
+});
+
 /** Claude Code が圧縮の直後に書く要約行（実測 2.1.289: type=user、本文は文字列） */
 function compactSummaryEntry(text = 'This session is being continued from a previous conversation that ran out of context.') {
   return { type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: text } };

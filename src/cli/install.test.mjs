@@ -667,12 +667,30 @@ test('Claude Stop hook is registered with async:true so it does not block ター
       .flatMap(g => g.hooks ?? [])
       .find(h => h.command === 'throughline prompt-submit');
     assert.notEqual(promptSubmitHook.async, true, 'UserPromptSubmit stays synchronous (needs baton write committed before turn)');
-    // 自動継続の印 (ADR 0032)。matcher 無し = 手動の /compact でも呼ばれて古い印を消す。
-    assert.deepEqual(settings.hooks.PreCompact, [{ hooks: [{ type: 'command', command: 'throughline pre-compact' }] }]);
+    // Claude の自動継続の hook (ADR 0033) は install では置かない。有効にした端末にだけ置く。
+    assert.equal(settings.hooks.PreCompact, undefined);
+    assert.equal(settings.hooks.PreToolUse, undefined);
+
+    // 0.13.0 の install が置いた PreCompact は、無効な端末の install で外す。他製品の hook は残す。
+    const settingsPath = join(home.dir, '.claude', 'settings.json');
+    const other = { hooks: [{ type: 'command', command: 'other-product pre-compact' }] };
+    writeFileSync(settingsPath, JSON.stringify({ ...settings, hooks: { ...settings.hooks,
+      PreCompact: [{ hooks: [{ type: 'command', command: 'throughline pre-compact' }] }, other] } }));
+    await run([]);
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks.PreCompact, [other]);
+
+    // 有効な端末の install は、2つの hook を今の形で保つ
+    mkdirSync(join(home.dir, '.throughline'), { recursive: true });
+    writeFileSync(join(home.dir, '.throughline', 'claude-auto-handoff.json'),
+      JSON.stringify({ schema: 'throughline.claude-auto-handoff.v1', enabled: true, projects: [] }));
+    await run([]);
+    const enabled = JSON.parse(readFileSync(settingsPath, 'utf8')).hooks;
+    assert.deepEqual(enabled.PreCompact, [other, { hooks: [{ type: 'command', command: 'throughline pre-compact' }] }]);
+    assert.deepEqual(enabled.PreToolUse, [{ hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }] }]);
 
     await run(['--uninstall']);
-    const removed = JSON.parse(readFileSync(join(home.dir, '.claude', 'settings.json'), 'utf8'));
-    assert.equal(removed.hooks, undefined, 'uninstall removes every Throughline Claude hook including PreCompact');
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks, { PreCompact: [other] },
+      'uninstall removes every Throughline Claude hook and keeps the others');
   } finally {
     unsilence();
     home.restore();

@@ -10,7 +10,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { DETAIL_KIND } from './constants.mjs';
-import { compactClaudeTaskNotification } from './hosts/claude.mjs';
+import { compactClaudePeerMessage, compactClaudeTaskNotification } from './hosts/claude.mjs';
 import { classifyTurnStart } from './turn-start.mjs';
 
 function entryKind(entry) {
@@ -86,10 +86,10 @@ export function readTranscript(transcriptPath) {
     if (!role || rawContent == null) continue;
 
     const extracted = extractText(rawContent);
-    // user 発言には端末の生出力 (貼り付け・Claude の task 通知) が入る。記憶には
-    // 制御文字を落とした本文だけを残す。
+    // user 発言には端末の生出力 (貼り付け・Claude の task 通知) や、別の会話から届いた発言の
+    // 定型の注意書きが入る。記憶には制御文字と定型文を落とした本文だけを残す。
     const text = role === 'user'
-      ? normalizeTerminalText(compactClaudeTaskNotification(extracted))
+      ? normalizeTerminalText(compactClaudePeerMessage(compactClaudeTaskNotification(extracted)))
       : extracted;
     if (!text) continue;
 

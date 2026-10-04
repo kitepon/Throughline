@@ -1,22 +1,26 @@
 #!/usr/bin/env node
 /**
- * PreCompact hook — Claude Code の自動継続の第一段 (ADR 0032)
+ * PreCompact hook — Claude Code の自動継続の第一段 (ADR 0033)
  *
  * stdin: { session_id, transcript_path, cwd, hook_event_name, trigger, custom_instructions }
  *
- * 自動圧縮（trigger=auto）で、自動継続が有効な project の時だけ、その会話に印を残す。
- * 記憶の注入は圧縮の後の SessionStart(source=compact) が行う。
+ * 自動圧縮（trigger=auto）で、自動継続が有効な project の時だけ、/tl と同じ印と引き継ぎの記録を残し、
+ * 圧縮を止める。Claude Code は PreCompact の exit code 2 を「圧縮を止める」と解釈する。
+ * 止めた後の会話は圧縮されないまま続き、次の道具の hook（PreToolUse）が作業を止める。
  *
- * この hook は圧縮を止めない。Claude Code は PreCompact の exit code 2 と `decision: "block"` を
- * 「圧縮を止める」と解釈するので、stdout には何も書かず、失敗した時も exit code 1 で終わる。
+ * 手動の /compact、無効な project、subagent の中の圧縮では、何も止めずに exit code 0 で終わる。
+ * この hook 自身が失敗した時は exit code 1 で終わり、圧縮は止めない。
  */
 
 import { pathToFileURL } from 'node:url';
 import { parseHookPayload } from './hosts/index.mjs';
-import { recordClaudeCompactRequest } from './claude-auto-handoff.mjs';
+import { requestClaudeAutoHandoff } from './claude-auto-handoff.mjs';
+import { getDb } from './db.mjs';
 import { logDecision } from './decision-log.mjs';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
+
+export const PRE_COMPACT_BLOCK_EXIT_CODE = 2;
 
 export async function run() {
   let raw = '';
@@ -30,7 +34,12 @@ export async function run() {
 
   const payload = parseHookPayload(raw, { env: process.env });
   const now = Date.now();
-  const result = recordClaudeCompactRequest({ payload, env: process.env, now });
+  const result = requestClaudeAutoHandoff({
+    payload,
+    env: process.env,
+    now,
+    openDb: getDb,
+  });
 
   logDecision({
     ts: new Date(now).toISOString(),
@@ -39,9 +48,14 @@ export async function run() {
     project_path: result.projectPath ?? null,
     trigger: payload.trigger ?? null,
     auto_continuation: result.status,
+    handoff_id: result.handoffId ?? null,
     skip_reason: result.reason ?? null,
   });
 
+  if (result.block) {
+    process.stderr.write(`Throughlineが自動圧縮を止めました。新しい会話へ引き継ぎます（引き継ぎID: ${result.handoffId}）。\n`);
+    process.exit(PRE_COMPACT_BLOCK_EXIT_CODE);
+  }
   process.exit(0);
 }
 

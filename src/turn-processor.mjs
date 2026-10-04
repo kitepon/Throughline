@@ -49,6 +49,7 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
+import { completeClaudeTurnWithoutHandoff } from './claude-auto-handoff.mjs';
 
 /** 直近 N ターンは bodies を生で残し、それより古いものだけ L1 要約する。 */
 export const L2_WINDOW = 20;
@@ -252,6 +253,9 @@ async function processStop() {
   const { session_id, transcript_path, cwd, last_assistant_message } = payload;
   if (!session_id) throw new Error('Missing session_id in Stop payload');
   failureContext = { session_id, transcript_path };
+
+  // 自動圧縮を止めた後、道具を呼ばずにターンが終わった。続ける作業が無いので、引き継ぎの記録を取り下げる (ADR 0033)。
+  completeClaudeTurnWithoutHandoff({ sessionId: session_id });
 
   // VSCode で開かれたプロジェクトに .vscode/tasks.json を自動プロビジョニングする。
   // 2 回目以降は冪等性チェックで即 return するので毎ターン走っても安全。

@@ -26,6 +26,16 @@ export function compactClaudeTaskNotification(text) {
   return kept ? `${block}\n${kept}` : block;
 }
 
+// 別の会話から届いた発言（cross-session messaging、Throughline の自動継続の指示）には、Claude Code が
+// 毎回同じ注意書きを後ろに付ける。記憶には送り主の行と本文だけを残す。
+const PEER_MESSAGE_PREFIX = 'Another Claude session sent a message:';
+const PEER_MESSAGE_NOTE = '\n\nThis came from another Claude session';
+export function compactClaudePeerMessage(text) {
+  if (typeof text !== 'string' || !text.startsWith(PEER_MESSAGE_PREFIX)) return text;
+  const note = text.lastIndexOf(PEER_MESSAGE_NOTE);
+  return note < 0 ? text : text.slice(0, note);
+}
+
 export const claudeHostAdapter = Object.freeze({
   host: CLAUDE_HOST,
   matchesSessionId: (sessionId) => hostOfSessionId(sessionId) === CLAUDE_HOST,
