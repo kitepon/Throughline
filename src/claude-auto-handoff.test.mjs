@@ -57,6 +57,8 @@ function request(dir, overrides = {}) {
     payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: overrides.transcriptPath ?? null,
       ...overrides.payload },
     env: overrides.env ?? {}, config: overrides.config ?? ENABLED, openDb: () => db, dir, now: overrides.now ?? 1_000,
+    // 試験の project は POSIX の書き方（/work/app）。Windows の CI でも同じ値で比べる
+    platform: 'linux',
   });
   return { result, db };
 }
@@ -286,7 +288,7 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   const run = async (sessionId, transcriptPath, toolUseId) => {
     const db = makeBatonDb();
     requestClaudeAutoHandoff({ payload: { session_id: sessionId, trigger: 'auto', cwd: '/work/app', transcript_path: transcriptPath },
-      env: {}, config: ENABLED, openDb: () => db, dir });
+      env: {}, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
     await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/app', transcript_path: transcriptPath,
       tool_use_id: toolUseId }, dir, launchWorker: async () => {} });
     const calls = [];
@@ -395,7 +397,7 @@ test('worker: 止めたターンを DB へ取り込み、ここまでにした�
   ]));
   const db = makeMemoryDb();
   requestClaudeAutoHandoff({ payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: transcript },
-    env: {}, config: ENABLED, openDb: () => db, dir });
+    env: {}, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
   // hook は並んで走る。記録に残る止めた道具は、応答の中の2つ目のこともある
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 't5' },
     dir, launchWorker: async () => {} });
@@ -442,7 +444,7 @@ test('worker: 止めたターンを取り込めなくても後継を立て、取
   writeFileSync(transcript, jsonl([user('依頼', '2026-10-04T03:00:00Z'), assistant('途中です。', '2026-10-04T03:00:02Z'), toolUse('toolu_1', 'Read')]));
   const db = makeBatonDb(); // bodies も sessions も無い
   requestClaudeAutoHandoff({ payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: transcript },
-    env: {}, config: ENABLED, openDb: () => db, dir });
+    env: {}, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 'toolu_1' },
     dir, launchWorker: async () => {} });
   const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, targetTimeoutMs: 300, transcriptTimeoutMs: 300,
