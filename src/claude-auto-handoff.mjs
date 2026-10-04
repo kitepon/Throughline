@@ -18,7 +18,7 @@
 
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -160,6 +160,17 @@ function unsupportedEntrypoint(env) {
 }
 
 /**
+ * 会話を起動した project の場所を、その OS の書き方にそろえる。
+ *
+ * Windows の Claude Code は hook を Git Bash で走らせ、CLAUDE_PROJECT_DIR を `C:/Users/…` の形で渡す。
+ * hook の payload の cwd は `C:\Users\…` で、後継の最初の指示はこちらで印（baton）を探す。
+ * 書き方が違うと、後継が印を見つけられず、記憶が入らない。
+ */
+function nativeProjectPath(projectPath, platform) {
+  return (platform === 'win32' ? win32 : posix).resolve(projectPath);
+}
+
+/**
  * PreCompact hook の本体。自動圧縮で、その project が有効な時だけ、印と記録を残して圧縮を止める。
  *
  * @param {{
@@ -177,6 +188,7 @@ export function requestClaudeAutoHandoff({
   config = readClaudeAutoHandoffConfig(),
   now = Date.now(),
   dir = claudeAutoHandoffDir(),
+  platform = process.platform,
 }) {
   const sessionId = payload?.session_id;
   if (typeof sessionId !== 'string' || !sessionId) throw new Error('Missing session_id in PreCompact payload');
@@ -185,7 +197,8 @@ export function requestClaudeAutoHandoff({
   const path = recordPath(sessionId, dir);
   const existing = readClaudeAutoHandoff(sessionId, dir);
   // 有効判定は会話を起動した project で行う。hook の cwd は Bash の cd に追従する。
-  const projectPath = claudeHostAdapter.completionProjectPath({ cwd: payload.cwd ?? process.cwd(), env });
+  const projectPath = nativeProjectPath(
+    claudeHostAdapter.completionProjectPath({ cwd: payload.cwd ?? process.cwd(), env }), platform);
 
   if (payload.trigger !== 'auto') {
     // 人が /compact を選んだ。まだ止めていない記録は取り下げる。

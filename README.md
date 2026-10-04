@@ -68,7 +68,7 @@ throughline auto-handoff status --host claude --operation <handoff-id> --json
 
 後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
 
-有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回走ります。LinuxとmacOSのClaude Code（2.1.289、Claude Desktop同梱の2.1.286）で実機確認済みです。Windowsと、Claude Desktopの画面から始めた会話は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
+有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回走ります。Linux・macOS・WindowsのClaude Code 2.1.289（macOSはClaude Desktop同梱の2.1.286も）で、端末から始めた会話を実機確認済みです。Claude Desktopの画面から始めた会話は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
 
 ## Ownership boundary
 

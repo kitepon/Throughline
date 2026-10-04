@@ -1,10 +1,10 @@
 # Claude Code 自動継続（自動圧縮を止めて新しい会話へ引き継ぐ）の成立検証
 
 - 実測日: 2026-10-04〜05（Asia/Tokyo）
-- 対象: Claude Code 2.1.289 と、Claude Desktop が同梱する本体 2.1.286。Linux（BellTeam コンテナ）と macOS 27.0。
+- 対象: Claude Code 2.1.289 と、Claude Desktop が同梱する本体 2.1.286。Linux（BellTeam コンテナ）、macOS 27.0、Windows 11（10.0.26200）。
   配送ライブラリ `aiterm-steer-delivery` 0.1.13
 - 設計: [ADR 0033](../docs/adr/0033-claude-auto-handoff-new-session.md)
-- 状態: **Linux と macOS で、対話の会話から始めて後継へ連続で引き継ぎ、最後の後継が作業を完了した。どの会話でも自動圧縮は走っていない。0.14.0 は macOS の Haiku で、後継が読み終えたファイルを読み直した。止めたターンを取り込む 0.14.1 で、同じ条件の読み直しは無くなった。Claude Desktop の画面から始めた会話、Windows、Fable、subagent が動いている最中の引き継ぎは確かめていない。**
+- 状態: **Linux・macOS・Windows で、対話の会話から始めて後継へ連続で引き継ぎ、最後の後継が作業を完了した。どの会話でも自動圧縮は走っていない。0.14.0 は macOS の Haiku で、後継が読み終えたファイルを読み直した（0.14.1 で修理）。0.14.1 は Windows で、後継に記憶が入らなかった（0.14.2 で修理）。Claude Desktop の画面から始めた会話、Fable、subagent が動いている最中の引き継ぎは確かめていない。**
 
 ## 条件
 
@@ -115,9 +115,33 @@ Desktop 同梱の本体（2.1.286）を端末から起動すると、起動時�
 `~/.local/share/claude/versions/2.1.289` を作った（native install）。試験の手順が起こした変更で、製品の動作ではない。
 同梱の本体を端末から起動する試験は、利用者の環境を変える。
 
+## Windows（2026-10-05 01:27〜01:34）
+
+Windows 11（10.0.26200）、Node 24.20、Claude Code 2.1.289（npm の入口）、Haiku 4.5。試験用フォルダの中に package を入れ、
+`USERPROFILE`・`HOME`・`LOCALAPPDATA`・`XDG_CONFIG_HOME`・`XDG_STATE_HOME` を切り離した wrapper を PATH の先頭に置いた
+（hook は Git Bash で走るので sh の wrapper）。worker が後継を立てる時に呼ぶ `claude` は、切り離した値を本物へ戻してから
+本物の入口を呼ぶ wrapper。端末の本物の Throughline（0.12.9）と設定には書いていない。
+旧い会話は Aiterm の PTY（Git Bash から `pwsh` 経由）で起動した対話の `claude`。
+
+| 回 | 版 | 引き継ぎ | 結果 |
+|---|---|---|---|
+| 1 | 0.14.1 | 1回 | **後継に記憶が入らなかった。** 配送の結果は `unknown`（`handoff_delivery_timeout`） |
+| 2 | 0.14.2（公開前の同じ内容） | 4回 | 完了。読み直し無し。圧縮の記録無し |
+
+- 1回目でも、圧縮を止める（exit code 2）、道具を止める、`claude --bg` で後継を立てる（`--settings` の JSON はそのまま届いた）、
+  後継の受け口（named pipe、token あり）へ継続の指示を送る、止めたターンを取り込む、の5つは動いた。
+  後継の transcript に継続の指示は届いていた。
+- 1回目の原因: 圧縮を止める hook が残した印の project は `C:/Users/kite_/tl-claude-probe/proj`
+  （Git Bash で走る hook の `CLAUDE_PROJECT_DIR`）。後継の最初の指示は、payload の cwd
+  `C:\Users\kite_\tl-claude-probe\proj` で印を探した。判定の記録は `baton_skip_reason: "missing"`。
+  記憶が入らないので受領も記録されず、配送ライブラリは受領を確認できないまま時間切れになった。
+  後継は記憶を持たずに動き、端末の中を調べ始めて、許可待ちで止まった。
+- 2回目: 印と記録の project を OS の書き方にそろえた。4回とも配送は `accepted`、圧縮を止めてから受領まで 4.0〜4.5 秒。
+  「実行されなかった道具」は `Read part04.txt` のように相対で載った。
+
 ## 残っていること
 
 - 止めた会話（対話の会話も、途中の後継も）は、止まったまま一覧に残る。途中の後継は agent view で `working` と表示される。
 - Claude Desktop の画面から始めた会話で、同じ hook が同じに動くかは確かめていない。同梱の本体 2.1.286 を端末から
   起動した会話では動いた。Desktop が本体を起動する時の環境（PATH、`CLAUDE_CODE_ENTRYPOINT=claude-desktop`）での動作は未確認。
-- Windows は確かめていない。
+- Windows は Haiku 4.5 だけで確かめた。

@@ -84,6 +84,20 @@ test('PreCompact: 自動圧縮で有効な時だけ、印と記録を残して�
   assert.deepEqual([started.status, started.projectPath], ['requested', '/work/app']);
 }));
 
+test('PreCompact: Windows の `C:/…` の形の project は、後継が印を探す時の書き方（`C:\\…`）にそろえて残す', () => withDir(dir => {
+  const db = makeBatonDb();
+  const result = requestClaudeAutoHandoff({
+    // Windows の Git Bash で走る hook には、project の場所が `C:/…` の形で渡る（実機では CLAUDE_PROJECT_DIR）
+    payload: { session_id: SESSION, trigger: 'auto', cwd: 'C:/Users/k/proj/' },
+    env: {}, platform: 'win32',
+    config: { enabled: true, projects: [] }, openDb: () => db, dir, now: 1_000,
+  });
+  assert.equal(result.status, 'requested');
+  assert.equal(result.projectPath, 'C:\\Users\\k\\proj');
+  assert.equal(db.prepare('SELECT project_path FROM handoff_batons').get().project_path, 'C:\\Users\\k\\proj');
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, 'C:\\Users\\k\\proj');
+}));
+
 test('PreCompact: 手動・無効・対象外のproject・scriptから起動した会話・subagent では圧縮を止めない', () => withDir(dir => {
   for (const [overrides, reason] of [
     [{ payload: { trigger: 'manual' } }, 'manual_compact'],

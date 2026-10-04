@@ -220,7 +220,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/session-merger.test.mjs](src/session-merger.test.mjs) | `resolveMergeTarget` / `mergeSpecificPredecessor` |
 | [src/state-file.test.mjs](src/state-file.test.mjs) | `writeSessionState` / `readAllSessionStates` / `snapshotStateMtimes` / stale 閾値 / `usage` スナップショット / 旧フォーマット互換 / Codex state filename encoding |
 | [src/turn-processor.test.mjs](src/turn-processor.test.mjs) | `countDistinctBodyTurns` / `pickOldestUnsummarizedTurn` / 20 ターン境界 |
-| [src/claude-auto-handoff.test.mjs](src/claude-auto-handoff.test.mjs) | Claude自動継続（ADR 0033）: PreCompact が止める条件・止めない条件、PreToolUse の停止と worker の1回だけの起動、worker の立ち上げ・受け口・配送の成功と各失敗（結果不明は再送しない）、止めたターンの取り込みと「ここまでにしたこと」「実行されなかった道具」の記録（並んだ道具・相対の場所・取り込めない時）、色付き出力の ID、連続引き継ぎで元の依頼を運ぶこと、後継の受け口の控え、受領の照合、`--host claude` の引数面と hook 登録、temp HOME での `pre-compact` → `pre-tool-use` → `session-start` → `prompt-submit` の一連 |
+| [src/claude-auto-handoff.test.mjs](src/claude-auto-handoff.test.mjs) | Claude自動継続（ADR 0033）: PreCompact が止める条件・止めない条件、Windows の `C:/…` の形の project を OS の書き方にそろえること、PreToolUse の停止と worker の1回だけの起動、worker の立ち上げ・受け口・配送の成功と各失敗（結果不明は再送しない）、止めたターンの取り込みと「ここまでにしたこと」「実行されなかった道具」の記録（並んだ道具・相対の場所・取り込めない時）、色付き出力の ID、連続引き継ぎで元の依頼を運ぶこと、後継の受け口の控え、受領の照合、`--host claude` の引数面と hook 登録、temp HOME での `pre-compact` → `pre-tool-use` → `session-start` → `prompt-submit` の一連 |
 | [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging / `turn_start`。`captureInFlightTurn`: 止めたターンの発言の全部と末尾の道具までの取り込み、再取り込みで増えないこと、合流時の回収が重ならないこと、発言の無いターン |
 | [src/turn-start.test.mjs](src/turn-start.test.mjs) | Claude / Grok / Cursor の始まり方判定と、旧行NULLのunknown写像 |
 | [src/hosts/claude.test.mjs](src/hosts/claude.test.mjs) | 完了受領の project（Claude は起動 project、他 host は hook cwd） |
@@ -450,7 +450,7 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 
 Codex自動新規タスク継続は[実装契約と受入](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)に従う。macOSのDesktopで連続継承と最終完了を確認済み。既定では無効とし、`auto-handoff enable`で有効化する。実測JSONと公開履歴はevidenceへ置く。
 
-Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、`claude --bg`で立てた新しい会話へ、配送ライブラリで継続の指示を1通送る。LinuxとmacOSの対話の会話から、連続の引き継ぎを確認済み（Windowsと、Claude Desktopの画面から始めた会話は未確認）。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
+Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、`claude --bg`で立てた新しい会話へ、配送ライブラリで継続の指示を1通送る。Linux・macOS・Windowsの対話の会話から、連続の引き継ぎを確認済み（Claude Desktopの画面から始めた会話は未確認）。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 

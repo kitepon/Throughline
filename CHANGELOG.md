@@ -10,6 +10,20 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-10-05
+
+### 修正
+
+- WindowsのClaude Codeの自動継続で、後継へ記憶が入らない不具合を直す。Claude CodeはWindowsのhookをGit Bashで走らせ、起動したprojectの場所を`C:/Users/…`の形で渡す。0.14.1までは、圧縮を止めるhookがこの形のまま印（baton）を残していた。後継の最初の指示は`C:\Users\…`の形で印を探すので見つからず、記憶を注入しなかった。継続の指示は届くので、後継は記憶の無いまま動いた。配送の結果は`unknown`（`handoff_delivery_timeout`）になった。
+- 印と引き継ぎの記録に残すprojectの場所を、そのOSの書き方にそろえる。macOSとLinuxの動作は変わらない。
+- 「ここまでにしたこと」の道具の対象を作業フォルダからの相対で書く処理も、Windowsで効くようになる。
+
+### 確認した範囲
+
+- Windows 11（10.0.26200）のClaude Code 2.1.289、Haiku 4.5。対話の会話から始めて、4回連続で引き継いで作業を完了した。読み直しも読み飛ばしも無く、どの会話でも自動圧縮は走っていない。0.14.1では、同じ条件で1回目の後継に記憶が入らなかった。
+- 圧縮を止める・道具を止める・`claude --bg`で後継を立てる・受け口（named pipe）へ継続の指示を送る、の4つは、0.14.1の時点からWindowsで動いていた。
+- Claude Desktopの画面から始めた会話、WindowsでのHaiku以外のモデル、subagentが動いている最中の引き継ぎは確かめていない。
+
 ## [0.14.1] — 2026-10-05
 
 ### 修正
@@ -1696,7 +1710,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/kitepon/Throughline/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/kitepon/Throughline/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/kitepon/Throughline/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/kitepon/Throughline/compare/v0.12.9...v0.13.0
