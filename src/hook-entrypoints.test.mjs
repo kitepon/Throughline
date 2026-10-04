@@ -976,7 +976,9 @@ test('a failed hook leaves its reason in the local hook failure log', () => {
       ['HOOK_SESSION_START_FAILED', 'Error', 'Missing session_id in SessionStart payload'],
     ]);
     for (const entry of entries) {
-      assert.deepEqual(Object.keys(entry), ['ts', 'code', 'version', 'name', 'message']);
+      assert.deepEqual(Object.keys(entry), ['ts', 'code', 'version', 'name', 'message', 'stack']);
+      // 失敗した位置は、payloadを検査して投げたhookの入口を指す。
+      assert.match(entry.stack[0], /^at .*(turn-processor|session-start)\.mjs:\d+:\d+\)?$/);
       assert.match(entry.ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       assert.match(entry.version, /^\d+\.\d+\.\d+$/);
     }

@@ -3,7 +3,7 @@
  *
  * runtime error store は外へ送れる形（定型 code と回数）だけを持つ (ADR 0025)。失敗した時の
  * 例外の文面はどこにも残らず、後から原因を追えなかった（2026-10-04、Mac と main-server の
- * 7〜8月の失敗）。このログは理由を端末内にだけ残す。runtime error の収集・送信の設定とは
+ * 7〜8月の失敗）。このログは理由と失敗した位置（stack の先頭）を端末内にだけ残す。runtime error の収集・送信の設定とは
  * 独立で、外へは送らない。
  * 書き込み失敗は stderr に出す（黙って握りつぶさない）。
  */
@@ -17,9 +17,21 @@ const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version;
 
 export const HOOK_FAILURE_MESSAGE_LIMIT = 1000;
+export const HOOK_FAILURE_STACK_FRAMES = 6;
+export const HOOK_FAILURE_STACK_FRAME_LIMIT = 300;
 
 export function hookFailureLogPath({ home = homedir() } = {}) {
   return join(home, '.throughline', 'logs', 'hook-failures.log');
+}
+
+function stackFrames(error) {
+  if (!(error instanceof Error) || typeof error.stack !== 'string') return [];
+  return error.stack
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('at '))
+    .slice(0, HOOK_FAILURE_STACK_FRAMES)
+    .map((line) => line.slice(0, HOOK_FAILURE_STACK_FRAME_LIMIT));
 }
 
 /**
@@ -36,6 +48,10 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
     name: error instanceof Error ? error.name : typeof error,
     message: message.slice(0, HOOK_FAILURE_MESSAGE_LIMIT),
   };
+  // 失敗した位置を残す。`database is locked` のような文面だけでは、DB を開く時か書く時か、
+  // どの処理で落ちたかが分からない（2026-10-04、Windows の SessionStart と UserPromptSubmit の失敗）。
+  const frames = stackFrames(error);
+  if (frames.length > 0) entry.stack = frames;
   // どの会話の失敗かを残す（errorが `hookContext` を持つ時）。回数と文面だけでは、失敗した会話を
   // 端末の他の記録から探すことになる。
   const context = error?.hookContext;

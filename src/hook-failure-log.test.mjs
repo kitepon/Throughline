@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HOOK_FAILURE_MESSAGE_LIMIT, hookFailureLogPath, logHookFailure } from './hook-failure-log.mjs';
+import {
+  HOOK_FAILURE_MESSAGE_LIMIT,
+  HOOK_FAILURE_STACK_FRAMES,
+  HOOK_FAILURE_STACK_FRAME_LIMIT,
+  hookFailureLogPath,
+  logHookFailure,
+} from './hook-failure-log.mjs';
 
 test('logHookFailureは、失敗の理由を1行のJSONで追記する', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
@@ -12,9 +18,12 @@ test('logHookFailureは、失敗の理由を1行のJSONで追記する', () => {
     logHookFailure('HOOK_CODEX_FAILED', 'thrown string', { home, now: Date.UTC(2026, 9, 4, 0, 0, 1) });
     const lines = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(lines.length, 2);
-    assert.deepEqual({ ...lines[0], version: 'x' }, {
+    const { stack, ...first } = lines[0];
+    assert.deepEqual({ ...first, version: 'x' }, {
       ts: '2026-10-04T00:00:00.005Z', code: 'HOOK_PROCESS_TURN_FAILED', version: 'x', name: 'TypeError', message: 'first reason',
     });
+    // Errorは失敗した位置を持つ。文字列を投げた時はstackが無いので、項目ごと残さない。
+    assert.equal(Array.isArray(stack) && stack.length > 0, true);
     assert.deepEqual({ ...lines[1], version: 'x' }, {
       ts: '2026-10-04T00:00:01.000Z', code: 'HOOK_CODEX_FAILED', version: 'x', name: 'string', message: 'thrown string',
     });
@@ -56,6 +65,31 @@ test('logHookFailureは、どの会話の失敗かを残す', () => {
     assert.equal(first.transcript_path, '/claude/projects/-tmp/session-a.jsonl');
     assert.equal('session_id' in second, false);
     assert.equal('transcript_path' in second, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('logHookFailureは、失敗した位置をstackの先頭から残す', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
+  try {
+    const err = new Error('database is locked');
+    err.stack = [
+      'Error: database is locked',
+      '    at getDb (file:///throughline/src/db.mjs:455:5)',
+      `    at ${'x'.repeat(HOOK_FAILURE_STACK_FRAME_LIMIT + 40)}`,
+      ...Array.from({ length: HOOK_FAILURE_STACK_FRAMES + 3 }, (_, index) => `    at frame${index} (file:///throughline/src/a.mjs:${index}:1)`),
+    ].join('\n');
+    logHookFailure('HOOK_SESSION_START_FAILED', err, { home });
+    const noFrames = new Error('no frames');
+    noFrames.stack = 'Error: no frames';
+    logHookFailure('HOOK_SESSION_START_FAILED', noFrames, { home });
+    const [entry, second] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(entry.stack.length, HOOK_FAILURE_STACK_FRAMES);
+    assert.equal(entry.stack[0], 'at getDb (file:///throughline/src/db.mjs:455:5)');
+    assert.equal(entry.stack[1].length, HOOK_FAILURE_STACK_FRAME_LIMIT);
+    assert.equal(entry.stack[2], 'at frame0 (file:///throughline/src/a.mjs:0:1)');
+    assert.equal('stack' in second, false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

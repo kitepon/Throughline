@@ -93,3 +93,30 @@ test('getDb reuses an existing WAL database while another process owns the write
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('getDbは、新しいDBを複数のprocessが同時に開いても、全員が現行schemaで開ける', async () => {
+  // WindowsのCursorの会話では同じhookが2本ほぼ同時に走る。初回はどのprocessも版0を読むので、lockの外で読んだ版から
+  // 移行をやり直すと、先に進んだprocessが消した表へ触って落ちた（修理前は6本で半分ほどの確率）。
+  const rounds = 6;
+  const processes = 6;
+  for (let round = 0; round < rounds; round += 1) {
+    const home = mkdtempSync(join(tmpdir(), 'throughline-db-first-open-'));
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    try {
+      const results = await Promise.all(Array.from({ length: processes }, () => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e', `
+          import { getDb, CURRENT_VERSION } from ${JSON.stringify(DB_MODULE_URL)};
+          const db = getDb();
+          const version = db.prepare('PRAGMA user_version').get().user_version;
+          db.prepare('SELECT count(*) AS n FROM sessions').get();
+          db.close();
+          if (version !== CURRENT_VERSION) process.exit(2);
+        `], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+        return waitForExit(child);
+      }));
+      assert.deepEqual(results, Array.from({ length: processes }, () => ({ code: 0, stderr: '' })));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+});

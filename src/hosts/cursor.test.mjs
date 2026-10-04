@@ -25,6 +25,16 @@ test('parseHookPayload accepts one leading BOM and preserves BOM inside prompt t
   assert.throws(() => parseHookPayload('\uFEFF{"conversation_id":'), SyntaxError);
 });
 
+test('parseHookPayloadは、stdinが空の時と途中で切れた時を、文面の字数で見分けられるようにする', () => {
+  assert.throws(() => parseHookPayload(''), (error) => {
+    assert.equal(error instanceof SyntaxError, true);
+    assert.match(error.message, /^hook stdin is not valid JSON \(0 chars\): /u);
+    assert.equal(error.cause instanceof SyntaxError, true);
+    return true;
+  });
+  assert.throws(() => parseHookPayload('\uFEFF{"conversation_id":'), /^SyntaxError: hook stdin is not valid JSON \(20 chars\): /u);
+});
+
 test('isCursorEnvelope detects Cursor events and cursor_version', () => {
   assert.equal(
     isCursorEnvelope({

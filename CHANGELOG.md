@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.9] — 2026-10-04
+
+### 修正
+
+- 新しいDBを複数のhookが同時に開くと、どれかが`no such table: judgments`か`database is locked`で落ちる不具合を直す（[ADR 0031](docs/adr/0031-serialized-schema-migration.md)）。WindowsのCursorの会話では同じhookが2本ほぼ同時に走るので、新しい端末の最初の会話で起きる。schemaの移行は、書き込みlockを取ってから版を読み直し、1つのtransactionで終える。WALへの切り替えは、断られたら読み直して5秒まで待つ。既に現行schemaのDBを開く時の動作は変わらない。
+- 切り離した置き場で再現した。新しいDBを6 processが同時に開くと、Linuxで6回中3回、どれか1本が落ちた。Windowsでも、最初の1回で2本が落ちた。修理後は48回（6 process）で失敗0。
+
+### 変更
+
+- `~/.throughline/logs/hook-failures.log`に、失敗した位置（`stack`、先頭6行まで）を足す。`database is locked`のような文面だけでは、どの処理で落ちたかが分からないため。端末内にだけ残し、外へは送らない。
+- hookのstdinがJSONとして読めない時の文面を`hook stdin is not valid JSON (N chars): …`にする。hostがstdinを渡さずに閉じた時（0字）と、途中で切れた時を見分けられる。失敗として数えることと、終了codeは変えない。
+- 2026-10-04にWindows（0.12.4）で起きたSessionStartとUserPromptSubmitの失敗各1回は、原因が分かっていない。どちらもCursorの会話で2本ほぼ同時に走ったhookの片方で、もう片方は成功している。現行schemaのDBで起きたので、上の修正の形ではない。この2つの変更は、次に起きた時に理由を端末へ残すためのもの。
+
 ## [0.12.8] — 2026-10-04
 
 ### 変更
@@ -1621,7 +1634,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.8...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.9...HEAD
+[0.12.9]: https://github.com/kitepon/Throughline/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/kitepon/Throughline/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/kitepon/Throughline/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/kitepon/Throughline/compare/v0.12.5...v0.12.6

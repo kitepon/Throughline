@@ -29,7 +29,15 @@ const ADAPTERS = Object.freeze({
 
 /** Parse hook stdin, including the leading UTF-8 BOM emitted by Windows Cursor. */
 export function parseHookPayload(raw, options = {}) {
-  return normalizeHookPayload(JSON.parse(raw.replace(/^\uFEFF/, '')), options);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.replace(/^\uFEFF/, ''));
+  } catch (error) {
+    // host が stdin を渡さずに閉じた時（0 字）と、途中で切れた時を、理由の文面で見分けられるようにする。
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new SyntaxError(`hook stdin is not valid JSON (${raw.length} chars): ${detail}`, { cause: error });
+  }
+  return normalizeHookPayload(parsed, options);
 }
 
 /**

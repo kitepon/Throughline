@@ -25,10 +25,68 @@ export function openReadOnlyDb(path = DB_PATH) {
   }
 }
 
-function initSchema(db) {
-  const row = db.prepare('PRAGMA user_version').get();
-  const version = row.user_version ?? 0;
+const WAL_SWITCH_RETRY_MS = 25;
 
+function isSqliteBusy(error) {
+  if (typeof error?.errcode === 'number') return (error.errcode & 0xff) === 5;
+  return /database is locked/u.test(String(error?.message ?? ''));
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * journal mode を WAL にする。既に WAL なら何も書かない。
+ *
+ * WAL への切り替えは排他 lock を要り、他の process が同じ DB を開いている間は busy_timeout を待たずに
+ * `database is locked` で断られる。新しい DB を複数の hook が同時に開く時に起きるので、
+ * busy_timeout と同じ時間まで読み直す (ADR 0031)。他の process が先に切り替えれば、読み直しで WAL が見える。
+ */
+function ensureWalJournalMode(db) {
+  const deadline = Date.now() + DB_BUSY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const journalMode = db.prepare('PRAGMA journal_mode').get().journal_mode;
+      if (String(journalMode).toLowerCase() === 'wal') return;
+      db.exec('PRAGMA journal_mode = WAL');
+      return;
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      sleepSync(WAL_SWITCH_RETRY_MS);
+    }
+  }
+}
+
+function readSchemaVersion(db) {
+  return db.prepare('PRAGMA user_version').get().user_version ?? 0;
+}
+
+/**
+ * schema を現行版へ上げる。現行版なら何も書かない。
+ *
+ * 移行は書き込み lock を取ってから版を読み直し、1つの transaction で終える (ADR 0031)。
+ * lock の外で読んだ版は、他の process が移行を進めた後では古い。古い版から移行をやり直すと、
+ * 途中の版で消した表（v4 の judgments）へ触って `no such table` で落ちる。
+ */
+function initSchema(db) {
+  if (readSchemaVersion(db) >= CURRENT_VERSION) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const version = readSchemaVersion(db);
+    if (version < CURRENT_VERSION) applySchemaMigrations(db, version);
+    db.exec('COMMIT');
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
+}
+
+function applySchemaMigrations(db, version) {
   // v0 → v1: 全テーブル作成
   if (version < 1) {
     db.exec(`
@@ -353,10 +411,7 @@ export function migrateDefaultDb() {
       };
     }
 
-    const journalMode = db.prepare('PRAGMA journal_mode').get().journal_mode;
-    if (String(journalMode).toLowerCase() !== 'wal') {
-      db.exec('PRAGMA journal_mode = WAL');
-    }
+    ensureWalJournalMode(db);
     initSchema(db);
     const afterSchemaVersion = Number(db.prepare('PRAGMA user_version').get().user_version ?? 0);
     if (afterSchemaVersion !== CURRENT_VERSION) {
@@ -397,10 +452,7 @@ export function getDb() {
   const db = new DatabaseSync(DB_PATH);
   try {
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
-    const journalMode = db.prepare('PRAGMA journal_mode').get().journal_mode;
-    if (String(journalMode).toLowerCase() !== 'wal') {
-      db.exec('PRAGMA journal_mode = WAL');
-    }
+    ensureWalJournalMode(db);
     db.exec('PRAGMA foreign_keys = ON');
     initSchema(db);
     _db = db;
