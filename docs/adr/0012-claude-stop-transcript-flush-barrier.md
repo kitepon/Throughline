@@ -23,6 +23,7 @@ turn後に現行parserで読むとlatest logical groupは1件だった。Claude�
 3. latest user groupを必須にし、過去の同文assistantや前turnを一致として採用しない。
    （2026-10-03 [ADR 0026](0026-stop-flush-barrier-next-user.md)で、Stop直後に次のuser行が届いた時の未捕捉の1つ前のgroupだけを例外にした。）
 4. deadlineまで一致しなければ明示errorと`HOOK_PROCESS_TURN_FAILED`を返し、completionなしへ丸めない。
+   （2026-10-04 [ADR 0029](0029-stop-flush-barrier-absent-transcript.md)で、deadlineまでtranscriptのファイル自体が無い時だけ、失敗に数えず`transcript_absent`として見送ることにした。）
 5. markerを持たない旧Claude hostは既存one-shot transcript parser契約を維持する。
 6. Claude Stop hookの`async: true`、DB schema、receipt wire、Observer cursorは変更しない。
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -68,6 +68,51 @@ test('top-level hook owners record one fixed aggregate per failure without repla
   });
   store = JSON.parse(readFileSync(storePath, 'utf8'));
   assert.equal(store.records.find((record) => record.error_code === 'HOOK_PROCESS_TURN_FAILED').count, 2);
+});
+
+test('Claude Stopで、transcriptのファイルが無い会話は失敗に数えず、ファイルがあって完了が見えない時だけ数える', () => {
+  const { root, env } = createEnabledEnvironment('throughline-runtime-stop-absent-');
+  const storePath = defaultRuntimeErrorStorePath(env);
+  const stop = (payload) => spawnSync(process.execPath, [BIN, 'process-turn'], {
+    env, cwd: root, input: JSON.stringify(payload), encoding: 'utf8',
+  });
+  const readLog = (name) => readFileSync(join(root, '.throughline', 'logs', name), 'utf8')
+    .trim().split('\n').map((line) => JSON.parse(line));
+
+  // `--no-session-persistence` のClaude Code（2.1.289で実測）: pathは渡るが、ファイルは作られない。
+  const absentPath = join(root, 'never-written.jsonl');
+  const absent = stop({
+    session_id: 'a1b2c3d4-0000-4000-8000-000000000001', transcript_path: absentPath, cwd: root,
+    hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'PROBE_OK',
+  });
+  assert.equal(absent.status, 0, absent.stderr);
+  assert.equal(absent.stderr, '');
+  assert.equal(existsSync(storePath), false, 'an absent transcript must not be counted as a hook failure');
+  assert.equal(existsSync(join(root, '.throughline', 'logs', 'hook-failures.log')), false);
+  assert.deepEqual(readLog('backfill.log').map(({ ts, ...entry }) => entry), [{
+    hook: 'stop',
+    session_id: 'a1b2c3d4-0000-4000-8000-000000000001',
+    target: 'a1b2c3d4-0000-4000-8000-000000000001',
+    origin: 'a1b2c3d4-0000-4000-8000-000000000001',
+    transcript_path: absentPath,
+    skipped: 'transcript_absent',
+  }]);
+
+  // ファイルはあるのに、Stopが渡した応答がそこに無い。保存できなかった会話なので、失敗のまま数える。
+  const presentPath = join(root, 'present.jsonl');
+  writeFileSync(presentPath, JSON.stringify({ type: 'user', message: { role: 'user', content: 'request' } }) + '\n');
+  const present = stop({
+    session_id: 'a1b2c3d4-0000-4000-8000-000000000002', transcript_path: presentPath, cwd: root,
+    hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'PROBE_OK',
+  });
+  assert.equal(present.status, 1);
+  assert.match(present.stderr, /not visible before deadline/);
+  const store = JSON.parse(readFileSync(storePath, 'utf8'));
+  assert.deepEqual(store.records.map((record) => [record.error_code, record.count]), [['HOOK_PROCESS_TURN_FAILED', 1]]);
+  const [failure] = readLog('hook-failures.log');
+  assert.equal(failure.code, 'HOOK_PROCESS_TURN_FAILED');
+  assert.equal(failure.session_id, 'a1b2c3d4-0000-4000-8000-000000000002');
+  assert.equal(failure.transcript_path, presentPath);
 });
 
 function makeBin(dir, name, body) {

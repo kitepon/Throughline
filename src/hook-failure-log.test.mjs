@@ -41,6 +41,26 @@ test('logHookFailureは、外部CLIの失敗の理由とstderrの末尾を残す
   }
 });
 
+test('logHookFailureは、どの会話の失敗かを残す', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
+  try {
+    const withContext = new Error('with context');
+    withContext.hookContext = { session_id: 'session-a', transcript_path: '/claude/projects/-tmp/session-a.jsonl' };
+    logHookFailure('HOOK_PROCESS_TURN_FAILED', withContext, { home });
+    // 文字列でない値と空文字は残さない（payloadを読む前の失敗では、手がかりがまだ無い）。
+    const withoutContext = new Error('without context');
+    withoutContext.hookContext = { session_id: '', transcript_path: undefined };
+    logHookFailure('HOOK_PROCESS_TURN_FAILED', withoutContext, { home });
+    const [first, second] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(first.session_id, 'session-a');
+    assert.equal(first.transcript_path, '/claude/projects/-tmp/session-a.jsonl');
+    assert.equal('session_id' in second, false);
+    assert.equal('transcript_path' in second, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('logHookFailureは、長い文面を上限で切る', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
   try {

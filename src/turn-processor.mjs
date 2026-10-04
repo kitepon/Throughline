@@ -44,6 +44,7 @@ import { summarizeToL1 } from './haiku-summarizer.mjs';
 import { ensureMonitorTaskFile } from './vscode-task.mjs';
 import { readLatestUsage } from './transcript-usage.mjs';
 import { pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
@@ -69,6 +70,10 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
  *
  * markerとtranscriptの本文は、前後の空白を除いて比べる（ADR 0027）。Claude Codeはmarkerを
  * `.trim()` して渡すので、本文が空白や改行で始まる（終わる）turnは、そのままでは一致しない。
+ *
+ * 期限まで待ってもtranscriptのファイル自体が無い時は、失敗にせず `transcript_absent` を返す
+ * （ADR 0029）。Claude Codeを `--no-session-persistence` で起動すると、hookへ `transcript_path` は
+ * 渡るが、ファイルは最後まで作られない。ファイルがあるのに完了が見えない時は、今までどおり失敗にする。
  */
 export async function waitForClaudeStopTranscriptFlush({
   transcriptPath,
@@ -78,6 +83,7 @@ export async function waitForClaudeStopTranscriptFlush({
   readCompletion,
   readCompletions = readLatestLogicalTurnCompletions,
   isTurnCaptured = () => true,
+  transcriptExists = existsSync,
   now = Date.now,
   wait = delay,
 }) {
@@ -106,6 +112,9 @@ export async function waitForClaudeStopTranscriptFlush({
     }
     const remaining = deadline - now();
     if (remaining <= 0) {
+      if (typeof transcriptPath === 'string' && transcriptPath && !transcriptExists(transcriptPath)) {
+        return { status: 'transcript_absent' };
+      }
       throw new Error('Claude Stop transcript completion was not visible before deadline');
     }
     await wait(Math.min(intervalMs, remaining));
@@ -212,7 +221,20 @@ function buildL2ForSummary(userTurn, assistantTurn) {
   return parts.join('\n\n');
 }
 
+/** 失敗した時に hook-failures.log へ残す、どの会話のStopだったかの手がかり。 */
+let failureContext = {};
+
 export async function run() {
+  try {
+    await processStop();
+  } catch (err) {
+    // 失敗を記録するのは呼び出し側（bin/throughline.mjs と下の直接実行）。errorに手がかりを持たせて渡す。
+    if (err instanceof Error) err.hookContext = failureContext;
+    throw err;
+  }
+}
+
+async function processStop() {
   if (process.env.THROUGHLINE_IN_HAIKU_SUBPROCESS === '1') {
     process.exit(0);
   }
@@ -229,6 +251,7 @@ export async function run() {
   const payload = parseHookPayload(raw || '{}', { env: process.env });
   const { session_id, transcript_path, cwd, last_assistant_message } = payload;
   if (!session_id) throw new Error('Missing session_id in Stop payload');
+  failureContext = { session_id, transcript_path };
 
   // VSCode で開かれたプロジェクトに .vscode/tasks.json を自動プロビジョニングする。
   // 2 回目以降は冪等性チェックで即 return するので毎ターン走っても安全。
@@ -245,11 +268,24 @@ export async function run() {
   const { target, origin } = resolveMergeTarget(db, session_id);
 
   if (hostAdapterForSessionId(session_id).waitsForStopTranscriptFlush) {
-    await waitForClaudeStopTranscriptFlush({
+    const flush = await waitForClaudeStopTranscriptFlush({
       transcriptPath: transcript_path,
       lastAssistantMessage: last_assistant_message,
       isTurnCaptured: (fragmentTurnNumbers) => isLogicalTurnCaptured(db, origin, fragmentTurnNumbers),
     });
+    if (flush.status === 'transcript_absent') {
+      // 保存する元が無い。失敗には数えず、どの会話のStopを見送ったかを端末内に残す（ADR 0029）。
+      logBackfill({
+        ts: new Date().toISOString(),
+        hook: 'stop',
+        session_id,
+        target,
+        origin,
+        transcript_path,
+        skipped: 'transcript_absent',
+      });
+      process.exit(0);
+    }
   }
 
   // Stop hook 時点で state ファイルを更新 → token-monitor の「アクティブ行」判定が

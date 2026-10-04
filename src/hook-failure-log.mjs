@@ -36,6 +36,13 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
     name: error instanceof Error ? error.name : typeof error,
     message: message.slice(0, HOOK_FAILURE_MESSAGE_LIMIT),
   };
+  // どの会話の失敗かを残す（errorが `hookContext` を持つ時）。回数と文面だけでは、失敗した会話を
+  // 端末の他の記録から探すことになる。
+  const context = error?.hookContext;
+  if (typeof context?.session_id === 'string' && context.session_id) entry.session_id = context.session_id;
+  if (typeof context?.transcript_path === 'string' && context.transcript_path) {
+    entry.transcript_path = context.transcript_path;
+  }
   // 外部 CLI の失敗は、message が終了 code だけになる。理由（reason）と CLI の stderr の末尾も残す
   // （CLI は先頭に起動情報を出し、失敗の理由は末尾に出す）。
   if (typeof error?.reason === 'string' && error.reason) entry.reason = error.reason;

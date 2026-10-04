@@ -222,12 +222,56 @@ test('Claude Stop flush barrierはmarker不一致をdeadlineで明示失敗す�
       timeoutMs: 30,
       intervalMs: 10,
       readCompletion: () => ({ userTurnNumber: 4, assistantTurnNumber: null, assistantContent: null }),
+      transcriptExists: () => true,
       now: () => elapsed,
       wait: async (milliseconds) => { elapsed += milliseconds; },
     }),
     /not visible before deadline/,
   );
   assert.equal(elapsed, 30);
+});
+
+test('Claude Stop flush barrierは、期限までtranscriptのファイルが無い時だけtranscript_absentを返す', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'throughline-stop-absent-'));
+  const transcriptPath = join(root, 'never-written.jsonl');
+  let elapsed = 0;
+  const clock = { now: () => elapsed, wait: async (milliseconds) => { elapsed += milliseconds; } };
+  try {
+    // `--no-session-persistence` のClaude Code: pathは渡るが、ファイルは最後まで作られない。期限までは待つ。
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'PROBE_OK', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), { status: 'transcript_absent' });
+    assert.equal(elapsed, 30, 'a transcript that is written late must still get the whole deadline');
+
+    // 待っている間にファイルが作られ、完了が見えた時は、今までどおり採用する。
+    elapsed = 0;
+    let reads = 0;
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'late answer', timeoutMs: 100, intervalMs: 10, ...clock,
+      readCompletions: () => {
+        reads++;
+        if (reads < 3) return { latest: null, previous: null };
+        return { latest: { userTurnNumber: 0, assistantTurnNumber: 1, assistantContent: 'late answer', fragmentTurnNumbers: [1] }, previous: null };
+      },
+    }), { status: 'ready', userTurnNumber: 0, assistantTurnNumber: 1 });
+
+    // ファイルはあるのに完了が見えない時は、失敗のまま。
+    writeFileSync(transcriptPath, JSON.stringify({ type: 'user', message: { role: 'user', content: 'request' } }), 'utf8');
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'PROBE_OK', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), /not visible before deadline/);
+
+    // pathが渡らないpayloadは、ファイルが無いことを確かめられない。失敗のまま。
+    for (const missingPath of [undefined, null, '']) {
+      elapsed = 0;
+      await assert.rejects(waitForClaudeStopTranscriptFlush({
+        transcriptPath: missingPath, lastAssistantMessage: 'PROBE_OK', timeoutMs: 30, intervalMs: 10, ...clock,
+      }), /not visible before deadline/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('Claude Stop flush barrierはmarkerなし旧payloadをone-shot互換へ残す', async () => {

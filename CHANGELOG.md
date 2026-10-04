@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.12.7] — 2026-10-04
+
+### 修正
+
+- Claude Stop hookで、transcriptのファイルが無い会話を`HOOK_PROCESS_TURN_FAILED`（Claude Stop hook processing failed・high）として数えていた不具合を直す（[ADR 0029](docs/adr/0029-stop-flush-barrier-absent-transcript.md)）。Claude Codeを`--no-session-persistence`で起動すると、hookへ`transcript_path`は渡るが、ファイルは最後まで作られない。保存する元が無いので、Stopは期限（2秒）まで待った後、`~/.throughline/logs/backfill.log`に`skipped: "transcript_absent"`を1行残して終了code 0で終わる。ファイルがあるのに完了が見えない時と、`transcript_path`がpayloadに無い時は、今までどおり失敗として数える。
+- BellTeamコンテナ（0.12.6）で2026-10-04に2回起きた失敗は、transcriptがディスクに無い1会話のStopだった。Claude Code 2.1.289を`--no-session-persistence`で動かして、同じ文面の失敗を再現した。その2回の会話がこの引数で起動されたことを示す記録は無い。
+
+### 変更
+
+- `~/.throughline/logs/hook-failures.log`に、Stopが失敗した会話の`session_id`と`transcript_path`を足す。理由の文面だけでは、どの会話のStopかを端末の他の記録から探すことになるため。端末内にだけ残し、外へは送らない。
+
 ## [0.12.6] — 2026-10-04
 
 ### 修正
@@ -1603,7 +1614,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.6...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.7...HEAD
+[0.12.7]: https://github.com/kitepon/Throughline/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/kitepon/Throughline/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/kitepon/Throughline/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/kitepon/Throughline/compare/v0.12.3...v0.12.4
