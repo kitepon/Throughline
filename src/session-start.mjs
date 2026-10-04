@@ -21,6 +21,12 @@
  *
  *   バトンの消費・merge・注入は最初の UserPromptSubmit (= 実体の証明) で行う。
  *   幽霊はプロンプトを発火しないため記憶を奪えない。
+ *
+ * 【自動圧縮後の継続】 ADR 0032
+ *
+ *   source='compact' は新しい会話ではなく、圧縮を終えた同じ会話。PreCompact hook が
+ *   自動圧縮の印を残していた時だけ、作業途中のターンと直近の会話の原文を stdout へ書く。
+ *   host がそのまま作業を続けるので、次の UserPromptSubmit は待たない。
  */
 
 import { getDb } from './db.mjs';
@@ -33,8 +39,9 @@ import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
-import { hostAdapterForSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
+import { CLAUDE_HOST, hostAdapterForSessionId, hostOfSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
+import { consumeClaudeCompactRequest, buildClaudeCompactContinuation } from './claude-auto-handoff.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
 
@@ -162,6 +169,31 @@ export async function run() {
     intent_note: intentNote,
     pending_registered: true,
   });
+
+  // 自動圧縮の直後: 印があれば、圧縮前の記録を同じ会話へ注入する (ADR 0032)。
+  // subagent の中で走った hook は、親の会話の印を消費しない。
+  if (source === 'compact' && hostOfSessionId(session_id) === CLAUDE_HOST && !payload.agent_id) {
+    const request = consumeClaudeCompactRequest({ sessionId: session_id });
+    if (request) {
+      const continuation = buildClaudeCompactContinuation(db, {
+        sessionId: session_id,
+        transcriptPath: transcript_path ?? request.transcript_path,
+        promptId: payload.prompt_id ?? null,
+        now,
+      });
+      if (continuation) process.stdout.write(continuation.text + '\n');
+      logDecision({
+        ts: new Date(now).toISOString(),
+        phase: 'compact-continuation',
+        session_id,
+        project_path: request.project_path,
+        transcript_path: transcript_path ?? request.transcript_path ?? null,
+        requested_at: new Date(request.requested_at).toISOString(),
+        injected: Boolean(continuation),
+        ...(continuation?.stats ?? {}),
+      });
+    }
+  }
 
   // Cursor は beforeSubmitPrompt が additional_context を持たない。
   // 新規 composer 会話の sessionStart が公式の注入口なので、ここで第二相を実行する。

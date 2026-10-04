@@ -47,6 +47,12 @@ const DEFINITIONS = Object.freeze({
     severity: 'high',
     template: 'Throughline Claude Stop hook processing failed',
   }),
+  // 自動継続の印を残せなかった。圧縮と作業は続く（ADR 0032）。
+  HOOK_PRE_COMPACT_FAILED: Object.freeze({
+    component: 'claude_pre_compact_hook',
+    severity: 'warn',
+    template: 'Throughline Claude PreCompact hook processing failed',
+  }),
   HOOK_CODEX_FAILED: Object.freeze({
     component: 'codex_hook',
     severity: 'high',

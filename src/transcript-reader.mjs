@@ -25,6 +25,15 @@ function entryKind(entry) {
  * @param {unknown} content
  * @returns {string}
  */
+/**
+ * Claude Code が圧縮の直後に書く要約行か。type は user だが、人の発言ではない
+ * （`isCompactSummary: true`。ADR 0032）。ターンの始まりにも本文にもしない。
+ * @param {object} entry
+ */
+export function isCompactSummaryEntry(entry) {
+  return entry?.isCompactSummary === true;
+}
+
 function extractText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -48,6 +57,9 @@ export function readTranscript(transcriptPath) {
   const raw = readFileSync(transcriptPath, 'utf8');
 
   const turns = [];
+  // turn_number は transcript 内の本文行の通し番号。圧縮の要約行は返さないが番号は進める。
+  // 番号を詰めると、要約行を数えていた頃に保存した bodies の turn_number と食い違う。
+  let position = 0;
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -81,14 +93,24 @@ export function readTranscript(transcriptPath) {
       : extracted;
     if (!text) continue;
 
+    const turnNumber = position++;
+    // 圧縮の要約は host が書いた行。ターンは圧縮をまたいで続くので、ここで区切らない。
+    if (isCompactSummaryEntry(entry)) continue;
+
     const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
     // grok chat_history.jsonl は Claude の message 包みを持たず type/content 直置き。
     turns.push({
       role,
       content: text,
-      turn_number: turns.length,
+      turn_number: turnNumber,
       timestamp: Number.isNaN(ts) ? null : ts,
-      ...(role === 'user' ? { start: classifyTurnStart(entry, extracted) } : {}),
+      ...(role === 'user'
+        ? {
+            start: classifyTurnStart(entry, extracted),
+            // Claude Code が user 行に付ける prompt の id。hook payload の prompt_id と同じ値。
+            prompt_id: typeof entry.promptId === 'string' ? entry.promptId : null,
+          }
+        : {}),
     });
   }
 
@@ -158,6 +180,38 @@ export function getLogicalTurnGroups(transcriptPath) {
     groups.push({ user: g.user, fragments: g.fragments, representative });
   }
   return groups;
+}
+
+/**
+ * 最後の user 発言と、それに続く assistant 本文の断片を返す。
+ *
+ * getLogicalTurnGroups は完了したターンの回収用で、本文の断片が無い群を返さない。
+ * こちらは作業途中のターン（Stop 前。本文がまだ無いこともある）を読むために使う。
+ *
+ * @param {string} transcriptPath
+ * @returns {{
+ *   user: {content: string, timestamp: number|null, turn_number: number, start: 'prompt'|'self'|'unknown', prompt_id: string|null},
+ *   fragments: Array<{index: number, content: string, timestamp: number|null}>,
+ * }|null}
+ */
+export function readLatestUserGroup(transcriptPath) {
+  const turns = readTranscript(transcriptPath);
+  let userIndex = -1;
+  for (let index = turns.length - 1; index >= 0; index--) {
+    if (turns[index].role === 'user') {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex < 0) return null;
+  const { content, timestamp, turn_number, start, prompt_id } = turns[userIndex];
+  return {
+    user: { content, timestamp, turn_number, start, prompt_id },
+    fragments: turns
+      .slice(userIndex + 1)
+      .filter((turn) => turn.role === 'assistant')
+      .map((turn) => ({ index: turn.turn_number, content: turn.content, timestamp: turn.timestamp })),
+  };
 }
 
 /**
@@ -315,6 +369,8 @@ export function sliceCurrentTurnEntries(entries) {
   for (let i = lastAssistantTextIdx - 1; i >= 0; i--) {
     const e = entries[i];
     if (entryKind(e) !== 'user') continue;
+    // 圧縮の要約行はターンの始まりではない。圧縮より前の tool 入出力も同じターンに含める。
+    if (isCompactSummaryEntry(e)) continue;
     const blocks = e.message?.content;
     if (Array.isArray(blocks)) {
       if (blocks.some((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)) {

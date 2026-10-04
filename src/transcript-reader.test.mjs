@@ -7,6 +7,8 @@ import {
   normalizeTerminalText,
   normalizeToolResultContent,
   readTranscript,
+  getLogicalTurnGroups,
+  readLatestUserGroup,
   sliceCurrentTurnEntries,
   extractDetailBlocks,
 } from './transcript-reader.mjs';
@@ -151,6 +153,94 @@ test('sliceCurrentTurnEntries: 最後の user text → 最後の assistant text 
   assert.equal(slice.length, 4);
   assert.equal(slice[0].message.content[0].text, 'current prompt');
   assert.equal(slice[3].message.content[0].text, 'current response');
+});
+
+/** Claude Code が圧縮の直後に書く要約行（実測 2.1.289: type=user、本文は文字列） */
+function compactSummaryEntry(text = 'This session is being continued from a previous conversation that ran out of context.') {
+  return { type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: text } };
+}
+
+test('readTranscript: 圧縮の要約行は返さず、turn_number は詰めない', () => {
+  const path = writeTranscript([
+    userEntry('依頼'),
+    asstTextEntry('途中の報告'),
+    compactSummaryEntry(),
+    asstTextEntry('最終回答'),
+  ]);
+  const turns = readTranscript(path);
+  assert.deepEqual(turns.map((t) => [t.role, t.content, t.turn_number]), [
+    ['user', '依頼', 0],
+    ['assistant', '途中の報告', 1],
+    ['assistant', '最終回答', 3],
+  ]);
+});
+
+test('getLogicalTurnGroups: 圧縮をまたいだターンは1つの群になり、元の依頼を user に持つ', () => {
+  const path = writeTranscript([
+    userEntry('依頼'),
+    asstTextEntry('途中の報告'),
+    compactSummaryEntry(),
+    asstTextEntry('圧縮後の報告'),
+    compactSummaryEntry(),
+    asstTextEntry('最終回答'),
+    userEntry('次の依頼'),
+    asstTextEntry('次の回答'),
+  ]);
+  const groups = getLogicalTurnGroups(path);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].user.content, '依頼');
+  assert.deepEqual(groups[0].fragments.map((f) => f.index), [1, 3, 5]);
+  assert.equal(groups[0].representative.content, '最終回答');
+  assert.equal(groups[1].user.content, '次の依頼');
+  assert.equal(groups[1].representative.index, 7);
+});
+
+test('readLatestUserGroup: 作業途中のターンを、本文がまだ無くても返す', () => {
+  const noAnswer = writeTranscript([
+    userEntry('前の依頼'),
+    asstTextEntry('前の回答'),
+    userEntry('今の依頼'),
+    asstToolUseEntry('toolu_1', 'Read', { file_path: '/a' }),
+    userToolResultEntry('toolu_1', 'contents'),
+    compactSummaryEntry(),
+  ]);
+  assert.deepEqual(readLatestUserGroup(noAnswer), {
+    user: { content: '今の依頼', timestamp: null, turn_number: 2, start: 'unknown', prompt_id: null },
+    fragments: [],
+  });
+  const withAnswer = writeTranscript([
+    userEntry('今の依頼'),
+    asstTextEntry('途中1'),
+    compactSummaryEntry(),
+    asstTextEntry('途中2'),
+  ]);
+  const latest = readLatestUserGroup(withAnswer);
+  assert.equal(latest.user.content, '今の依頼');
+  assert.deepEqual(latest.fragments.map((f) => [f.index, f.content]), [[1, '途中1'], [3, '途中2']]);
+  assert.equal(readLatestUserGroup(writeTranscript([asstTextEntry('user 行が無い')])), null);
+  const withPromptId = writeTranscript([{ ...userEntry('依頼'), promptId: 'prompt-1' }]);
+  assert.equal(readLatestUserGroup(withPromptId).user.prompt_id, 'prompt-1');
+});
+
+test('sliceCurrentTurnEntries: 圧縮の要約行で区切らず、圧縮より前の tool も同じターンに含める', () => {
+  const entries = [
+    userEntry('old prompt'),
+    asstTextEntry('old response'),
+    userEntry('current prompt'),
+    asstToolUseEntry('toolu_1', 'Read', { file_path: '/a' }),
+    userToolResultEntry('toolu_1', 'before compaction'),
+    { type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto' } },
+    compactSummaryEntry(),
+    asstToolUseEntry('toolu_2', 'Write', { file_path: '/b' }),
+    userToolResultEntry('toolu_2', 'after compaction'),
+    asstTextEntry('current response'),
+  ];
+  const slice = sliceCurrentTurnEntries(entries);
+  assert.equal(slice[0].message.content[0].text, 'current prompt');
+  assert.deepEqual(
+    extractDetailBlocks(slice).filter((d) => d.kind === DETAIL_KIND.TOOL_INPUT).map((d) => d.tool_name),
+    ['Read', 'Write'],
+  );
 });
 
 test('sliceCurrentTurnEntries: 空配列なら空を返す', () => {

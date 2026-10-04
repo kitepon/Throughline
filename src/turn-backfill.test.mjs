@@ -241,3 +241,61 @@ test('backfillBodies: user row keeps the turn start and assistant row leaves it 
     },
   );
 });
+
+test('backfillBodies: beforeUserTurnNumber は作業途中のターンを回収から外す', () => {
+  withData(
+    [
+      entry('user', 'done prompt', '2026-10-04T00:00:00Z'),
+      entry('assistant', 'done answer', '2026-10-04T00:00:01Z'),
+      entry('user', 'in-flight prompt', '2026-10-04T00:00:02Z'),
+      entry('assistant', 'interim remark', '2026-10-04T00:00:03Z'),
+    ],
+    (path) => {
+      const db = makeDb();
+      const partial = backfillBodies(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 1, beforeUserTurnNumber: 2 });
+      assert.equal(partial.insertedTurns, 1);
+      assert.deepEqual(partial.turnNumbers, [1]);
+      assert.deepEqual(db.prepare('SELECT text FROM bodies ORDER BY id').all().map((r) => r.text), ['done prompt', 'done answer']);
+      // Stop で改めて全体を回収すると、作業途中だったターンが最終回答つきで入る
+      const full = backfillBodies(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 1 });
+      assert.equal(full.insertedTurns, 1);
+      assert.equal(full.skippedExisting, 1);
+    },
+  );
+});
+
+test('backfillBodies: 圧縮の要約行を数えていた頃に保存したターンは、重複させずにそのまま残す', () => {
+  const summary = { type: 'user', isCompactSummary: true, message: { role: 'user', content: 'This session is being continued' } };
+  withData(
+    [
+      entry('user', 'prompt', '2026-10-04T00:00:00Z'),
+      entry('assistant', 'before compaction', '2026-10-04T00:00:01Z'),
+      summary,
+      entry('assistant', 'after compaction', '2026-10-04T00:00:03Z'),
+      entry('user', 'next prompt', '2026-10-04T00:00:04Z'),
+      entry('assistant', 'next answer', '2026-10-04T00:00:05Z'),
+    ],
+    (path) => {
+      const db = makeDb();
+      // 旧版は要約行を user 発言として、圧縮後の断片 (index 3) と組で保存していた
+      const insert = db.prepare(
+        `INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, token_count, created_at)
+         VALUES ('S', 'S', 3, ?, ?, 1, 1)`,
+      );
+      insert.run('user', 'This session is being continued');
+      insert.run('assistant', 'after compaction');
+      const result = backfillBodies(db, { targetSessionId: 'S', originSessionId: 'S', transcriptPath: path, now: 1 });
+      assert.equal(result.skippedExisting, 1, '同じ断片を持つ群は入れ直さない');
+      assert.equal(result.insertedTurns, 1);
+      assert.deepEqual(
+        db.prepare('SELECT turn_number, role, text FROM bodies ORDER BY turn_number, role DESC').all().map((r) => [r.turn_number, r.role, r.text]),
+        [
+          [3, 'user', 'This session is being continued'],
+          [3, 'assistant', 'after compaction'],
+          [5, 'user', 'next prompt'],
+          [5, 'assistant', 'next answer'],
+        ],
+      );
+    },
+  );
+});

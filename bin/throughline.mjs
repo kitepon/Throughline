@@ -8,6 +8,7 @@
  *   throughline uninstall     # hook を削除
  *   throughline process-turn  # Stop hook (Claude Code から呼ばれる)
  *   throughline session-start # SessionStart hook (Claude Code から呼ばれる)
+ *   throughline pre-compact   # PreCompact hook (Claude Code から呼ばれる。自動継続の印)
  *   throughline detail <時刻> # L2+L3 詳細取得 (Claude が Bash 経由で呼ぶ想定)
  *   throughline recall --l2|--l1 # 注入案内から辿る pull 用 read-only 記憶取得
  *   throughline handoff-preview # Codex-facing throughline_handoff JSON preview
@@ -52,7 +53,7 @@ const [, , cmd, ...rest] = process.argv;
 
 // hook入口では、送信を明示して有効にした端末だけ、未受領のruntime errorを裏で送るprocessを起こす。
 // 既定（送信設定なし）では小さなファイル1つを見るだけで、通信もprocess起動もしない。
-if (['process-turn', 'session-start', 'prompt-submit', 'codex-hook'].includes(cmd)) {
+if (['process-turn', 'session-start', 'prompt-submit', 'pre-compact', 'codex-hook'].includes(cmd)) {
   try {
     (await import('../src/runtime-error-report-trigger.mjs')).triggerRuntimeErrorReportBestEffort();
   } catch {
@@ -79,6 +80,9 @@ switch (cmd) {
     break;
   case 'prompt-submit':
     await (await import('../src/prompt-submit.mjs')).run();
+    break;
+  case 'pre-compact':
+    await (await import('../src/claude-pre-compact.mjs')).run();
     break;
   case 'monitor':
     (await import('../src/token-monitor.mjs')).main();
@@ -233,6 +237,7 @@ switch (cmd) {
     'session-start': 'HOOK_SESSION_START_FAILED',
     'prompt-submit': 'HOOK_PROMPT_SUBMIT_FAILED',
     'process-turn': 'HOOK_PROCESS_TURN_FAILED',
+    'pre-compact': 'HOOK_PRE_COMPACT_FAILED',
   }[cmd];
   if (code) {
     const { recordRuntimeErrorBestEffort } = await import('../src/runtime-error-store.mjs');
@@ -401,6 +406,9 @@ Usage:
                               同じ引き継ぎを再開（結果不明は再送しない）
   throughline auto-handoff detail --operation <id> --origin <session> --turn <n>
                               凍結したL2/L3を取得
+  throughline auto-handoff enable|disable|status --host claude [--project <path>] [--json]
+                              Claude Codeの自動継続（自動圧縮の直後に、同じ会話へ
+                              圧縮前の記録を注入）を有効化・無効化・確認
   throughline doctor            Check environment
   throughline doctor --trim     Show trim host boundary diagnostics
   throughline doctor --codex    Show Codex primary diagnostics
@@ -411,6 +419,7 @@ Hook subcommands (called by Claude Code / Codex):
   throughline session-start   SessionStart hook
   throughline process-turn    Stop hook
   throughline prompt-submit   UserPromptSubmit hook (/tl & /clear baton writer)
+  throughline pre-compact     PreCompact hook (Claude自動圧縮の印。圧縮後に記憶を注入)
   throughline codex-hook user-prompt-submit Codex current-session refresh prompt hook
   throughline codex-hook post-tool-use Codex current-session refresh tool-loop hook
   throughline codex-hook stop Codex Stop hook

@@ -667,6 +667,12 @@ test('Claude Stop hook is registered with async:true so it does not block ター
       .flatMap(g => g.hooks ?? [])
       .find(h => h.command === 'throughline prompt-submit');
     assert.notEqual(promptSubmitHook.async, true, 'UserPromptSubmit stays synchronous (needs baton write committed before turn)');
+    // 自動継続の印 (ADR 0032)。matcher 無し = 手動の /compact でも呼ばれて古い印を消す。
+    assert.deepEqual(settings.hooks.PreCompact, [{ hooks: [{ type: 'command', command: 'throughline pre-compact' }] }]);
+
+    await run(['--uninstall']);
+    const removed = JSON.parse(readFileSync(join(home.dir, '.claude', 'settings.json'), 'utf8'));
+    assert.equal(removed.hooks, undefined, 'uninstall removes every Throughline Claude hook including PreCompact');
   } finally {
     unsilence();
     home.restore();

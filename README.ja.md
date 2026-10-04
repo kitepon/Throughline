@@ -44,6 +44,26 @@ throughline auto-handoff resume --operation <handoff-id> --json
 
 [実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)を参照してください。
 
+## Claude Codeの自動継続
+
+```bash
+throughline auto-handoff enable --host claude --project /absolute/project/path
+throughline auto-handoff status --host claude --json
+throughline auto-handoff disable --host claude
+```
+
+既定では無効です。`--project`を省略すると全projectを対象にします。Codexの設定とは別で、互いに影響しません。
+
+Claude Codeは、自動圧縮の前にhookから作業を止めることも、新しい会話へ指示を送ることもできません。自動圧縮の後は、同じ会話で作業をそのまま続けます。Throughlineは会話を切り替えず、圧縮の直後に、圧縮前の記録を同じ会話へ注入します（[ADR 0032](docs/adr/0032-claude-compact-continuation.md)）。
+
+- `PreCompact`フックが、自動圧縮の時だけ印を残します。圧縮は止めません。
+- 圧縮直後の`SessionStart`（`source: "compact"`）フックが、作業途中のユーザー依頼と圧縮直前の発言、直近の会話の原文を注入します。上限は9,500字で、入り切らない古いターンは`throughline recall`の案内になります。
+- モデルは追加の入力なしで作業を続けます。圧縮の要約と記録が食い違う時は、記録を正とするよう指示します。
+
+手動`/compact`は対象に含めません。圧縮をまたいだターンは、元の依頼と最終回答の1ターンとして保存します（0.12.9以前は、圧縮の要約をユーザー発言として保存していました）。
+
+LinuxのClaude Code 2.1.289（`claude -p`と対話画面）で実機確認済みです。macOS・Windows、VS Code拡張・Desktop、subagentの中の圧縮は未検証です。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-04-claude-compact-continuation.md)を参照してください。
+
 ## 所有境界
 
 本repositoryは導入、設定、状態、schemaとmigration、診断、復旧、更新、release判断を

@@ -59,10 +59,15 @@ export function deriveTranscriptPath(projectPath, sessionId) {
  * @param {string} opts.originSessionId transcript を所有する origin session_id
  * @param {string|null|undefined} opts.transcriptPath
  * @param {number} opts.now timestamp 欠損時の fallback epoch ms
+ * @param {number|null} [opts.beforeUserTurnNumber] 指定した時は、user 行の番号がこれより前の群だけを回収する。
+ *   作業途中のターンがある時点（自動圧縮の直後。ADR 0032）で呼ぶ時に、その群を除くために使う。
+ *   途中の断片を代表として保存すると、群レベル dedup で最終回答が二度と入らない。
  * @returns {{groups: number, insertedTurns: number, skippedExisting: number, lastTurnNumber: number|null, turnNumbers: number[]}}
  */
-export function backfillBodies(db, { targetSessionId, originSessionId, transcriptPath, now }) {
-  const groups = getLogicalTurnGroups(transcriptPath);
+export function backfillBodies(db, { targetSessionId, originSessionId, transcriptPath, now, beforeUserTurnNumber = null }) {
+  const groups = getLogicalTurnGroups(transcriptPath).filter(
+    (group) => beforeUserTurnNumber === null || group.user.turn_number < beforeUserTurnNumber,
+  );
   if (groups.length === 0) {
     return { groups: 0, insertedTurns: 0, skippedExisting: 0, lastTurnNumber: null, turnNumbers: [] };
   }

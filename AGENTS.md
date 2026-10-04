@@ -66,13 +66,14 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
 | [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
 | [src/observer-turn-feed.mjs](src/observer-turn-feed.mjs) | Observer向けのcompleted-only Claude receipt／Codex `task_complete` projection、opaque cursor、fixed-through pagination。DB/WALを公開せず、host ambiguityとcursor不整合はfail closedにする |
-| [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー |
+| [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー。圧縮の要約行（`isCompactSummary: true`）はターンの始まりにも本文にもしない。`turn_number` は要約行の分も進める（ADR 0032） |
 | [src/turn-start.mjs](src/turn-start.mjs) | ターンの始まり方（`prompt` / `self` / `unknown`）を host が transcript に書いた印だけで判定する。Claude `origin.kind`、Grok `synthetic_reason`、Cursor の自己開始固定文 (ADR 0024) |
 | [src/transcript-usage.mjs](src/transcript-usage.mjs) | 最新 assistant の `message.usage` から実測トークン数を抽出、1M context 検出 |
 | [src/codex-capture.mjs](src/codex-capture.mjs) | Codex rollout JSONL の active turns を Throughline DB の `bodies` に保存する capture adapter。`thread_rolled_back` 適用後の active thread だけを `codex:<thread_id>` session として再構成する |
 | [src/codex-rollout-memory.mjs](src/codex-rollout-memory.mjs) | Codex rollout JSONL から active turns / restore-safety diagnostics / trim source を構築する。trim source では現在進行中の in-flight turn と latest rollback 後の未完了 assistant continuation を rollback 候補から除外する。実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で rollback 数を補正する |
 | [src/codex-usage.mjs](src/codex-usage.mjs) | Codex rollout の `event_msg` / `token_count` verified shape から monitor 用 usage sample を抽出する。open turn 中は `input_tokens + output_tokens` を live footprint として返し、`task_complete` 後は verified `input_tokens` のみに戻す。`token_count` が無い rollout では active rollout text の `chars / 4` estimate を `estimated: true` として返す |
 | [src/codex-auto-handoff.mjs](src/codex-auto-handoff.mjs) | `PreCompact(auto)`から同turnの停止・記憶確定・後継作成/表示・設定確認・一度だけの配送・実際の進捗観測を行う。要求とsnapshot/祖先はstore、記憶描画はmemory、vendor設定はhosts/codex-handoff-stateに置く |
+| [src/claude-auto-handoff.mjs](src/claude-auto-handoff.mjs) | Claude Codeの自動継続（ADR 0032）。`PreCompact`の`trigger: auto`で`~/.throughline/claude-auto-handoff/<session_id>.json`に印を残し、圧縮直後の`SessionStart(source=compact)`で印を消費して、作業途中のターン（transcriptから読む）と完了済みターンのL2を注入するテキストを作る。作業途中のターンはbodiesへ保存しない。設定は[src/claude-auto-handoff-config.mjs](src/claude-auto-handoff-config.mjs)（`~/.throughline/claude-auto-handoff.json`、既定無効）。会話は切り替えず、配送もしない |
 | [src/codex-auto-refresh.mjs](src/codex-auto-refresh.mjs) | Codex automatic refresh helper。current-thread rollback / inject の判定と backoff ロジックは残すが、helper 自体も default disabled で、現行 Codex hooks はこの helper を呼ばず、常に `codex_auto_refresh_disabled` で quiet にする。明示 `trim --execute --host codex` は診断用 current-thread path として残す |
 | [src/codex-handoff.mjs](src/codex-handoff.mjs) | `HandoffRecord` から Codex-facing `throughline_handoff` v1 JSON block と Codex developer-message 用 active-work context を生成。`source='throughline'` / `trust='local'` / `kind='throughline_handoff'` を固定 |
 | [src/token-estimator.mjs](src/token-estimator.mjs) | 補助的なトークン数推定 (length/4) |
@@ -107,7 +108,8 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | サブコマンド | Hook event |
 |---|---|---|
-| [src/session-start.mjs](src/session-start.mjs)<br>二相ハンドオフ第一相: sessions 登録 + pending intent 登録のみ。merge / 注入はしない (ADR 0014) | `throughline session-start` | SessionStart |
+| [src/session-start.mjs](src/session-start.mjs)<br>二相ハンドオフ第一相: sessions 登録 + pending intent 登録のみ。merge / 注入はしない (ADR 0014)。`source='compact'` で自動圧縮の印がある時だけ、圧縮前の記録を同じ会話へ注入する (ADR 0032) | `throughline session-start` | SessionStart |
+| [src/claude-pre-compact.mjs](src/claude-pre-compact.mjs)<br>自動継続の印 (ADR 0032)。自動圧縮で有効な project の時だけ印を残す。圧縮は止めない（stdout は空、失敗しても exit code 2 を返さない） | `throughline pre-compact` | PreCompact |
 | [src/turn-processor.mjs](src/turn-processor.mjs)<br>全ターン走査バックフィル（`turn-backfill.mjs` 経由、Stop 空振りの永久穴を解消） | `throughline process-turn` | Stop |
 | [src/prompt-submit.mjs](src/prompt-submit.mjs)<br>二相ハンドオフ第二相: 初回プロンプトで pending consume + merge + 予算内注入。`/tl` batonを書き、Grok `/tl` 成功後は`grok-continue`を副作用起動する。`/clear`互換分岐は残るが、現行の組み込み`/clear`はこのhookへ届かない | `throughline prompt-submit` | UserPromptSubmit |
 
@@ -142,7 +144,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [bin/throughline.mjs](bin/throughline.mjs) | ディスパッチャ |
 | [src/cli/install.mjs](src/cli/install.mjs) | `install` / `uninstall`（デフォルト global、`--project` で Claude ローカル）。global install は `~/.claude/settings.json` と slash commands に加えて `~/.codex/hooks.json` の UserPromptSubmit / PostToolUse / Stop に絶対 node + `bin/throughline.mjs codex-hook ...` を先頭登録し、`~/.codex/config.toml` の `[features].hooks = true` を有効化し（旧名 `codex_hooks` の行は値によらず外す）、`~/.codex/skills/throughline` に `$throughline` skill を配置する。既存 Caveat / Spotter Codex hooks は保持し、uninstall は Throughline 管理の Codex hook / skill だけ削除する。**v0.3.23 以降**: `resolveThroughlineOnPath` で install 完了時に PATH 上の `throughline` 解決を確認し、見つからなければ stderr に修復手順 (npm prefix → `~/.bashrc` 編集 → `doctor` 確認) を出す。Claude-facing hooks は PATH 解決型のため、`~/.npm-global/bin` を `.profile` だけに書いて bashrc に書き忘れる sudoless prefix 派の silent fail を防ぐ |
 | [src/cli/doctor.mjs](src/cli/doctor.mjs) | `doctor` — 環境チェック。`doctor --session <id-prefix>` で特定セッションの state/transcript 整合性を診断。`doctor --trim --host claude|codex|unknown` で trim host boundary を診断し、Codex では host primitive audit status も表示する。`doctor --codex` で Codex primary の thread env / rollout candidates / captured DB sessions / context refresh memory source と `/tl` memory contract、new-thread handoff / safe continuation status、host primitive audit、VSCode monitor task の登録状態 / Reload Window note を診断 |
-| [src/cli/auto-handoff.mjs](src/cli/auto-handoff.mjs) | `auto-handoff enable/disable/status/resume/detail`。既定無効、Desktop対象。enableで自分のPreCompact hookだけを公式APIで承認・確認する |
+| [src/cli/auto-handoff.mjs](src/cli/auto-handoff.mjs) | `auto-handoff enable/disable/status/resume/detail`。既定無効、Desktop対象。enableで自分のPreCompact hookだけを公式APIで承認・確認する。`--host claude` は Claude Code の自動継続の `enable/disable/status` だけを受け、Codex の設定に触らない |
 | [src/cli/status.mjs](src/cli/status.mjs) | `status` — DB 統計表示 |
 | [src/cli/handoff-preview.mjs](src/cli/handoff-preview.mjs) | `handoff-preview` — sidecar 実行なしで `throughline_handoff` JSON projection を stdout に出す。`--session <id>` / `--host-mode claude-primary|codex-primary|unknown` |
 | [src/cli/handoff-context.mjs](src/cli/handoff-context.mjs) | `handoff-context (--session <id> \| --project <path>) --json` — 既存DBをread-onlyで開き、SessionStartと同じ9,500字予算のinheritance contextをversioned JSONで返す。project指定時はそのprojectで会話本文を持つ最新sessionを選び、本文がなければ`empty`を返す。`--disclosure silent`は補足なしで基盤案内を消す。session指定時の任意補足JSONは源sessionと同じprojectだけを長期記憶・知識として合成する。DB作成・migration・merge・batonは行わない |
@@ -217,6 +219,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/session-merger.test.mjs](src/session-merger.test.mjs) | `resolveMergeTarget` / `mergeSpecificPredecessor` |
 | [src/state-file.test.mjs](src/state-file.test.mjs) | `writeSessionState` / `readAllSessionStates` / `snapshotStateMtimes` / stale 閾値 / `usage` スナップショット / 旧フォーマット互換 / Codex state filename encoding |
 | [src/turn-processor.test.mjs](src/turn-processor.test.mjs) | `countDistinctBodyTurns` / `pickOldestUnsummarizedTurn` / 20 ターン境界 |
+| [src/claude-auto-handoff.test.mjs](src/claude-auto-handoff.test.mjs) | Claude自動継続の印（自動・手動・無効・subagent・期限切れ）、`--host claude` の引数面、enable の hook 登録、temp HOME での `pre-compact` → `session-start(compact)` → `process-turn` の一連（注入内容、作業途中のターンを保存しないこと、圧縮をまたいだターンの1ターン保存と L3） |
 | [src/turn-backfill.test.mjs](src/turn-backfill.test.mjs) | `backfillBodies` の群 dedup / 冪等性 / junk / timestamp / sidechain / path munging / `turn_start` |
 | [src/turn-start.test.mjs](src/turn-start.test.mjs) | Claude / Grok / Cursor の始まり方判定と、旧行NULLのunknown写像 |
 | [src/hosts/claude.test.mjs](src/hosts/claude.test.mjs) | 完了受領の project（Claude は起動 project、他 host は hook cwd） |
@@ -251,7 +254,8 @@ npm test
   "hooks": {
     "SessionStart":     [{ "hooks": [{ "command": "throughline session-start" }] }],
     "Stop":             [{ "hooks": [{ "command": "throughline process-turn", "async": true } ] }],
-    "UserPromptSubmit": [{ "hooks": [{ "command": "throughline prompt-submit" }] }]
+    "UserPromptSubmit": [{ "hooks": [{ "command": "throughline prompt-submit" }] }],
+    "PreCompact":       [{ "hooks": [{ "command": "throughline pre-compact" }] }]
   }
 }
 ```
@@ -287,7 +291,7 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 - 現行 install は Throughline 管理 Codex hook の shape を更新する。同じ `throughline codex-hook stop` command が既にあっても、絶対パス型 command / `timeout` / `async` などを [src/cli/install.mjs](src/cli/install.mjs) の生成値に合わせる。旧 `timeoutSec` entry も command identity で除去し、canonical entryへ置換する。
 - **UserPromptSubmit** は二相ハンドオフ第二相 (pending intent 消費 + merge + 予算内注入) + `/tl` バトン書き込み + VSCode tasks.json 自動プロビジョニングの3役 (ADR 0014)。`/clear`互換分岐は残るが、組み込み`/clear`は実測したクライアントからこのhookへ届かない。Grok `/tl` のあとだけ `throughline grok-continue --session <id>` を副作用で呼ぶ。Claude / Codex と Grok `/clear` では呼ばない。注入がこの hook に移ったため、SessionStart 側の注入は廃止（旧「二重注入回避」制約は消滅）。tasks.json 作成は SessionStart / Stop にも同じ呼び出しがあり、どれか 1 つでも発火すれば生成される（冪等）
 - **Claude PostToolUse** は登録しない（schema v4 で廃止）。Codex PostToolUse は別用途で、tool loop 中の rollout capture / monitor state write hook として登録する。current-session refresh instruction は注入しない。
-- **Claude PreCompact** は登録しない。Codexは明示有効化した自動新規タスク継続の`PreCompact(auto)`だけを使用する。
+- **Claude PreCompact** は matcher 無しで登録する（ADR 0032）。`auto-handoff enable --host claude` で有効にした project の自動圧縮だけ印を残し、圧縮直後の `SessionStart(source=compact)` が同じ会話へ記録を注入する。無効・手動 `/compact`・subagent の中の圧縮では何も残さない。この hook は圧縮を止めない。Codexは明示有効化した自動新規タスク継続の`PreCompact(auto)`だけを使用する。
 - dev 時に spike 系 hook（`spike/hook-logger.mjs` 等）が並行登録されている場合があるが、動作ログ採取用で実害なし
 
 ---
@@ -445,6 +449,8 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 ## 2 つの計画の扱い
 
 Codex自動新規タスク継続は[実装契約と受入](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)に従う。macOSのDesktopで連続継承と最終完了を確認済み。既定では無効とし、`auto-handoff enable`で有効化する。実測JSONと公開履歴はevidenceへ置く。
+
+Claude Codeの自動継続は[ADR 0032](docs/adr/0032-claude-compact-continuation.md)に従う。会話を切り替えず、自動圧縮の直後に同じ会話へ記録を注入する。Linuxの`claude -p`と対話画面で確認済み。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 

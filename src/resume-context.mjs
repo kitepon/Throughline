@@ -3,6 +3,7 @@
  *
  * 呼び出し元:
  *   - handoff-executor.mjs（最初のUserPromptSubmitでauto path / baton path共通注入）
+ *   - claude-auto-handoff.mjs（自動圧縮の直後のSessionStartで同じ会話へ注入。ADR 0032）
  *
  * 設計 (docs/02_clear_auto_handoff_plan.md):
  *   - 予算付き注入: ヘッダ + 現在地アンカー + pull案内を固定部とし、残りへ
@@ -54,6 +55,28 @@ const RESUME_HEADER_TEMPLATE = (turnCount, handoffDisclosure) =>
   `(該当ターンの本文＋詳細を stdout に返します)`;
 
 const NORMAL_HEADER = '## Throughline: セッション記憶';
+
+const DEFAULT_ANCHOR_TITLE = '### 現在地 (直前のやりとり)';
+
+// 自動圧縮の直後に、同じ会話へ注入する時のヘッダ (ADR 0032)。/clear の引き継ぎと違い、
+// 作業の途中で、次のユーザー入力は来ない。宣言はさせず、そのまま続けさせる。
+const COMPACT_HEADER =
+  `## Throughline: 自動圧縮後の継続用コンテキスト\n` +
+  `\n` +
+  `**読み方 (重要):**\n` +
+  `- この会話は、たった今 Claude Code の自動圧縮で要約に置き換わりました。下記は Throughline が` +
+  `圧縮の前に保存した **あなた自身とユーザーの会話の原文** です。\n` +
+  `- 圧縮の要約と下記の記録が食い違う時は、下記の記録（元のユーザーの依頼・合意）を正としてください。\n` +
+  `- 「現在地」のターンは **作業の途中** です。ユーザーの追加入力を待たず、未完了の作業をそのまま続けてください。\n` +
+  `- 完了済みの操作を繰り返さないでください。直前の実行結果が分からない時は、作業ツリーや記録を確かめてから続けてください。\n` +
+  '- **完了したターンの詳細**: **`Bash` ツールで `throughline detail HH:MM:SS` を実行** ' +
+  `(該当ターンの本文＋詳細を stdout に返します)`;
+
+const COMPACT_ANCHOR_TITLE = '### 現在地 (作業途中のターン)';
+// 作業途中のターンは Stop の前で、まだ bodies に無い。依頼の原文を残せる場所はここだけなので、
+// /clear のアンカー (600 字) より厚く取る。
+const IN_FLIGHT_USER_MAX_CHARS = 4_000;
+const IN_FLIGHT_ASSISTANT_MAX_CHARS = 1_500;
 
 // v0.10.12以前にThroughline自身がassistantへ付与させていた宣言行。
 // 製品由来のメタ情報だけを引き継ぎ材料から除き、会話本文への模倣連鎖を止める。
@@ -193,14 +216,14 @@ function buildResumeSections(
     });
   }
 
-  return { header, anchorLines, l1Lines, l2Lines };
+  return { header, anchorTitle: DEFAULT_ANCHOR_TITLE, anchorLines, l1Lines, l2Lines };
 }
 
-function joinSections({ header, anchorLines, l1Lines, l2Lines }, { l1Note = null, l2Note = null } = {}) {
+function joinSections({ header, anchorTitle, anchorLines, l1Lines, l2Lines }, { l1Note = null, l2Note = null } = {}) {
   const lines = [header];
   if (anchorLines.length > 0) {
     lines.push('');
-    lines.push('### 現在地 (直前のやりとり)');
+    lines.push(anchorTitle);
     lines.push(...anchorLines);
   }
   if (l1Lines.length > 0 || l1Note) {
@@ -396,7 +419,11 @@ export function buildBudgetedResumeContext(
     handoffDisclosure,
   });
   if (!sections) return null;
+  return renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxChars });
+}
 
+/** 組み立て済みのセクションを、予算内の注入テキストにする（/clear の引き継ぎと自動圧縮後の継続が共有）。 */
+function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxChars }) {
   const lineCost = (s) => s.length + 1; // join('\n') 分
 
   // L2 行をターン単位のグループにまとめる（元の古い順を保つ）
@@ -418,7 +445,7 @@ export function buildBudgetedResumeContext(
   const fixedCost =
     lineCost(sections.header) +
     (sections.anchorLines.length > 0
-      ? lineCost('') + lineCost('### 現在地 (直前のやりとり)') +
+      ? lineCost('') + lineCost(sections.anchorTitle) +
         sections.anchorLines.reduce((a, l) => a + lineCost(l), 0)
       : 0) +
     lineCost('') + lineCost('### 直前の対話 (L2 / active work thread, 古い順)');
@@ -487,7 +514,7 @@ export function buildBudgetedResumeContext(
   const lines = [sections.header];
   if (sections.anchorLines.length > 0) {
     lines.push('');
-    lines.push('### 現在地 (直前のやりとり)');
+    lines.push(sections.anchorTitle);
     lines.push(...sections.anchorLines);
   }
   lines.push('');
@@ -510,4 +537,73 @@ export function buildBudgetedResumeContext(
     olderSummarized: older.summarized,
     truncatedNewestL2,
   };
+}
+
+// 長い依頼は、指示が先頭にも末尾にも書かれる。先頭 3/4 と末尾 1/4 を残し、間を抜いたことを明示する。
+function truncateInFlight(text, maxChars) {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const head = Math.ceil(maxChars * 0.75);
+  const tail = maxChars - head;
+  return `${trimmed.slice(0, head)} …(長いため中略 ${trimmed.length - maxChars} 字)… ${trimmed.slice(-tail)}`;
+}
+
+/**
+ * 自動圧縮の直後に、同じ会話へ注入するテキスト (ADR 0032)。
+ *
+ * 構成は /clear の引き継ぎと同じ予算付き（ヘッダ + 現在地 + 案内 + 入るだけの L2）。違いは現在地で、
+ * DB の最新ターンではなく、transcript から読んだ作業途中のターンを載せる。作業途中のターンは
+ * Stop の前で bodies に無いので、L2 セクションには出ない。
+ *
+ * 完了したターンが 1 つも無い会話（最初のターンの途中で圧縮）でも、現在地だけを返す。
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {{
+ *   sessionId: string,
+ *   inFlight: {
+ *     user: {content: string, timestamp: number|null},
+ *     fragments: Array<{content: string, timestamp: number|null}>,
+ *   } | null,
+ *   inFlightUnreadable?: boolean,  transcript に今の依頼がまだ書かれていない（hook の prompt_id と合わない）
+ *   maxChars?: number,
+ * }} params
+ */
+export function buildCompactContinuationContext(
+  db,
+  { sessionId, inFlight, inFlightUnreadable = false, maxChars = INJECTION_BUDGET_CHARS },
+) {
+  const stored = buildResumeSections(db, { sessionId, isInheritance: true, handoffDisclosure: 'silent' });
+  const stamp = (timestamp) => (timestamp == null ? '' : ` [${formatClock(timestamp)}]`);
+  const anchorLines = [];
+  if (inFlight) {
+    anchorLines.push(
+      `**作業中のユーザー依頼**${stamp(inFlight.user.timestamp)}: ` +
+        truncateInFlight(inFlight.user.content, IN_FLIGHT_USER_MAX_CHARS),
+    );
+    const lastFragment = inFlight.fragments.at(-1);
+    if (lastFragment) {
+      anchorLines.push(
+        `**圧縮直前のあなたの発言**${stamp(lastFragment.timestamp)}: ` +
+          truncateInFlight(lastFragment.content, IN_FLIGHT_ASSISTANT_MAX_CHARS),
+      );
+    }
+  }
+  if (!inFlight && inFlightUnreadable) {
+    anchorLines.push(
+      '**作業中のユーザー依頼**: （記録からまだ読めません。圧縮後の文脈にある最新のユーザー依頼を続けてください）',
+    );
+  }
+  if (!stored && anchorLines.length === 0) return null;
+
+  return renderBudgetedSections(
+    db,
+    {
+      header: COMPACT_HEADER,
+      anchorTitle: COMPACT_ANCHOR_TITLE,
+      anchorLines,
+      l1Lines: [],
+      l2Lines: stored?.l2Lines ?? [],
+    },
+    { sessionId, excludeOriginId: null, maxChars },
+  );
 }

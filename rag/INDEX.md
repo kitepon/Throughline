@@ -27,6 +27,10 @@ rag/
 - [fork rolloutのmetadata実測](01-hooks/codex-fork-rollout-metadata.md) — 子の先頭metadataの後に親のmetadataと履歴がコピーされる並びを実機で確認。自動継続の誤ったthread不一致判定を最小fixtureと実rolloutで再現・修正した。
 - [PreCompact・記憶注入・配送の一次ソース抜粋](01-hooks/raw/codex-auto-handoff-extract.md) — 公式仕様と配送ライブラリの固定source。[Desktop実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)でauto停止・新規idle taskの自動開始・配送process終了後の継続が成立した。cold readの途中状態と表示後の権限更新を観測し、[設計](../docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)へ反映した。
 
+## Claude自動継続の根拠
+
+- [圧縮まわりのhookの一次ソース抜粋](01-hooks/raw/claude-compact-hooks-extract.md) — `PreCompact`は圧縮を止められるが作業は止められない。`SessionStart(source=compact)`の出力は圧縮後の文脈へ足される。新しい会話へ指示を送る公開の口は無い。[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-04-claude-compact-continuation.md)で、自動圧縮の直後に注入が届き、入力なしで作業が続いた。Finding 6・第三仮説（PreCompactでの再投影）に対する現行の答えは[ADR 0032](../docs/adr/0032-claude-compact-continuation.md)。
+
 ## Question this RAG was built to answer
 
 > Throughline は「コンテキスト削減しつつ過去の記憶を一切失わない」と定義されている。記憶を引き継いでいてもモデルがそれを自分の作業履歴として体感していないなら、その記憶は無意味なコンテキストである。

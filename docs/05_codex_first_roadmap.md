@@ -28,6 +28,8 @@
 最初の成立検証はCodex Desktopで行う。OSごとの仕組みと受入条件は共通にし、
 差分は既存の `src/os/` と配送ライブラリの環境適合へ閉じ込める。
 VS Code・CLIとClaude/Grok/Cursorの対応はhostごとに同じ条件で検証する。
+Claude Codeは圧縮前の停止と新しい会話への配送がhookからできないため、自動圧縮の直後に同じ会話へ記憶を注入する
+（[ADR 0032](adr/0032-claude-compact-continuation.md)）。この節の処理順と進行状態はCodexだけに適用する。
 一つのhostの成功で他のhostも対応済みとはしない。
 
 ### 根拠と検証範囲

@@ -10,6 +10,25 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-04
+
+### 追加
+
+- Claude Codeの自動継続（[ADR 0032](docs/adr/0032-claude-compact-continuation.md)）。`throughline auto-handoff enable --host claude [--project <path>]`で有効にすると、自動圧縮の直後に、圧縮前の記録を同じ会話へ注入する。注入するのは、作業途中のユーザー依頼と圧縮直前の発言、直近の会話の原文（上限9,500字）。モデルは追加の入力なしで作業を続ける。既定は無効。手動`/compact`は対象外。
+- Claude Codeは、hookから作業を止めることも、新しい会話へ指示を送ることもできない。Codexのように新しいタスクへは切り替えず、hostが続ける同じ会話へ記憶を渡す。
+- `throughline install`は、Claudeの`PreCompact`フック（`throughline pre-compact`）を登録する。自動継続が無効の時は、判定を記録して抜ける。このフックは圧縮を止めない。
+- `auto-handoff`に`--host claude`を足す。使えるのは`enable`・`disable`・`status`。`--host`を省いた時は今までどおりCodex。
+
+### 修正
+
+- 圧縮をまたいだClaudeのターンが、複数のターンに割れて保存されていた不具合を直す。Claude Codeは圧縮の直後に、要約を本文に持つ`user`行（`isCompactSummary: true`）をtranscriptへ書く。0.12.9以前はこの行をユーザーの発言として数え、要約をユーザー発言としてL2へ保存していた。3回圧縮した実機のターンは4ターンとして保存された。圧縮より前のtool入出力はL3に入らなかった。
+- 修正後は、元の依頼と最終回答の1ターンとして保存し、圧縮より前のtool入出力も同じターンのL3へ入れる。Observer feedの`turn_start`は元の依頼のものになる（今までは要約行のターンとして`unknown`）。修正より前に保存した行は変えない。
+
+### 確認した範囲
+
+- LinuxのClaude Code 2.1.289（Haiku 4.5）。`claude -p`と対話画面のそれぞれで、自動圧縮2回をまたいで作業が完了し、圧縮のたびに注入が届いた。9,099字の注入はfile化されずに届いた。
+- macOS・Windows、VS Code拡張・Desktop、subagentの中の圧縮は確かめていない。
+
 ## [0.12.9] — 2026-10-04
 
 ### 修正
@@ -1634,7 +1653,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.12.9...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/kitepon/Throughline/compare/v0.12.9...v0.13.0
 [0.12.9]: https://github.com/kitepon/Throughline/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/kitepon/Throughline/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/kitepon/Throughline/compare/v0.12.6...v0.12.7

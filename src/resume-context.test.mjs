@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   buildResumeContext,
   buildBudgetedResumeContext,
+  buildCompactContinuationContext,
   INJECTION_BUDGET_CHARS,
 } from './resume-context.mjs';
 
@@ -904,4 +905,75 @@ test('budgeted: header and anchor always survive even under pressure', () => {
   assert.ok(budgeted);
   assert.match(budgeted.text, /^## Throughline: 直前スレッドの継続応答用コンテキスト/);
   assert.ok(budgeted.text.includes('### 現在地 (直前のやりとり)'));
+});
+
+// --- 自動圧縮後の継続 (ADR 0032) ---
+
+test('buildCompactContinuationContext: 完了したターンが無くても、作業途中のターンだけで組み立てる', () => {
+  const db = makeDb();
+  const result = buildCompactContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: { user: { content: '最初の依頼', timestamp: null }, fragments: [] },
+  });
+  assert.match(result.text, /^## Throughline: 自動圧縮後の継続用コンテキスト\n/);
+  assert.match(result.text, /### 現在地 \(作業途中のターン\)\n\*\*作業中のユーザー依頼\*\*: 最初の依頼\n/);
+  assert.doesNotMatch(result.text, /圧縮直前のあなたの発言/);
+  assert.doesNotMatch(result.text, /### 直前の対話/);
+  assert.equal(result.injectedL2Turns, 0);
+  assert.equal(buildCompactContinuationContext(db, { sessionId: 'S', inFlight: null }), null);
+});
+
+test('buildCompactContinuationContext: 現在地は作業途中のターンで、保存済みのターンはL2に並び、宣言は求めない', () => {
+  const db = makeDb();
+  insertBody(db, { session: 'S', origin: 'S', turn: 1, role: 'user', text: '前の依頼', createdAt: 1_000 });
+  insertBody(db, { session: 'S', origin: 'S', turn: 1, role: 'assistant', text: '前の回答', createdAt: 2_000 });
+  const result = buildCompactContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: {
+      user: { content: '今の依頼', timestamp: 3_000 },
+      fragments: [{ content: '途中1', timestamp: 4_000 }, { content: '途中2', timestamp: 5_000 }],
+    },
+  });
+  const anchor = result.text.slice(result.text.indexOf('### 現在地'), result.text.indexOf('### さらに前の記憶'));
+  assert.match(anchor, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: 今の依頼\n\*\*圧縮直前のあなたの発言\*\* \[\d\d:\d\d:\d\d\]: 途中2\n/);
+  assert.doesNotMatch(anchor, /前の依頼|途中1/);
+  assert.match(result.text, /### 直前の対話 \(L2 \/ active work thread, 古い順\)\n\[\d\d:\d\d:\d\d\] \[user\]: 前の依頼\n\[\d\d:\d\d:\d\d\] \[assistant\]: 前の回答/);
+  assert.doesNotMatch(result.text, /宣言|\/clear/);
+  assert.equal(result.injectedL2Turns, 1);
+});
+
+test('buildCompactContinuationContext: 長い依頼と多数のターンでも予算内に収め、依頼は切り詰めを明示する', () => {
+  const db = makeDb();
+  for (let turn = 1; turn <= 12; turn++) {
+    insertBody(db, { session: 'S', origin: 'S', turn, role: 'user', text: `依頼${turn} ` + 'あ'.repeat(600), createdAt: turn * 1_000 });
+    insertBody(db, { session: 'S', origin: 'S', turn, role: 'assistant', text: `回答${turn} ` + 'い'.repeat(600), createdAt: turn * 1_000 + 500 });
+  }
+  const result = buildCompactContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: {
+      user: { content: 'ヰ'.repeat(6_000), timestamp: 20_000 },
+      fragments: [{ content: 'ヱ'.repeat(3_000), timestamp: 21_000 }],
+    },
+  });
+  assert.ok(result.totalChars <= INJECTION_BUDGET_CHARS, `${result.totalChars}`);
+  assert.equal((result.text.match(/ヰ/g) ?? []).length, 4_000);
+  assert.equal((result.text.match(/ヱ/g) ?? []).length, 1_500);
+  assert.match(result.text, /ヰ …\(長いため中略 2000 字\)… ヰ/);
+  assert.match(result.text, /ヱ …\(長いため中略 1500 字\)… ヱ/);
+  assert.ok(result.injectedL2Turns >= 1, '最新の保存済みターンは入る');
+  assert.match(result.text, /回答12/);
+  assert.equal(result.injectedL2Turns + result.remainingL2Turns, 12);
+  assert.match(result.text, /throughline recall --l2 --session S /);
+});
+
+test('buildCompactContinuationContext: 長い依頼は先頭と末尾を残す。今の依頼が記録から読めない時は、その旨だけを現在地に書く', () => {
+  const db = makeDb();
+  const long = buildCompactContinuationContext(db, {
+    sessionId: 'S',
+    inFlight: { user: { content: '先頭の指示' + 'あ'.repeat(6_000) + '末尾の指示', timestamp: null }, fragments: [] },
+  });
+  assert.match(long.text, /\*\*作業中のユーザー依頼\*\*: 先頭の指示あ+ …\(長いため中略 2010 字\)… あ+末尾の指示\n/);
+
+  const unreadable = buildCompactContinuationContext(db, { sessionId: 'S', inFlight: null, inFlightUnreadable: true });
+  assert.match(unreadable.text, /### 現在地 \(作業途中のターン\)\n\*\*作業中のユーザー依頼\*\*: （記録からまだ読めません。圧縮後の文脈にある最新のユーザー依頼を続けてください）\n/);
 });

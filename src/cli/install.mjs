@@ -36,6 +36,7 @@ const SC_COMMANDS = [
   'throughline process-turn',
   'throughline session-start',
   'throughline prompt-submit',
+  'throughline pre-compact',
   // 旧コマンド（アンインストール時に除去する）
   'throughline inject-context',
   'throughline capture-tool',
@@ -55,7 +56,14 @@ const SC_HOOKS = {
   UserPromptSubmit: {
     hooks: [{ type: 'command', command: 'throughline prompt-submit' }],
   },
+  // 自動継続の第一段 (ADR 0032)。matcher は付けない: 手動の /compact でも呼ばれ、古い印を消す。
+  // 自動継続が無効な時は何も残さずに抜ける。
+  PreCompact: {
+    hooks: [{ type: 'command', command: 'throughline pre-compact' }],
+  },
 };
+
+const CLAUDE_PRE_COMPACT_COMMAND = SC_HOOKS.PreCompact.hooks[0].command;
 
 const CODEX_COMMANDS = [
   'throughline codex-hook stop',
@@ -629,6 +637,25 @@ function installCodexHooks() {
   return { hooksPath, configPath };
 }
 
+export function claudeAutoHandoffHookRegistered(settingsPath = join(homedir(), '.claude', 'settings.json')) {
+  const groups = readSettings(settingsPath).hooks?.PreCompact ?? [];
+  // matcher 付きの登録は手動の /compact で呼ばれず、古い印が残る。matcher 無しだけを登録済みとする。
+  return groups.some(group => !group.matcher && (group.hooks ?? []).some(hook => hook.command === CLAUDE_PRE_COMPACT_COMMAND));
+}
+
+/** `auto-handoff enable --host claude` 用。古い版で install した端末にも PreCompact hook を足す。 */
+export function installClaudeAutoHandoffHook(settingsPath = join(homedir(), '.claude', 'settings.json')) {
+  if (!claudeAutoHandoffHookRegistered(settingsPath)) {
+    const current = readSettings(settingsPath);
+    current.hooks ??= {};
+    const preserved = (current.hooks.PreCompact ?? []).map(group => ({ ...group,
+      hooks: (group.hooks ?? []).filter(hook => hook.command !== CLAUDE_PRE_COMPACT_COMMAND) })).filter(group => group.hooks.length);
+    current.hooks.PreCompact = [SC_HOOKS.PreCompact, ...preserved];
+    writeSettings(settingsPath, current);
+  }
+  return { settingsPath, command: CLAUDE_PRE_COMPACT_COMMAND };
+}
+
 export function installCodexAutoHandoffHook(codexHome = join(homedir(), '.codex')) {
   const hooksPath = join(codexHome, 'hooks.json');
   const configPath = join(codexHome, 'config.toml');
@@ -777,6 +804,7 @@ export async function run(args = []) {
   console.log('  SessionStart     → throughline session-start  (セッション記録・バトン消費・引き継ぎ注入)');
   console.log('  Stop             → throughline process-turn   (L1 要約 + L2 本文保存 + L3 詳細保存)');
   console.log('  UserPromptSubmit → throughline prompt-submit  (/tl & /clear バトン書き込み)');
+  console.log('  PreCompact       → throughline pre-compact    (自動継続の印。既定は無効: auto-handoff enable --host claude)');
   if (codex) {
     console.log(`  Codex UserPromptSubmit → ${buildCodexUserPromptSubmitHookCommand()} (capture / monitor state only; auto refresh disabled)`);
     console.log(`  Codex PostToolUse      → ${buildCodexPostToolUseHookCommand()} (capture / monitor state only; auto refresh disabled)`);
