@@ -49,6 +49,8 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
+import { readClaudeRelocatedCwd } from './hosts/claude.mjs';
+import { CLAUDE_HOST } from './hosts/identity.mjs';
 import { completeClaudeTurnWithoutHandoff } from './claude-auto-handoff.mjs';
 
 /** 直近 N ターンは bodies を生で残し、それより古いものだけ L1 要約する。 */
@@ -316,6 +318,20 @@ async function processStop() {
     db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?').run(now, target);
   }
 
+  // 完了受領と sessions の project は、会話を起動した project に合わせる。会話が別の project へ
+  // 移っている時（Claude Desktop）は、移った先へ付け替える。付け替えないと、移った先の project の
+  // 過去の会話にも Observer feed にも、この会話が出ない。
+  const hostAdapter = hostAdapterForSessionId(session_id);
+  const relocatedProjectPath = hostAdapter.host === CLAUDE_HOST ? readClaudeRelocatedCwd(transcript_path) : null;
+  const completionProjectPath = relocatedProjectPath ?? hostAdapter.completionProjectPath({
+    cwd: cwd ?? process.cwd(),
+    env: process.env,
+  });
+  if (relocatedProjectPath) {
+    db.prepare('UPDATE sessions SET project_path = ? WHERE session_id IN (?, ?) AND project_path <> ?')
+      .run(relocatedProjectPath, session_id, target, relocatedProjectPath);
+  }
+
   // L2 = transcript 全体を論理ターン群で走査し、未捕捉の完了ターンを一括回収する。
   // 従来の「最後の 1 ペアのみ保存」は Stop の空振り・不発が永久穴になった (docs/12 B-1)。
   // user / assistant は「1 往復 = 1 ターン」として同じ turn_number（= 代表 assistant
@@ -349,10 +365,6 @@ async function processStop() {
   // 過去のStopでDBだけ回収済みだったpairもreceipt storeの冪等性で穴埋めする。
   // receipt failure は Stop hook の failure として上位へ伝播させる。L1/L3/usage は
   // receipt 後の派生処理なので、そこで失敗しても completed pair を取り消さない。
-  const completionProjectPath = hostAdapterForSessionId(session_id).completionProjectPath({
-    cwd: cwd ?? process.cwd(),
-    env: process.env,
-  });
   for (const completedTurnNumber of backfill.turnNumbers) {
     publishCapturedClaudeCompletionReceipt(db, {
       target,

@@ -31,6 +31,8 @@ Claude Desktop の新しい会話は、画面を開いただけでは process �
 1. **圧縮を止める**: `PreCompact` hook（`throughline pre-compact`、matcher 無し）が、`trigger: "auto"` で自動継続が
    有効な project の時だけ、`/tl` と同じ印（baton）と引き継ぎの記録を残し、exit code 2 で圧縮を止める。
    印の project は、会話を起動した場所（`CLAUDE_PROJECT_DIR`）を、その OS の書き方にそろえたもの（0.14.2）。
+   Claude Desktop で会話を別の project へ移している時は、transcript の `relocated` の行（`relocatedCwd`）が示す移った先を使う。
+   `CLAUDE_PROJECT_DIR` は移る前の場所のまま届くため（0.15.2）。
    hook の cwd は Bash の `cd` に追従するので使わない。後継は起動した場所で立ち、その cwd で印を探す。
    手動の `/compact`、無効な project、subagent の中の圧縮（payload に `agent_id`）、script から起動した会話
    （`CLAUDE_CODE_ENTRYPOINT` が `sdk-` で始まる）では止めない。

@@ -10,6 +10,25 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.2] — 2026-10-06
+
+### 修正
+
+- Claude Desktopで「フォルダなし」で始めて、後から作業フォルダへ移した会話では、自動継続（`auto-handoff enable --host claude`）を有効にしていても引き継ぎが始まらない不具合を直す。Desktopは会話を移した後も、hookへ渡す`CLAUDE_PROJECT_DIR`を移る前の場所のままにする。Throughlineはその値で対象のprojectかどうかを決めていたので、自動圧縮の前のhookが`auto_handoff_disabled`で見送り、圧縮がそのまま走っていた。
+- 会話が移った先は、Claude Codeがtranscriptへ書く`relocated`の行（`relocatedCwd`）から読む。移っている会話では、自動継続の有効判定と印（baton）のprojectを、移った先にする。
+- 同じ会話のターン終了では、完了ターンの控えを移った先のprojectへ書き、`sessions.project_path`を移った先へ付け替える。これまでは移る前の場所のまま残り、移った先のprojectの過去の会話（`handoff-context`、`throughline detail`）にも`observer-read`にも、その会話が出なかった。
+- 移っていない会話の扱いは変わらない。`relocated`の行が無ければ、これまでどおり`CLAUDE_PROJECT_DIR`、無ければhookの`cwd`を使う。
+
+### 確認した範囲
+
+- macOS（Claude Desktop同梱の2.1.286が書いた本物のtranscriptの写し、移った後に自動圧縮が2回走った会話）。切り離したHOMEでhookを手で呼び、0.14.2は`pre-compact`が終了コード0・`auto_handoff_disabled`、`sessions.project_path`と控えは移る前の場所。この版は`pre-compact`が終了コード2（圧縮を止める）・`requested`、`sessions.project_path`と控えは移った先、`observer-read`は移った先のprojectで`snapshot`を返す。
+- macOS、端末から始めた移っていない会話（Claude Code 2.1.289、Haiku 4.5）。この版で4回連続で引き継ぎ、14個を番号順に読み切って完了。自動圧縮は0回。
+
+### 確認していない範囲
+
+- Claude Desktopの画面で、この版が通しで引き継ぐこと（旧い会話を止める所と、後継を立てる所）。Desktopの画面からの送信が要るため、hookを手で呼ぶ確認までにとどまる。
+- Windows・Linuxで移した会話。`relocated`の行の読み取りは、Windowsの書き方の場所を単体の試験で確かめただけ。
+
 ## [0.15.1] — 2026-10-05
 
 ### 修正
@@ -1771,7 +1790,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/kitepon/Throughline/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kitepon/Throughline/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kitepon/Throughline/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/kitepon/Throughline/compare/v0.14.2...v0.14.3

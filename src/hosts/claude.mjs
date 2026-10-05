@@ -4,7 +4,8 @@
  * Claude は Throughline の基準 host。hook payload は snake_case のまま届き、
  * 引き継ぎ注入は UserPromptSubmit hook の stdout でモデルへ渡る。
  */
-import { isAbsolute } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, posix, win32 } from 'node:path';
 import { CLAUDE_HOST, hostOfSessionId } from './identity.mjs';
 
 // Claude Code の背景 task 通知は user 発言として transcript に入る。識別子・出力 path・
@@ -36,6 +37,40 @@ export function compactClaudePeerMessage(text) {
   return note < 0 ? text : text.slice(0, note);
 }
 
+// Claude Desktop は「フォルダなし」で始めた会話を、後から実在の project へ移せる。移すと transcript に
+// `{"type":"relocated","relocatedCwd":"<移った先>"}` の行が入り、transcript 自体も移った先の project の
+// 置き場へ移る。hook へ渡る CLAUDE_PROJECT_DIR は、移る前の場所のまま残る（2.1.286 で実測）。
+const RELOCATED_MARKER = '"relocated"';
+
+/**
+ * 会話が最後に移った先。移っていない会話、transcript が読めない時は null。
+ * @param {string | null | undefined} transcriptPath
+ * @returns {string | null}
+ */
+export function readClaudeRelocatedCwd(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath) return null;
+  let raw;
+  try { raw = readFileSync(transcriptPath, 'utf8'); }
+  catch { return null; }
+  // 道具の出力が同じ文字列を含むことがある。行を JSON として読み、行そのものの type で確かめる。
+  for (let end = raw.length; end > 0;) {
+    const marker = raw.lastIndexOf(RELOCATED_MARKER, end - 1);
+    if (marker < 0) return null;
+    const lineStart = raw.lastIndexOf('\n', marker) + 1;
+    const newline = raw.indexOf('\n', marker);
+    const line = raw.slice(lineStart, newline < 0 ? raw.length : newline);
+    try {
+      const entry = JSON.parse(line);
+      const moved = entry?.type === 'relocated' ? entry.relocatedCwd : null;
+      if (typeof moved === 'string' && (posix.isAbsolute(moved) || win32.isAbsolute(moved))) return moved;
+    } catch {
+      // 書きかけの行。前の行を探す。
+    }
+    end = lineStart;
+  }
+  return null;
+}
+
 export const claudeHostAdapter = Object.freeze({
   host: CLAUDE_HOST,
   matchesSessionId: (sessionId) => hostOfSessionId(sessionId) === CLAUDE_HOST,
@@ -45,7 +80,10 @@ export const claudeHostAdapter = Object.freeze({
   // 完了受領はセッションを起動した project に書く。hook payload の cwd は Bash の cd に
   // 追従するため、作業中に下位ディレクトリへ移ると起動 project の feed から漏れる。
   // Claude Code は hook の環境変数 CLAUDE_PROJECT_DIR に起動 project を渡す。
-  completionProjectPath({ cwd, env }) {
+  // 会話が別の project へ移っている時は、移った先を使う（CLAUDE_PROJECT_DIR は移る前のまま）。
+  completionProjectPath({ cwd, env, transcriptPath }) {
+    const relocated = readClaudeRelocatedCwd(transcriptPath);
+    if (relocated) return relocated;
     const projectDir = env?.CLAUDE_PROJECT_DIR;
     return typeof projectDir === 'string' && isAbsolute(projectDir) ? projectDir : cwd;
   },

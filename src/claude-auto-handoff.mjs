@@ -197,8 +197,10 @@ export function requestClaudeAutoHandoff({
   const path = recordPath(sessionId, dir);
   const existing = readClaudeAutoHandoff(sessionId, dir);
   // 有効判定は会話を起動した project で行う。hook の cwd は Bash の cd に追従する。
+  // 会話が別の project へ移っている時（Claude Desktop）は、移った先で行う。
   const projectPath = nativeProjectPath(
-    claudeHostAdapter.completionProjectPath({ cwd: payload.cwd ?? process.cwd(), env }), platform);
+    claudeHostAdapter.completionProjectPath({
+      cwd: payload.cwd ?? process.cwd(), env, transcriptPath: payload.transcript_path }), platform);
 
   if (payload.trigger !== 'auto') {
     // 人が /compact を選んだ。まだ止めていない記録は取り下げる。

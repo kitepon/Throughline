@@ -63,6 +63,33 @@ function request(dir, overrides = {}) {
   return { result, db };
 }
 
+test('PreCompact: 会話が別の project へ移っている時は、移った先で有効かどうかを決める（Claude Desktop）', () => withDir(dir => {
+  // Desktop は「フォルダなし」で始めた会話を後から project へ移す。CLAUDE_PROJECT_DIR は移る前のまま届く。
+  const scratch = '/Users/kite/Library/Application Support/Claude/scratch-workspaces/a/b/scratch-2026-10-05-ac3fa8';
+  const moved = '/Users/kite/tl-claude-probe';
+  const transcriptPath = join(dir, 'moved.jsonl');
+  writeFileSync(transcriptPath, jsonl([user('読んで', '2026-10-05T22:38:17.050Z'), assistant('読みました', '2026-10-05T22:39:18.926Z'),
+    { type: 'relocated', sessionId: SESSION, relocatedCwd: moved }]));
+  const onlyMoved = { enabled: true, projects: [moved] };
+
+  const { result, db } = request(dir, { config: onlyMoved, transcriptPath, env: { CLAUDE_PROJECT_DIR: scratch }, payload: { cwd: moved } });
+  assert.equal(result.status, 'requested');
+  assert.equal(result.block, true);
+  assert.equal(result.projectPath, moved);
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, moved);
+  assert.equal(db.prepare('SELECT session_id FROM handoff_batons WHERE project_path = ?').get(moved).session_id, SESSION);
+}));
+
+test('PreCompact: 移っていない会話は、これまでどおり起動した project で決める', () => withDir(dir => {
+  const transcriptPath = join(dir, 'plain.jsonl');
+  writeFileSync(transcriptPath, jsonl([user('読んで', '2026-10-05T22:38:17.050Z'), assistant('読みました', '2026-10-05T22:39:18.926Z')]));
+  const { result } = request(dir, { config: { enabled: true, projects: ['/work/app/sub'] }, transcriptPath,
+    env: { CLAUDE_PROJECT_DIR: '/work/app' }, payload: { cwd: '/work/app/sub' } });
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'auto_handoff_disabled');
+  assert.equal(result.projectPath, '/work/app');
+}));
+
 test('PreCompact: 自動圧縮で有効な時だけ、印と記録を残して圧縮を止める', () => withDir(dir => {
   const { result, db } = request(dir);
   assert.equal(result.status, 'requested');

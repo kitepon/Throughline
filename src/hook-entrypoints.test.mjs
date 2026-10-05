@@ -863,6 +863,57 @@ test('process-turn subprocess backfills all completed logical turns from a multi
   }
 });
 
+test('process-turn subprocess files a relocated Claude Desktop conversation under the project it moved to', () => {
+  // Desktop は「フォルダなし」で始めた会話を後から project へ移す。hook の CLAUDE_PROJECT_DIR は移る前のまま届く。
+  const home = makeTempHome();
+  const scratch = makeTempProject();
+  const moved = makeTempProject();
+  const transcriptPath = join(moved, 'transcript.jsonl');
+  const sessionId = '04bf5ab3-4b29-4b35-9b85-02a48eec51a1';
+  const entries = [
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'first request' }] } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'first answer' }] } },
+  ];
+  const stop = (lastAssistantMessage) => runNode([join(REPO_ROOT, 'src/turn-processor.mjs')], {
+    home,
+    cwd: moved,
+    env: { CLAUDE_PROJECT_DIR: scratch },
+    input: JSON.stringify({ session_id: sessionId, cwd: moved, transcript_path: transcriptPath, last_assistant_message: lastAssistantMessage }),
+  });
+  try {
+    // 移る前: SessionStart が移る前の場所で行を作り、最初の Stop も移る前の場所へ受領を書く。
+    const started = runNode([join(REPO_ROOT, 'src/session-start.mjs')], {
+      home, cwd: scratch, input: JSON.stringify({ session_id: sessionId, cwd: scratch, source: 'startup', transcript_path: transcriptPath }),
+    });
+    assert.equal(started.status, 0, started.stderr);
+    writeFileSync(transcriptPath, entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8');
+    assert.equal(stop('first answer').status, 0);
+    let db = openDb(home);
+    assert.equal(db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(sessionId).project_path, scratch);
+    db.close();
+    assert.equal(readCompletedTurnReceiptSnapshot({ projectPath: scratch, env: childEnv(home) }).receipts.length, 1);
+
+    // 移った後の Stop: sessions の project を付け替え、全ターンの受領を移った先へ出す。
+    appendFileSync(transcriptPath, [
+      { type: 'relocated', sessionId, relocatedCwd: moved },
+      { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'second request' }] } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'second answer' }] } },
+    ].map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8');
+    const second = stop('second answer');
+    assert.equal(second.status, 0, second.stderr);
+    db = openDb(home);
+    assert.equal(db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(sessionId).project_path, moved);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM bodies').get().n, 4);
+    db.close();
+    const receipts = readCompletedTurnReceiptSnapshot({ projectPath: moved, env: childEnv(home) });
+    assert.deepEqual(receipts.receipts.map((entry) => entry.sequence), [1, 2]);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+    rmSync(moved, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('process-turn subprocess captures the completed turn when the next user entry lands right after Stop', () => {
   const home = makeTempHome();
   const project = makeTempProject();
