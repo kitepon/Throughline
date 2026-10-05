@@ -5,8 +5,11 @@
  * 使い方:
  *   node src/sc-detail.mjs <時刻>
  *   node src/sc-detail.mjs <開始時刻>-<終了時刻>
+ *   node src/sc-detail.mjs <日付>T<時刻>
  *
- * 時刻フォーマット: HH:MM:SS または HH:MM（秒省略可）
+ * 時刻フォーマット: HH:MM:SS または HH:MM（秒省略可）。日付は YYYY-MM-DD。
+ * 日付を省いた時は、今日から1日ずつ遡り、その時刻のターンがある最も新しい日を対象にする
+ * （注入文の [HH:MM:SS] は過去の時刻で、前日以前のことがある）。
  * 複数ターンが同一時刻にヒットする場合は全部返す。
  *
  * 出力: 指定時刻のターン（または範囲内の全ターン）の L2 (bodies) + L3 (details)
@@ -22,10 +25,14 @@ import { getDb } from './db.mjs';
 import { DETAIL_KIND, DETAIL_KIND_VALUES } from './constants.mjs';
 
 function parseTimeArg(arg) {
-  const m = String(arg || '').trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const m = String(arg || '')
+    .trim()
+    .match(/^(?:(\d{4})-(\d{2})-(\d{2})[T ])?(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) return null;
-  const [, hh, mm, ss] = m;
+  const [, year, month, day, hh, mm, ss] = m;
   return {
+    // null = 日付指定なし（今日から遡って探す）
+    date: year != null ? { year: Number(year), month: Number(month), day: Number(day) } : null,
     hours: Number(hh),
     minutes: Number(mm),
     seconds: ss != null ? Number(ss) : null, // null = 秒指定なし（その分内すべて）
@@ -33,35 +40,42 @@ function parseTimeArg(arg) {
 }
 
 /**
- * 指定時刻（HH:MM:SS）の当日タイムスタンプ（ms）を返す。
- * 秒が null の場合は start=00, end=59 の範囲を返す（呼び出し側で使い分け）。
+ * 時刻の指定を解釈する。範囲は `<開始>-<終了>`。終了の日付を省くと開始と同じ日になる。
+ * @returns {{ from: object, to: object } | null}
  */
-function timeToUnixRange(t, baseDate = new Date()) {
-  const y = baseDate.getFullYear();
-  const mo = baseDate.getMonth();
-  const d = baseDate.getDate();
-  const secStart = t.seconds != null ? t.seconds : 0;
-  const secEnd = t.seconds != null ? t.seconds : 59;
-  const start = new Date(y, mo, d, t.hours, t.minutes, secStart, 0).getTime();
-  const end = new Date(y, mo, d, t.hours, t.minutes, secEnd, 999).getTime();
-  return { start, end };
+export function parseDetailArg(arg) {
+  const s = String(arg || '').trim();
+  const single = parseTimeArg(s);
+  if (single) return { from: single, to: single };
+  // 日付にも `-` があるので、時刻の直後の `-` で開始と終了を分ける
+  const m = s.match(/^(.*?\d:\d{2}(?::\d{2})?)\s*-\s*(.+)$/);
+  if (!m) return null;
+  const from = parseTimeArg(m[1]);
+  const to = parseTimeArg(m[2]);
+  if (!from || !to) return null;
+  return { from, to: to.date ? to : { ...to, date: from.date } };
 }
 
-function parseRangeArg(arg) {
-  const s = String(arg || '').trim();
-  if (!s.includes('-')) {
-    const t = parseTimeArg(s);
-    if (!t) return null;
-    const r = timeToUnixRange(t);
-    return { start: r.start, end: r.end };
-  }
-  const [lo, hi] = s.split('-').map((x) => x.trim());
-  const tLo = parseTimeArg(lo);
-  const tHi = parseTimeArg(hi);
-  if (!tLo || !tHi) return null;
-  const rLo = timeToUnixRange(tLo);
-  const rHi = timeToUnixRange(tHi);
-  return { start: rLo.start, end: rHi.end };
+/**
+ * 時刻の指定を、日付 base（年月日だけを使う）の上のタイムスタンプ範囲（ms）にする。
+ * 秒が null の場合は、開始は 00 秒、終了は 59 秒までを含める。
+ */
+export function detailRangeOn(spec, base) {
+  const at = (t, endOfUnit) => {
+    const date = t.date ?? { year: base.getFullYear(), month: base.getMonth() + 1, day: base.getDate() };
+    const seconds = t.seconds != null ? t.seconds : endOfUnit ? 59 : 0;
+    return new Date(
+      date.year, date.month - 1, date.day, t.hours, t.minutes, seconds, endOfUnit ? 999 : 0,
+    ).getTime();
+  };
+  return { start: at(spec.from, false), end: at(spec.to, true) };
+}
+
+function formatDate(unixMs) {
+  const d = new Date(unixMs);
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mo}-${day}`;
 }
 
 function formatTime(unixMs) {
@@ -82,13 +96,15 @@ export function run(args) {
   if (!arg) {
     process.stderr.write(
       '使い方: throughline detail <HH:MM:SS>\n' +
-        '       throughline detail <HH:MM:SS>-<HH:MM:SS>\n',
+        '       throughline detail <HH:MM:SS>-<HH:MM:SS>\n' +
+        '       throughline detail <YYYY-MM-DD>T<HH:MM:SS>\n' +
+        '日付を省くと、今日から遡って、その時刻のターンがある最も新しい日を探します。\n',
     );
     process.exit(1);
   }
 
-  const range = parseRangeArg(arg);
-  if (!range) {
+  const spec = parseDetailArg(arg);
+  if (!spec) {
     process.stderr.write(`[sc-detail] 時刻フォーマットが無効: ${arg}\n`);
     process.exit(1);
   }
@@ -98,16 +114,39 @@ export function run(args) {
 
   // 指定時刻範囲内のターンを bodies から取得（project_path でフィルタ）
   // bodies と sessions を JOIN して同プロジェクトに絞る
-  const bodyRows = db
-    .prepare(
-      `SELECT b.session_id, b.origin_session_id, b.turn_number, b.role, b.text, b.created_at
-       FROM bodies b
-       JOIN sessions s ON s.session_id = b.session_id
-       WHERE lower(s.project_path) = lower(?)
-         AND b.created_at BETWEEN ? AND ?
-       ORDER BY b.created_at ASC, b.role ASC`,
-    )
-    .all(projectPath, range.start, range.end);
+  const bodyStmt = db.prepare(
+    `SELECT b.session_id, b.origin_session_id, b.turn_number, b.role, b.text, b.created_at
+     FROM bodies b
+     JOIN sessions s ON s.session_id = b.session_id
+     WHERE lower(s.project_path) = lower(?)
+       AND b.created_at BETWEEN ? AND ?
+     ORDER BY b.created_at ASC, b.role ASC`,
+  );
+
+  let bodyRows = [];
+  if (spec.from.date) {
+    const range = detailRangeOn(spec, new Date());
+    bodyRows = bodyStmt.all(projectPath, range.start, range.end);
+  } else {
+    // 日付の指定が無い時は、今日から1日ずつ遡り、最初にターンが見つかった日を対象にする。
+    // この project の最古の本文より前までは探さない。
+    const oldest = db
+      .prepare(
+        `SELECT MIN(b.created_at) AS oldest
+         FROM bodies b
+         JOIN sessions s ON s.session_id = b.session_id
+         WHERE lower(s.project_path) = lower(?)`,
+      )
+      .get(projectPath)?.oldest;
+    const today = new Date();
+    for (let back = 0; oldest != null; back += 1) {
+      const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - back);
+      const range = detailRangeOn(spec, day);
+      if (range.end < oldest) break;
+      bodyRows = bodyStmt.all(projectPath, range.start, range.end);
+      if (bodyRows.length > 0) break;
+    }
+  }
 
   if (bodyRows.length === 0) {
     process.stdout.write(
@@ -115,6 +154,9 @@ export function run(args) {
     );
     process.exit(0);
   }
+  // 今日以外の日のターンを返す時は、どの日のターンかを明示する
+  const foundDate = formatDate(bodyRows[0].created_at);
+  const dateNote = !spec.from.date && foundDate !== formatDate(Date.now()) ? `（${foundDate}）` : '';
 
   // ターン単位でグルーピング（同じ session_id + origin + turn_number）
   const turnKeys = new Set();
@@ -124,7 +166,7 @@ export function run(args) {
 
   const lines = [];
   lines.push('## Throughline /sc-detail');
-  lines.push(`指定時刻: ${arg}  対象ターン数: ${turnKeys.size}`);
+  lines.push(`指定時刻: ${arg}${dateNote}  対象ターン数: ${turnKeys.size}`);
   lines.push('');
 
   // L2 を時刻順に出力

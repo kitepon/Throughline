@@ -444,7 +444,7 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 `throughline self-update` を実行する。以後の更新は `throughline self-update` だけで完結する。
 | `throughline monitor` | マルチセッション監視を起動 |
 | `throughline monitor --diag` | TTY/columns/env 診断ダンプ (描画バグ切り分け用) |
-| `throughline detail <時刻>` | あるターンの L2 本文と L3 ツール I/O を取得 (Claude が使う) |
+| `throughline detail [<日付>T]<時刻>` | あるターンの L2 本文と L3 ツール I/O を取得 (Claude が使う)。日付を省くと、今日から遡って、その時刻のターンがある最も新しい日を対象にする |
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | 注入の案内セクションが指す古い記憶を pull (read-only、正確なコマンドは注入に焼き込み済み) |
 | `throughline doctor` | Node バージョン、hook 登録状況、DB、PATH をチェック |
 | `throughline doctor --trim --host claude` | trim boundary と手動手順を診断 |
@@ -457,7 +457,7 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 | `throughline runtime-errors report --json` | 未受領のaggregateを今1回送る。`sent`と`nothing_pending`だけexit 0 |
 | `throughline runtime-errors report-status --json` | 最後に試した時刻と結果の固定codeを読む。宛先・credential・pathは出さない |
 | `throughline handoff-preview --session <id>` | Codex 向け `throughline_handoff` JSON projection を表示 |
-| `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
+| `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。`--sessions recent`を付けると、同じprojectの直近の複数sessionから同じ9,500字枠で文脈を作る。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
 | `throughline latest-session --project <absolute-path> --json` | 指定した1プロジェクトだけを対象に直近セッションIDを読み取る。既存DBをread-onlyで開き、記録がなければ`empty`を返す |
 | `throughline grok-continue --session <id>` | handoff-context を初手 user 文にした対話 Grok 席を立てる。cwd は源の `project_path`。ready でなければ spawn しない。`--rules` なし。macOS Terminal のみ |
 | `throughline trim --dry-run --host codex` | Codex same-thread trim の dry-run preview |
@@ -511,12 +511,28 @@ macOS/Linuxでは、本人所有でgroup/otherに権限が無く、symlinkでな
 ```bash
 throughline handoff-context --session codex:<thread-id> --json
 throughline handoff-context --project /absolute/bot/project --json --disclosure silent
+throughline handoff-context --project /absolute/bot/project --json --disclosure silent --sessions recent
 ```
 
 `throughline.handoff_context.v1`は`schema`、`status`、`sessionId`、`context`だけを返す。
 `--project`ではそのproject内で会話本文を持つ最新sessionを選び、存在しなければ`empty`を返す。
 `--disclosure silent`は長期記憶を追加せずThroughlineの案内を消す。`context`はSessionStartと
-同じ予算付き継承文脈である。`--session`で使える任意の`--supplement-file <path>`には
+同じ予算付き継承文脈である。
+
+`--project`は既定で1つのsessionを読む（`--sessions latest`）。launcherがsessionを合流させず、
+起動のたびに新しいsessionができる場合は`--sessions recent`を付ける
+（[ADR 0034](docs/adr/0034-project-recent-sessions-context.md)）。最新のsessionは今までと同じ形で
+先頭に置き、`sessionId`もそのsessionを指す。そのターンが全部入って予算が余った時だけ、同じprojectの
+それより前のsessionを新しい順に、ターン単位で足す。過去の会話は別の節にまとめ、会話ごとに日時・
+ターン数・session idを見出しに出し、次のユーザー入力をその会話への返事として扱わないよう案内する。
+入らなかったsessionは5件まで、`throughline recall --l2 --session <id> --before <ISO> --last <N>`を
+付けた一覧にする。全体は同じ9,500字枠に収める。この時だけJSONに`sessions`が加わり、文脈に載せた
+sessionごとに`sessionId`、`role`（`current` / `past`）、`firstTurnAt`、`lastTurnAt`、`turns`、
+`includedTurns`（一覧にだけ載せたsessionは0）を返す。`context`は、既定の`context`そのままか、その後ろに
+過去の会話の節を足したものになり、最新のsessionの部分が減ることは無い。sessionが1つのprojectでは、
+`--sessions recent`の有無で`context`は変わらない。`--sessions`は`--session`と一緒には使えない。
+
+`--session`で使える任意の`--supplement-file <path>`には
 `throughline.handoff_supplement.v1`、源sessionと同じ`projectPath`、`title`と`content`からなる
 `sections`を指定する。任意の`handoffDisclosure`は`visible`（既定）または`silent`を受け取る。
 補足は会話記憶と同じ9,500字枠へ入り、別projectの補足は拒否する。

@@ -10,6 +10,36 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-05
+
+### 追加
+
+- `handoff-context --project <path> --json` に `--sessions recent` を足す（[ADR 0034](docs/adr/0034-project-recent-sessions-context.md)）。同じprojectの直近の複数sessionから、同じ9,500字の予算で文脈を作る。sessionを合流させず、起動のたびに新しいsessionができるlauncher（BellTeam）向け。これまでは会話本文を持つ最新の1 sessionだけを返していたので、長い作業の後に1ターンの短い会話を挟むと、作業の内容が文脈に入らなかった。
+  - 最新のsessionは、既定と同じ文（ヘッダ・現在地・案内・L2）で先頭に置く。この部分は1字も変わらない。JSONの`sessionId`もこのsessionのまま。
+  - 過去の会話は、その後ろの余った予算にだけ入れる。最新のsessionのターンが全部入っている時だけ、それより前のsessionを新しい順にターン単位で足す。入らないターンが出たらそこで止める。新しいターンを飛ばして古いターンは載せない。
+  - 過去の会話は別の節にまとめ、会話ごとに日時・ターン数・session idを見出しに出す。「直前の会話」「短い返事はGO」の案内は付けず、次のユーザー入力をその会話への返事として扱わないよう書く。
+  - 本文を載せなかったsessionは5件まで、`throughline recall --l2 --session <id> --before <ISO> --last <N>`を付けた一覧にする。余りが足りない時は付けない。
+  - 同じ`(origin_session_id, turn_number)`は1回だけ載せる。別のprojectのsessionは入れない。
+  - JSONに`sessions`（`sessionId`・`role`・`firstTurnAt`・`lastTurnAt`・`turns`・`includedTurns`）を足す。schemaは`throughline.handoff_context.v1`のまま。
+- 引数を付けない時（`--sessions latest`と同じ）の出力は変わらない。`--session`の意味も変わらない。`--sessions`を`--session`と一緒に付けると、使い方の誤りとして終了コード2を返す。sessionが1つのprojectでは、`--sessions recent`の`context`は既定と同じになる。
+- `throughline detail` が `<YYYY-MM-DD>T<HH:MM:SS>` を受け取る。範囲は `<YYYY-MM-DD>T<HH:MM:SS>-<HH:MM:SS>`。
+
+### 修正
+
+- `throughline detail <HH:MM:SS>` が、実行した日のターンしか探さなかった不具合を直す。注入文の`[HH:MM:SS]`は過去の時刻で、日付が変わった後（UTCの端末では日本時間の朝9時以降）は前日のターンを指す。その時は「該当するターンが見つかりませんでした」と返っていた。日付を省いた時は、今日から1日ずつ遡り、その時刻のターンがある最も新しい日を対象にする。今日以外の日のターンを返す時は、見出しに日付を出す。
+
+### 互換性
+
+- 0.14.3以前に`--sessions`を渡すと終了コード2になる。呼び手は、Throughlineを先に上げてから引数を付ける。
+
+### 確認した範囲
+
+- BellTeamのコンテナ（Linux）の実データ。Botの席35のうち、会話のあるsessionが1つの6席は既定と同じ文、複数ある29席も最新のsessionの部分は全部、既定と同じ文。22席で過去の会話の本文が入り、文脈の中央値は4,225字から9,110字、最大9,500字で、上限を超えた席は無い。数えたのは件数と字数だけ。
+- 同じ実データで、9/25以後のsession開始428回を、その時点より前に始まったsessionだけで再生した。「直前の会話が1ターン・その前が5ターン以上」の場面は19回（14席）。既定で作業の会話が入ったのは0回、`--sessions recent`では19回（入ったターンは中央値5、最少2）。
+- Claude Code 2.1.289を隔離した置き場で動かした。6ターンの作業（最後に「追記してよければ『はい』と言ってください」と申し出て終わる）と、その後の1ターンの会話（別の申し出で終わる）を用意し、文脈を起動時の指示へ入れた。「はい」だけの入力は、Haiku 3回・Sonnet 1回とも最新の会話の申し出として扱われ、過去の会話の申し出は実行されなかった。過去の会話で決めた事柄を尋ねると、`--sessions recent`の文脈では道具を使わずに答え、既定の文脈では答えられなかった。過去の作業をあらためて頼んだ時は実行した。Codex・Grok・Cursorでは確かめていない。
+- macOS 27.0（arm64）とWindows 11（10.0.26200）の実DBをread-onlyで読み、上限内・`sessionId`の一致・最新のsessionの部分が既定と同じ文であることを確かめた。試験はLinuxとmacOSで全件、Windowsで関係する7ファイル。
+- `detail`は、UTCのコンテナで前日のターンの時刻を引き、0.14.3が「見つかりませんでした」と返す場面で、そのターンを返すことを確かめた。
+
 ## [0.14.3] — 2026-10-05
 
 ### 修正
@@ -1724,7 +1754,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/kitepon/Throughline/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/kitepon/Throughline/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/kitepon/Throughline/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/kitepon/Throughline/compare/v0.14.0...v0.14.1

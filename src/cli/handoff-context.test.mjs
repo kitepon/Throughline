@@ -11,6 +11,7 @@ import { buildBudgetedResumeContext, INJECTION_BUDGET_CHARS } from '../resume-co
 import {
   parseArgs,
   readLatestProjectHandoffContext,
+  readRecentProjectHandoffContext,
   readSessionProjectPath,
 } from './handoff-context.mjs';
 
@@ -355,6 +356,7 @@ test('handoff-context accepts only the documented supplement argument shape', ()
     projectPath: null,
     supplementFile: null,
     handoffDisclosure: 'visible',
+    projectSessions: 'latest',
   });
   assert.deepEqual(parseArgs([
     '--session', 's', '--json', '--supplement-file', '/tmp/memory.json',
@@ -363,6 +365,7 @@ test('handoff-context accepts only the documented supplement argument shape', ()
     projectPath: null,
     supplementFile: '/tmp/memory.json',
     handoffDisclosure: 'visible',
+    projectSessions: 'latest',
   });
   assert.deepEqual(parseArgs([
     '--project', '.', '--json', '--disclosure', 'silent',
@@ -371,7 +374,23 @@ test('handoff-context accepts only the documented supplement argument shape', ()
     projectPath: process.cwd(),
     supplementFile: null,
     handoffDisclosure: 'silent',
+    projectSessions: 'latest',
   });
+  assert.deepEqual(parseArgs([
+    '--project', '.', '--json', '--disclosure', 'silent', '--sessions', 'recent',
+  ]), {
+    sessionId: null,
+    projectPath: process.cwd(),
+    supplementFile: null,
+    handoffDisclosure: 'silent',
+    projectSessions: 'recent',
+  });
+  assert.equal(parseArgs(['--project', '.', '--json', '--sessions', 'latest']).projectSessions, 'latest');
+  // 複数 session をまたぐのは --project だけ。--session の意味は変えない
+  assert.throws(() => parseArgs(['--session', 's', '--json', '--sessions', 'recent']));
+  assert.throws(() => parseArgs(['--session', 's', '--json', '--sessions', 'latest']));
+  assert.throws(() => parseArgs(['--project', '.', '--json', '--sessions', 'all']));
+  assert.throws(() => parseArgs(['--project', '.', '--json', '--sessions', 'recent', '--sessions', 'recent']));
   assert.throws(() => parseArgs(['--session', 's', '--supplement-file', '/tmp/memory.json', '--json']));
   assert.throws(() => parseArgs(['--project', '.', '--json', '--supplement-file', '/tmp/memory.json']));
   assert.throws(() => parseArgs(['--session', 's', '--json', '--disclosure', 'hidden']));
@@ -435,6 +454,180 @@ test('handoff-context fails without creating a missing database', () => {
     const result = runCli(home);
     assert.notEqual(result.status, 0);
     assert.equal(existsSync(join(home, '.throughline')), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+function insertProjectSession(db, { sessionId, projectPath = '/work/project', updatedAt, turns }) {
+  db.prepare(
+    `INSERT INTO sessions
+       (session_id, project_path, status, created_at, updated_at, merged_into)
+     VALUES (?, ?, 'active', ?, ?, NULL)`,
+  ).run(sessionId, projectPath, updatedAt - 1000, updatedAt);
+  const insertBody = db.prepare(
+    `INSERT INTO bodies
+       (session_id, origin_session_id, turn_number, role, text, token_count, created_at)
+     VALUES (?, ?, ?, ?, ?, 4, ?)`,
+  );
+  turns.forEach(([user, assistant, at], index) => {
+    insertBody.run(sessionId, sessionId, index + 1, 'user', user, at);
+    insertBody.run(sessionId, sessionId, index + 1, 'assistant', assistant, at + 500);
+  });
+}
+
+const PROJECT_ARGS = ['handoff-context', '--project', '/work/project', '--json', '--disclosure', 'silent'];
+
+test('handoff-context --sessions recent adds earlier sessions of the same project only', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-handoff-recent-'));
+  try {
+    const { db, dbPath } = createFixture(home);
+    // 5 ターンの作業の会話が、最新の 1 ターンの会話より前にある
+    insertProjectSession(db, {
+      sessionId: 'earlier-work',
+      updatedAt: 1_699_999_990_000,
+      turns: [1, 2, 3, 4, 5].map((n) => [
+        `EARLIER_REQUEST_${n}`, `EARLIER_RESULT_${n}`, 1_699_999_900_000 + n * 10_000,
+      ]),
+    });
+    insertProjectSession(db, {
+      sessionId: 'other-project-work',
+      projectPath: '/work/other',
+      updatedAt: 1_700_000_009_000,
+      turns: [['OTHER_PROJECT_PRIVATE', 'OTHER_PROJECT_ANSWER', 1_700_000_008_000]],
+    });
+    const before = ownershipSnapshot(db);
+    db.close();
+
+    // 引数を付けない時と --sessions latest は、今までと同じ出力
+    const latest = runCli(home, PROJECT_ARGS);
+    assert.equal(latest.status, 0, latest.stderr);
+    const latestPayload = JSON.parse(latest.stdout);
+    assert.deepEqual(Object.keys(latestPayload), ['schema', 'status', 'sessionId', 'context']);
+    assert.doesNotMatch(latestPayload.context, /EARLIER_REQUEST/);
+    assert.equal(runCli(home, [...PROJECT_ARGS, '--sessions', 'latest']).stdout, latest.stdout);
+
+    const recent = runCli(home, [...PROJECT_ARGS, '--sessions', 'recent']);
+    assert.equal(recent.status, 0, recent.stderr);
+    const payload = JSON.parse(recent.stdout);
+    assert.deepEqual(Object.keys(payload), ['schema', 'status', 'sessionId', 'context', 'sessions']);
+    assert.equal(payload.schema, 'throughline.handoff_context.v1');
+    assert.equal(payload.status, 'ready');
+    assert.equal(payload.sessionId, SESSION_ID);
+    assert.ok(payload.context.startsWith(`${latestPayload.context}\n\n## Throughline: このprojectで記録された過去の会話`));
+    assert.ok(payload.context.length <= INJECTION_BUDGET_CHARS);
+    for (let n = 1; n <= 5; n += 1) {
+      assert.ok(payload.context.includes(`EARLIER_REQUEST_${n}`));
+      assert.ok(payload.context.includes(`EARLIER_RESULT_${n}`));
+    }
+    assert.match(payload.context, /（5ターン \/ session earlier-work）/);
+    assert.doesNotMatch(payload.context, /OTHER_PROJECT_PRIVATE|OTHER_PROJECT_ANSWER|other-project-work/);
+    assert.deepEqual(payload.sessions, [
+      {
+        sessionId: SESSION_ID,
+        role: 'current',
+        firstTurnAt: new Date(1_700_000_002_000).toISOString(),
+        lastTurnAt: new Date(1_700_000_003_000).toISOString(),
+        turns: 1,
+        includedTurns: 1,
+      },
+      {
+        sessionId: 'earlier-work',
+        role: 'past',
+        firstTurnAt: new Date(1_699_999_910_000).toISOString(),
+        lastTurnAt: new Date(1_699_999_950_500).toISOString(),
+        turns: 5,
+        includedTurns: 5,
+      },
+    ]);
+
+    const selected = readRecentProjectHandoffContext('/work/project', {
+      dbPath,
+      handoffDisclosure: 'silent',
+    });
+    assert.equal(selected.context, payload.context);
+
+    const verify = new DatabaseSync(dbPath, { readOnly: true });
+    assert.deepEqual(ownershipSnapshot(verify), before);
+    verify.close();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('handoff-context --sessions recent matches the default when the project has one session', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-handoff-recent-single-'));
+  try {
+    const { db } = createFixture(home);
+    // 本文の無い session と別 project の session は、過去の会話に数えない
+    db.prepare(
+      `INSERT INTO sessions
+         (session_id, project_path, status, created_at, updated_at, merged_into)
+       VALUES ('newest-empty', '/work/project', 'active', ?, ?, NULL)`,
+    ).run(1_700_000_005_000, 1_700_000_006_000);
+    insertProjectSession(db, {
+      sessionId: 'other-project-work',
+      projectPath: '/work/other',
+      updatedAt: 1_699_999_990_000,
+      turns: [['OTHER_PROJECT_PRIVATE', 'OTHER_PROJECT_ANSWER', 1_699_999_900_000]],
+    });
+    db.close();
+
+    for (const disclosure of ['silent', 'visible']) {
+      const args = ['handoff-context', '--project', '/work/project', '--json', '--disclosure', disclosure];
+      const latest = runCli(home, args);
+      const recent = runCli(home, [...args, '--sessions', 'recent']);
+      assert.equal(latest.status, 0, latest.stderr);
+      assert.equal(recent.status, 0, recent.stderr);
+      const latestPayload = JSON.parse(latest.stdout);
+      const { sessions, ...rest } = JSON.parse(recent.stdout);
+      assert.deepEqual(rest, latestPayload);
+      assert.deepEqual(sessions.map((s) => [s.sessionId, s.role, s.turns, s.includedTurns]), [
+        [SESSION_ID, 'current', 1, 1],
+      ]);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('handoff-context --sessions recent returns empty with an empty session list', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-handoff-recent-empty-'));
+  try {
+    const { db } = createFixture(home);
+    db.exec('DELETE FROM details; DELETE FROM bodies; DELETE FROM skeletons;');
+    db.close();
+
+    const result = runCli(home, [...PROJECT_ARGS, '--sessions', 'recent']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      schema: 'throughline.handoff_context.v1',
+      status: 'empty',
+      sessionId: null,
+      context: '',
+      sessions: [],
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('handoff-context rejects --sessions together with --session', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-handoff-recent-usage-'));
+  try {
+    const { db } = createFixture(home);
+    db.close();
+
+    for (const args of [
+      ['handoff-context', '--session', SESSION_ID, '--json', '--sessions', 'recent'],
+      [...PROJECT_ARGS, '--sessions', 'everything'],
+    ]) {
+      const result = runCli(home, args);
+      assert.equal(result.status, 2);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /^Usage: throughline handoff-context /);
+      assert.match(result.stderr, /\[--sessions latest\|recent\]/);
+    }
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

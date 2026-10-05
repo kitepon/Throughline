@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
-import { sameProjectPath } from '../project-path.mjs';
+import { normalizeProjectPathForCompare, sameProjectPath } from '../project-path.mjs';
 import { openReadOnlyDb } from '../db.mjs';
 import {
   buildBudgetedResumeContext,
+  buildRecentSessionsContext,
   INJECTION_BUDGET_CHARS,
 } from '../resume-context.mjs';
 
@@ -25,6 +26,7 @@ export function parseArgs(argv = []) {
 
   let supplementFile = null;
   let handoffDisclosure = 'visible';
+  let projectSessions = 'latest';
   const seen = new Set();
   for (let index = 3; index < argv.length; index += 2) {
     const option = argv[index];
@@ -41,12 +43,15 @@ export function parseArgs(argv = []) {
       supplementFile = value;
     } else if (option === '--disclosure' && ['visible', 'silent'].includes(value)) {
       handoffDisclosure = value;
+    } else if (option === '--sessions' && ['latest', 'recent'].includes(value)) {
+      projectSessions = value;
     } else {
       throw new TypeError('usage error');
     }
   }
   if (
     (argv[0] === '--project' && supplementFile) ||
+    (argv[0] === '--session' && seen.has('--sessions')) ||
     (supplementFile && seen.has('--disclosure'))
   ) {
     throw new TypeError('usage error');
@@ -57,6 +62,7 @@ export function parseArgs(argv = []) {
     projectPath: argv[0] === '--project' ? resolve(argv[1]) : null,
     supplementFile,
     handoffDisclosure,
+    projectSessions,
   };
 }
 
@@ -155,6 +161,43 @@ export function readLatestProjectHandoffContext(projectPath, {
   }
 }
 
+/**
+ * 同じ project の直近の会話をまたいだ文脈 (`--project <path> --sessions recent`、ADR 0034)。
+ * 現在の会話は readLatestProjectHandoffContext と同じ session を選ぶ。
+ */
+export function readRecentProjectHandoffContext(projectPath, {
+  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  handoffDisclosure = 'visible',
+} = {}) {
+  if (!existsSync(dbPath)) return null;
+
+  const db = openReadOnlyDb(dbPath);
+  try {
+    const target = normalizeProjectPathForCompare(projectPath);
+    const sameProject = new Map();
+    const sessionIds = [];
+    const sessions = db.prepare(
+      `SELECT session_id, project_path
+       FROM sessions
+       ORDER BY updated_at DESC`,
+    ).all();
+    for (const session of sessions) {
+      let same = sameProject.get(session.project_path);
+      if (same === undefined) {
+        same = normalizeProjectPathForCompare(session.project_path) === target;
+        sameProject.set(session.project_path, same);
+      }
+      if (same) sessionIds.push(session.session_id);
+    }
+    const result = buildRecentSessionsContext(db, { sessionIds, handoffDisclosure });
+    return result
+      ? { sessionId: result.sessionId, context: result.text, sessions: result.sessions }
+      : null;
+  } finally {
+    db.close();
+  }
+}
+
 export function readSessionProjectPath(sessionId, {
   dbPath = join(homedir(), '.throughline', 'throughline.db'),
 } = {}) {
@@ -179,28 +222,34 @@ export function run(argv = [], {
   stderr = process.stderr,
   readContext = readHandoffContext,
   readProjectContext = readLatestProjectHandoffContext,
+  readRecentProjectContext = readRecentProjectHandoffContext,
 } = {}) {
   let sessionId;
   let projectPath;
   let supplementFile;
   let handoffDisclosure;
+  let projectSessions;
   try {
-    ({ sessionId, projectPath, supplementFile, handoffDisclosure } = parseArgs(argv));
+    ({ sessionId, projectPath, supplementFile, handoffDisclosure, projectSessions } = parseArgs(argv));
   } catch {
     stderr.write(
-      'Usage: throughline handoff-context (--session <id> | --project <path>) --json [--disclosure visible|silent | --supplement-file <path>]\n',
+      'Usage: throughline handoff-context (--session <id> | --project <path>) --json [--disclosure visible|silent | --supplement-file <path>] [--sessions latest|recent]\n',
     );
     return 2;
   }
 
+  // `sessions` は `--sessions recent` の時だけ足す。付けない時の出力は変えない。
+  const recent = Boolean(projectPath) && projectSessions === 'recent';
   let result;
   try {
-    result = projectPath
-      ? readProjectContext(projectPath, { handoffDisclosure })
-      : {
-          sessionId,
-          context: readContext(sessionId, { supplementFile, handoffDisclosure }),
-        };
+    if (recent) result = readRecentProjectContext(projectPath, { handoffDisclosure });
+    else if (projectPath) result = readProjectContext(projectPath, { handoffDisclosure });
+    else {
+      result = {
+        sessionId,
+        context: readContext(sessionId, { supplementFile, handoffDisclosure }),
+      };
+    }
   } catch {
     stderr.write('Throughline handoff context could not be read.\n');
     return 1;
@@ -211,6 +260,7 @@ export function run(argv = [], {
       status: 'empty',
       sessionId: null,
       context: '',
+      ...(recent ? { sessions: [] } : {}),
     })}\n`);
     return 0;
   }
@@ -224,6 +274,7 @@ export function run(argv = [], {
     status: 'ready',
     sessionId: result.sessionId,
     context: result.context,
+    ...(recent ? { sessions: result.sessions } : {}),
   })}\n`);
   return 0;
 }

@@ -10,7 +10,7 @@
  *   throughline session-start # SessionStart hook (Claude Code から呼ばれる)
  *   throughline pre-compact   # PreCompact hook (Claude Code から呼ばれる。自動継続: 自動圧縮を止める)
  *   throughline pre-tool-use  # PreToolUse hook (Claude Code から呼ばれる。自動継続: 旧い会話を止める)
- *   throughline detail <時刻> # L2+L3 詳細取得 (Claude が Bash 経由で呼ぶ想定)
+ *   throughline detail [<日付>T]<時刻> # L2+L3 詳細取得 (Claude が Bash 経由で呼ぶ想定)
  *   throughline recall --l2|--l1 # 注入案内から辿る pull 用 read-only 記憶取得
  *   throughline handoff-preview # Codex-facing throughline_handoff JSON preview
  *   throughline handoff-context (--session <id> | --project <path>) --json # Read-only inheritance context JSON
@@ -263,14 +263,17 @@ Usage:
   throughline install           Register Claude, Codex, and Grok hooks
   throughline uninstall         Remove hooks
   throughline monitor           Multi-session token monitor (use --all, --session <id>)
-  throughline detail <time>     Retrieve L2+L3 detail for a turn (e.g. 14:23:05 or 14:23-14:30)
+  throughline detail <time>     Retrieve L2+L3 detail for a turn (e.g. 14:23:05, 14:23-14:30,
+                                or 2026-10-04T14:23:05 for a turn on another day)
   throughline handoff-preview   Print Codex-facing throughline_handoff JSON
   throughline handoff-context (--session <id> | --project <path>) --json
                               Print the exact inheritance context without
                               changing database ownership. Project mode selects
                               the newest session with dialogue and may use
-                              --disclosure silent. Session mode may use a
-                              project-bound --supplement-file
+                              --disclosure silent. Project mode with
+                              --sessions recent also appends earlier sessions
+                              of that project within the same budget. Session
+                              mode may use a project-bound --supplement-file
   throughline latest-session --project <absolute-path> --json
                               Read the latest session id for exactly one project
   throughline grok-continue --session <id>

@@ -895,7 +895,7 @@ once with `npm install --global throughline@latest`, then run
 `throughline self-update`. Later updates use `throughline self-update` alone.
 | `throughline monitor [--all] [--session <id>]` | Run the multi-session token monitor                          |
 | `throughline monitor --diag`                   | Dump TTY/columns/env diagnostics (for debugging monitor render bugs) |
-| `throughline detail <time>`                    | Retrieve L2 body text and L3 tool I/O for a turn (see below) |
+| `throughline detail [<date>T]<time>`           | Retrieve L2 body text and L3 tool I/O for a turn (see below) |
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
@@ -999,6 +999,7 @@ performing a normal handoff:
 ```bash
 throughline handoff-context --session codex:<thread-id> --json
 throughline handoff-context --project /absolute/bot/project --json --disclosure silent
+throughline handoff-context --project /absolute/bot/project --json --disclosure silent --sessions recent
 ```
 
 The `throughline.handoff_context.v1` object contains only `schema`, `status`,
@@ -1006,7 +1007,42 @@ The `throughline.handoff_context.v1` object contains only `schema`, `status`,
 session in that project that has dialogue context; it returns `status: "empty"`
 when none exists. `--disclosure silent` removes the Throughline announcement
 without adding long-term memory. The context uses the same budget as
-SessionStart. With `--session`, a launcher may append
+SessionStart.
+
+`--project` reads one session by default (`--sessions latest`). Add
+`--sessions recent` when the launcher does not merge sessions and each start
+creates a new one ([ADR 0034](docs/adr/0034-project-recent-sessions-context.md)).
+The newest session is still rendered first, exactly as before, and `sessionId`
+still names it. When all of its turns fit and budget remains, earlier sessions
+of the same project are appended newest first, whole turns only, under a
+separate "past conversations" section that carries each session's time range,
+turn count and session id, and that tells the model not to treat the next user
+message as a reply to them. Sessions that do not fit are listed (up to five)
+with a ready-to-run `throughline recall --l2 --session <id> --before <ISO>
+--last <N>` command. The total stays within the same 9,500-character budget.
+The JSON object then also carries `sessions`, one entry per session mentioned
+in the context:
+
+```json
+{
+  "sessionId": "0d5f…",
+  "role": "past",
+  "firstTurnAt": "2026-10-04T10:48:31.870Z",
+  "lastTurnAt": "2026-10-04T16:52:33.267Z",
+  "turns": 30,
+  "includedTurns": 1
+}
+```
+
+`role` is `current` for the newest session and `past` otherwise;
+`includedTurns` is `0` for a session that is only listed. The `context` is
+either the default `context` unchanged, or the default `context` followed by
+the past-conversations section; the newest session's part never shrinks. A
+project with a single session returns the same `context` with or without
+`--sessions recent`.
+`--sessions` cannot be combined with `--session`.
+
+With `--session`, a launcher may append
 `--supplement-file <path>` with a `throughline.handoff_supplement.v1` JSON object:
 
 ```json
@@ -1131,9 +1167,15 @@ footer explicitly instructs Claude to run this via its Bash tool when a past
 turn's tool I/O becomes relevant.
 
 ```bash
-throughline detail 14:23:05          # single timestamp
-throughline detail 14:23-14:30       # timestamp range
+throughline detail 14:23:05                  # single timestamp
+throughline detail 14:23-14:30               # timestamp range
+throughline detail 2026-10-04T14:23:05       # a turn on a specific day
 ```
+
+Without a date, Throughline looks at today first and then walks back one day
+at a time to the most recent day that has a turn at that time, because the
+`[HH:MM:SS]` stamps in an injected context may refer to a previous day. The
+header names the day when it is not today.
 
 Output groups records by `kind`: L2 conversation bodies, then L3 tool input/
 output, then system messages (hook output), then images. Records are scoped to

@@ -5,6 +5,7 @@ import {
   buildResumeContext,
   buildBudgetedResumeContext,
   buildAutoContinuationContext,
+  buildRecentSessionsContext,
   INJECTION_BUDGET_CHARS,
 } from './resume-context.mjs';
 
@@ -1034,3 +1035,280 @@ test('buildAutoContinuationContext: 改行のある直前の発言は全文を�
   assert.match(result.text, /- 道具: Read \/work\/file-080-x+\.mjs\n\*\*止める直前のあなたの発言\*\* \[\d\d:\d\d:\d\d\]: 方針:\n1\. 型を直す\n2\. 試験を足す\n\*\*止める直前に呼ぼうとして、実行されなかった道具\*\*: Edit \/work\/types\.mjs\n/);
 });
 
+
+// ---- 同じ project の過去の会話 (ADR 0034) ----
+
+const RECENT_BASE = 1_700_000_000_000;
+const RECENT_MINUTE = 60_000;
+
+/** 1 ターン (user + assistant) を入れる。at は user 行の時刻で、assistant 行は 30 秒後。 */
+function insertTurn(db, { session, origin = session, turn, user, assistant, at }) {
+  insertBody(db, { session, origin, turn, role: 'user', text: user, createdAt: at });
+  insertBody(db, { session, origin, turn, role: 'assistant', text: assistant, createdAt: at + 30_000 });
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
+
+test('recent: 過去の会話が無い時は buildBudgetedResumeContext と同じ文になる', () => {
+  const db = makeDb();
+  insertTurn(db, { session: 'only', turn: 1, user: 'ひとつだけの依頼', assistant: 'ひとつだけの回答', at: RECENT_BASE });
+
+  const expected = buildBudgetedResumeContext(db, {
+    sessionId: 'only',
+    isInheritance: true,
+    handoffDisclosure: 'silent',
+  });
+  // 本文の無い新しい session は飛ばし、現在の会話に選ばない
+  const recent = buildRecentSessionsContext(db, {
+    sessionIds: ['newer-empty', 'only', 'older-empty'],
+    handoffDisclosure: 'silent',
+  });
+
+  assert.equal(recent.text, expected.text);
+  assert.equal(recent.sessionId, 'only');
+  assert.deepEqual(recent.sessions, [
+    {
+      sessionId: 'only',
+      role: 'current',
+      firstTurnAt: new Date(RECENT_BASE).toISOString(),
+      lastTurnAt: new Date(RECENT_BASE + 30_000).toISOString(),
+      turns: 1,
+      includedTurns: 1,
+    },
+  ]);
+  assert.equal(buildRecentSessionsContext(db, { sessionIds: ['newer-empty'] }), null);
+});
+
+test('recent: 短い最新の会話の後ろに、前の作業の会話が入る', () => {
+  const db = makeDb();
+  // 6 ターンの作業 → 1 ターンの連絡（最新）
+  for (let turn = 1; turn <= 6; turn += 1) {
+    insertTurn(db, {
+      session: 'work',
+      turn,
+      user: `作業の依頼${turn}`,
+      assistant: `作業の結果${turn}`,
+      at: RECENT_BASE + turn * RECENT_MINUTE,
+    });
+  }
+  insertDetail(db, {
+    session: 'work', origin: 'work', turn: 6, kind: 'tool_input', toolName: 'Bash', createdAt: RECENT_BASE + 6 * RECENT_MINUTE + 1000,
+  });
+  insertTurn(db, { session: 'note', turn: 1, user: '短い連絡', assistant: '連絡への返事', at: RECENT_BASE + 60 * RECENT_MINUTE });
+
+  const latestOnly = buildBudgetedResumeContext(db, {
+    sessionId: 'note',
+    isInheritance: true,
+    handoffDisclosure: 'silent',
+  });
+  const recent = buildRecentSessionsContext(db, { sessionIds: ['note', 'work'], handoffDisclosure: 'silent' });
+
+  // 現在の会話の部分は今と同じ文で、その後ろに過去の会話が続く
+  assert.ok(recent.text.startsWith(`${latestOnly.text}\n\n## Throughline: このprojectで記録された過去の会話（新しい順）\n`));
+  assert.ok(recent.text.length <= INJECTION_BUDGET_CHARS);
+  assert.equal(recent.sessionId, 'note');
+  // 「直前の会話」「短い返事は GO」の案内は現在の会話の1回だけ
+  assert.equal(countOccurrences(recent.text, '短文/相槌の判定'), 1);
+  assert.equal(countOccurrences(recent.text, '### 現在地 (直前のやりとり)'), 1);
+  assert.match(recent.text, /次のユーザー入力は、ここへの返事ではありません/);
+
+  const past = recent.text.slice(latestOnly.text.length);
+  assert.match(past, /### 過去の会話 \d{4}-\d{2}-\d{2} \d{2}:\d{2}〜\d{2}:\d{2}（6ターン \/ session work）/);
+  for (let turn = 1; turn <= 6; turn += 1) {
+    assert.match(past, new RegExp(`\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\] \\[user\\]: 作業の依頼${turn}\\n`));
+  }
+  // ターンは古い順に並び、道具の案内は今と同じくターンの最後の行に付く
+  assert.ok(past.indexOf('作業の依頼1') < past.indexOf('作業の結果1'));
+  assert.ok(past.indexOf('作業の結果1') < past.indexOf('作業の依頼2'));
+  assert.match(past, /\[assistant\]: 作業の結果6 \(詳細：Bash\)/);
+  // 全部入ったので、recall の案内と一覧は付かない
+  assert.ok(!past.includes('throughline recall --l2 --session work'));
+  assert.ok(!past.includes('### 本文を載せていない過去の会話'));
+
+  assert.deepEqual(
+    recent.sessions.map((s) => [s.sessionId, s.role, s.turns, s.includedTurns]),
+    [['note', 'current', 1, 1], ['work', 'past', 6, 6]],
+  );
+  assert.equal(recent.sessions[1].firstTurnAt, new Date(RECENT_BASE + RECENT_MINUTE).toISOString());
+  assert.equal(recent.sessions[1].lastTurnAt, new Date(RECENT_BASE + 6 * RECENT_MINUTE + 30_000).toISOString());
+});
+
+test('recent: 入らないターンから先は載せず、recall の案内と一覧にする', () => {
+  const db = makeDb();
+  insertTurn(db, { session: 'oldest', turn: 1, user: 'OLDEST_REQUEST', assistant: 'OLDEST_ANSWER', at: RECENT_BASE });
+  insertTurn(db, { session: 'oldest', turn: 2, user: 'OLDEST_REQUEST_2', assistant: 'OLDEST_ANSWER_2', at: RECENT_BASE + RECENT_MINUTE });
+  for (let turn = 1; turn <= 14; turn += 1) {
+    insertTurn(db, {
+      session: 'work',
+      turn,
+      user: `work-q-${String(turn).padStart(2, '0')}`,
+      assistant: `work-a-${String(turn).padStart(2, '0')} ` + 'x'.repeat(600),
+      at: RECENT_BASE + (10 + turn) * RECENT_MINUTE,
+    });
+  }
+  insertTurn(db, { session: 'note', turn: 1, user: '短い連絡', assistant: '連絡への返事', at: RECENT_BASE + 60 * RECENT_MINUTE });
+
+  const recent = buildRecentSessionsContext(db, {
+    sessionIds: ['note', 'work', 'oldest'],
+    handoffDisclosure: 'silent',
+    maxChars: 6000,
+  });
+
+  assert.ok(recent.text.length <= 6000, `length ${recent.text.length} must fit budget`);
+  const work = recent.sessions.find((s) => s.sessionId === 'work');
+  assert.ok(work.includedTurns > 0 && work.includedTurns < 14, `includedTurns ${work.includedTurns}`);
+  assert.equal(work.turns, 14);
+  // 新しい側から続けて入り、ターンは user 行と assistant 行が揃う。それより古いターンは1行も入らない
+  for (let turn = 1; turn <= 14; turn += 1) {
+    const tag = String(turn).padStart(2, '0');
+    const included = turn > 14 - work.includedTurns;
+    assert.equal(recent.text.includes(`work-q-${tag}`), included, `user row of turn ${tag}`);
+    assert.equal(recent.text.includes(`work-a-${tag} `), included, `assistant row of turn ${tag}`);
+  }
+  // 残りは recall で引ける。境界は載せた最古ターンの時刻、件数は 10 まで
+  const rest = 14 - work.includedTurns;
+  const oldestIncluded = 14 - work.includedTurns + 1;
+  const boundary = new Date(RECENT_BASE + (10 + oldestIncluded) * RECENT_MINUTE).toISOString();
+  assert.ok(recent.text.includes(`（14ターンのうち新しい${work.includedTurns}ターン / session work）`));
+  assert.ok(
+    recent.text.includes(
+      `- これより前の${rest}ターン: ${rest > 10 ? '新しい10ターンの本文は ' : '本文は '}` +
+        `\`throughline recall --l2 --session work --before ${boundary} --last ${Math.min(rest, 10)}\``,
+    ),
+    recent.text,
+  );
+  // 途中で止まった会話より古い会話は、本文を載せず一覧にする
+  assert.ok(!recent.text.includes('OLDEST_REQUEST'));
+  const afterLast = new Date(RECENT_BASE + RECENT_MINUTE + 30_000 + 1).toISOString();
+  assert.match(
+    recent.text,
+    new RegExp(
+      '### 本文を載せていない過去の会話\\n' +
+        '- \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}〜\\d{2}:\\d{2}（2ターン）: 本文は ' +
+        escapeRegExp(`\`throughline recall --l2 --session oldest --before ${afterLast} --last 2\``) +
+        '$',
+    ),
+  );
+  assert.deepEqual(
+    recent.sessions.map((s) => [s.sessionId, s.role, s.includedTurns]),
+    [['note', 'current', 1], ['work', 'past', work.includedTurns], ['oldest', 'past', 0]],
+  );
+});
+
+test('recent: 現在の会話に載せ残しがある時は、その文を変えず、余りに一覧だけ付ける', () => {
+  const db = makeDb();
+  // 一覧の1行が長くなる session id（余りに入る場合と入らない場合の両方を作る）
+  const pastId = `past-${'p'.repeat(195)}`;
+  insertTurn(db, { session: pastId, turn: 1, user: 'PAST_SHORT_REQUEST', assistant: 'PAST_SHORT_ANSWER', at: RECENT_BASE });
+  for (let turn = 1; turn <= 10; turn += 1) {
+    insertTurn(db, {
+      session: 'long',
+      turn,
+      user: `long-q-${String(turn).padStart(2, '0')}`,
+      assistant: `long-a-${String(turn).padStart(2, '0')} ` + 'x'.repeat(800),
+      at: RECENT_BASE + (10 + turn) * RECENT_MINUTE,
+    });
+  }
+
+  // 現在の会話の文は、過去の会話の有無でも予算でも変わらない
+  const listed = new Set();
+  for (const maxChars of [4600, 4800, 4900, 5000, 5200, 5400, 5600, 5700]) {
+    const latestOnly = buildBudgetedResumeContext(db, {
+      sessionId: 'long',
+      isInheritance: true,
+      handoffDisclosure: 'silent',
+      maxChars,
+    });
+    const recent = buildRecentSessionsContext(db, {
+      sessionIds: ['long', pastId],
+      handoffDisclosure: 'silent',
+      maxChars,
+    });
+    listed.add(recent.sessions.length === 2);
+
+    assert.ok(latestOnly.remainingL2Turns > 0, 'the current session must have turns left for pull');
+    assert.ok(recent.text.length <= maxChars, `length ${recent.text.length} must fit budget ${maxChars}`);
+    assert.equal(recent.sessions[0].includedTurns, latestOnly.injectedL2Turns);
+    // 新しいターンを飛ばして古い会話の本文を載せない
+    assert.ok(!recent.text.includes('PAST_SHORT_REQUEST'));
+    assert.ok(!recent.text.includes('### 過去の会話 '));
+    if (recent.sessions.length === 1) {
+      // 余りに一覧の1行も入らない時は、今と同じ文
+      assert.equal(recent.text, latestOnly.text);
+      continue;
+    }
+    assert.ok(recent.text.startsWith(`${latestOnly.text}\n\n## Throughline: このprojectで記録された過去の会話（新しい順）\n`));
+    assert.ok(recent.text.includes('### 本文を載せていない過去の会話\n'));
+    assert.ok(recent.text.includes(`（1ターン）: 本文は \`throughline recall --l2 --session ${pastId} --before `));
+    assert.deepEqual(recent.sessions.map((s) => [s.sessionId, s.includedTurns]), [
+      ['long', latestOnly.injectedL2Turns],
+      [pastId, 0],
+    ]);
+  }
+  assert.deepEqual([...listed].sort(), [false, true], '一覧が入る予算と入らない予算の両方を確かめる');
+});
+
+test('recent: 同じ origin と turn は新しい会話の1回だけ載せる', () => {
+  const db = makeDb();
+  // 後継の会話 (current) が、前任 (shared) のターンを引き継いで持っている
+  insertTurn(db, { session: 'current', origin: 'shared', turn: 1, user: 'SHARED_REQUEST', assistant: 'SHARED_ANSWER', at: RECENT_BASE });
+  insertTurn(db, { session: 'current', turn: 1, user: '最新の依頼', assistant: '最新の回答', at: RECENT_BASE + 30 * RECENT_MINUTE });
+  // 同じターンの行が別の session にも残っている
+  insertTurn(db, { session: 'copy', origin: 'shared', turn: 1, user: 'SHARED_REQUEST', assistant: 'SHARED_ANSWER', at: RECENT_BASE });
+  insertTurn(db, { session: 'mixed', origin: 'shared', turn: 1, user: 'SHARED_REQUEST', assistant: 'SHARED_ANSWER', at: RECENT_BASE });
+  insertTurn(db, { session: 'mixed', turn: 1, user: 'MIXED_OWN_REQUEST', assistant: 'MIXED_OWN_ANSWER', at: RECENT_BASE - 10 * RECENT_MINUTE });
+
+  const recent = buildRecentSessionsContext(db, {
+    sessionIds: ['current', 'copy', 'mixed'],
+    handoffDisclosure: 'silent',
+  });
+
+  const past = recent.text.slice(recent.text.indexOf('## Throughline: このprojectで記録された過去の会話'));
+  assert.ok(!past.includes('SHARED_REQUEST'));
+  assert.ok(past.includes('MIXED_OWN_REQUEST'));
+  assert.match(past, /（1ターン \/ session mixed）/);
+  // 重なるターンしか持たない会話は、過去の会話に数えない
+  assert.deepEqual(
+    recent.sessions.map((s) => [s.sessionId, s.turns, s.includedTurns]),
+    [['current', 2, 2], ['mixed', 1, 1]],
+  );
+});
+
+test('recent: 一覧は5件までで、それより古い会話があることを書く', () => {
+  const db = makeDb();
+  insertTurn(db, { session: 'current', turn: 1, user: '最新の依頼', assistant: '最新の回答', at: RECENT_BASE + 100 * RECENT_MINUTE });
+  const sessionIds = ['current'];
+  for (let n = 1; n <= 7; n += 1) {
+    // どの会話も最新のターンが予算に入らない
+    insertTurn(db, {
+      session: `big-${n}`,
+      turn: 1,
+      user: `BIG_REQUEST_${n}`,
+      assistant: 'y'.repeat(INJECTION_BUDGET_CHARS),
+      at: RECENT_BASE + (50 - n) * RECENT_MINUTE,
+    });
+    sessionIds.push(`big-${n}`);
+  }
+
+  const recent = buildRecentSessionsContext(db, { sessionIds, handoffDisclosure: 'silent' });
+
+  assert.ok(recent.text.length <= INJECTION_BUDGET_CHARS);
+  assert.ok(!recent.text.includes('BIG_REQUEST_'));
+  const index = recent.text.slice(recent.text.indexOf('### 本文を載せていない過去の会話\n')).split('\n');
+  assert.equal(index.length, 7);
+  for (let n = 1; n <= 5; n += 1) {
+    assert.ok(index[n].includes(`--session big-${n} `), index[n]);
+    assert.ok(index[n].endsWith('--last 1`'), index[n]);
+  }
+  assert.equal(index[6], '- これより古い会話は、この一覧に載せていません。');
+  assert.deepEqual(
+    recent.sessions.map((s) => [s.sessionId, s.includedTurns]),
+    [['current', 1], ['big-1', 0], ['big-2', 0], ['big-3', 0], ['big-4', 0], ['big-5', 0]],
+  );
+});

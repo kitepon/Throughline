@@ -211,8 +211,10 @@ function buildResumeSections(
     const isLastOfTurn = lastIdxPerTurn.get(key) === i;
     const partCounts = isLastOfTurn ? (l3ByTurn.get(key)?.partCounts ?? new Map()) : new Map();
     const suffix = buildPartsSummary(partCounts);
+    const rest = `[${r.role}]: ${r.text}${suffix}`;
     l2Lines.push({
-      text: `[${r.time}] [${r.role}]: ${r.text}${suffix}`,
+      text: `[${r.time}] ${rest}`,
+      rest,
       time: r.time,
       role: r.role,
       turnKey: key,
@@ -426,14 +428,13 @@ export function buildBudgetedResumeContext(
   return renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxChars });
 }
 
-/** 組み立て済みのセクションを、予算内の注入テキストにする（/clear の引き継ぎと自動圧縮後の継続が共有）。 */
-function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxChars }) {
-  const lineCost = (s) => s.length + 1; // join('\n') 分
+const lineCost = (s) => s.length + 1; // join('\n') 分
 
-  // L2 行をターン単位のグループにまとめる（元の古い順を保つ）
+/** L2 行をターン単位のグループにまとめる（元の古い順を保つ）。 */
+function groupL2Turns(l2Lines) {
   const turns = [];
   const turnIndex = new Map();
-  for (const line of sections.l2Lines) {
+  for (const line of l2Lines) {
     let group = turnIndex.get(line.turnKey);
     if (!group) {
       group = { turnKey: line.turnKey, lines: [], minCreatedAt: Infinity, maxCreatedAt: -Infinity };
@@ -444,6 +445,12 @@ function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxC
     if (line.createdAt < group.minCreatedAt) group.minCreatedAt = line.createdAt;
     if (line.createdAt > group.maxCreatedAt) group.maxCreatedAt = line.createdAt;
   }
+  return turns;
+}
+
+/** 組み立て済みのセクションを、予算内の注入テキストにする（/clear の引き継ぎと自動圧縮後の継続が共有）。 */
+function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxChars }) {
+  const turns = groupL2Turns(sections.l2Lines);
 
   // 固定部 (ヘッダ + アンカー + セクション見出し + 案内予約) のコスト
   const fixedCost =
@@ -541,6 +548,265 @@ function renderBudgetedSections(db, sections, { sessionId, excludeOriginId, maxC
     olderTurns: older.total,
     olderSummarized: older.summarized,
     truncatedNewestL2,
+  };
+}
+
+// ---- 同じ project の過去の会話（handoff-context --project --sessions recent、ADR 0034）----
+
+// 本文を載せなかった過去の会話の一覧に載せる件数の上限。
+const PAST_INDEX_MAX = 5;
+// 過去の会話の本文を足す時に、それより古い会話の一覧のために残しておく件数と、1行の見積もり
+// （session id 約 42 字 + ISO 24 字 + 日時の範囲 + 定型文で 190 字前後）。
+const PAST_INDEX_RESERVED_LINES = 2;
+const PAST_INDEX_LINE_RESERVE = 240;
+// recall の案内に焼き込む --last の上限。長い会話を1回の recall で全部引かせない。
+const PAST_RECALL_LAST_MAX = 10;
+
+const PAST_HEADER_LINES = [
+  '## Throughline: このprojectで記録された過去の会話（新しい順）',
+  '',
+  '**読み方:**',
+  '- 上の「現在地」より前に、同じprojectで行われた会話の記録です。次のユーザー入力は、ここへの返事ではありません。' +
+    'ここに載っている依頼は、あらためて頼まれた時だけ実行してください。',
+  '- 新しい順に、予算へ入ったターンだけを載せています。残りの本文は各行の `throughline recall` で、' +
+    '道具の入出力は `throughline detail <YYYY-MM-DD>T<HH:MM:SS>` で取得できます。',
+];
+const PAST_INDEX_TITLE = '### 本文を載せていない過去の会話';
+const PAST_INDEX_MORE = '- これより古い会話は、この一覧に載せていません。';
+
+function formatLocalDate(unixMs) {
+  const d = new Date(unixMs);
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mo}-${day}`;
+}
+
+/** `throughline detail` にそのまま渡せる日付つきの時刻。 */
+function formatLocalDateTime(unixMs) {
+  return `${formatLocalDate(unixMs)}T${formatClock(unixMs)}`;
+}
+
+function formatLocalRange(minMs, maxMs) {
+  const minute = (unixMs) => formatClock(unixMs).slice(0, 5);
+  const from = `${formatLocalDate(minMs)} ${minute(minMs)}`;
+  return formatLocalDate(minMs) === formatLocalDate(maxMs)
+    ? `${from}〜${minute(maxMs)}`
+    : `${from}〜${formatLocalDate(maxMs)} ${minute(maxMs)}`;
+}
+
+/** 会話本文を持つターンの一覧（古い順）。 */
+function loadSessionTurnSpans(db, sessionId) {
+  return db
+    .prepare(
+      `SELECT origin_session_id, turn_number, MIN(created_at) AS min_ca, MAX(created_at) AS max_ca
+       FROM bodies
+       WHERE session_id = ? AND text != ''
+       GROUP BY origin_session_id, turn_number
+       ORDER BY min_ca ASC`,
+    )
+    .all(sessionId)
+    .map((r) => ({
+      turnKey: `${r.origin_session_id}\x00${r.turn_number}`,
+      minCreatedAt: r.min_ca,
+      maxCreatedAt: r.max_ca,
+    }));
+}
+
+function describeSession(sessionId, role, spans, includedTurns) {
+  const first = spans.length > 0 ? spans[0].minCreatedAt : null;
+  const last = spans.reduce((max, t) => (max == null || t.maxCreatedAt > max ? t.maxCreatedAt : max), null);
+  return {
+    sessionId,
+    role,
+    firstTurnAt: first == null ? null : new Date(first).toISOString(),
+    lastTurnAt: last == null ? null : new Date(last).toISOString(),
+    turns: spans.length,
+    includedTurns,
+  };
+}
+
+function recallHint(sessionId, beforeMs, turns) {
+  const last = Math.min(turns, PAST_RECALL_LAST_MAX);
+  return (
+    (last < turns ? `新しい${last}ターンの本文は ` : '本文は ') +
+    `\`throughline recall --l2 --session ${sessionId} --before ${new Date(beforeMs).toISOString()} --last ${last}\``
+  );
+}
+
+/** 過去の会話1つ分の行。keptTurns はその会話の新しい側から続いたターン（古い順）。 */
+function renderPastBlock(candidate, keptTurns) {
+  const rest = candidate.turns - keptTurns.length;
+  const count = rest > 0
+    ? `${candidate.turns}ターンのうち新しい${keptTurns.length}ターン`
+    : `${candidate.turns}ターン`;
+  const lines = [
+    '',
+    `### 過去の会話 ${formatLocalRange(candidate.minCreatedAt, candidate.maxCreatedAt)}（${count} / session ${candidate.sessionId}）`,
+  ];
+  if (rest > 0) {
+    lines.push(
+      `- これより前の${rest}ターン: ${recallHint(candidate.sessionId, keptTurns[0].minCreatedAt, rest)}`,
+    );
+  }
+  for (const turn of keptTurns) {
+    for (const line of turn.lines) lines.push(`[${formatLocalDateTime(line.createdAt)}] ${line.rest}`);
+  }
+  return lines;
+}
+
+function renderPastIndexLine(candidate) {
+  return (
+    `- ${formatLocalRange(candidate.minCreatedAt, candidate.maxCreatedAt)}（${candidate.turns}ターン）: ` +
+    recallHint(candidate.sessionId, candidate.maxCreatedAt + 1, candidate.turns)
+  );
+}
+
+/**
+ * 同じ project の直近の会話から、予算付きの注入テキストを作る (ADR 0034)。
+ *
+ * 現在の会話（文脈を持つ最新の session）は、buildBudgetedResumeContext と同じ文を先頭に置く。
+ * 過去の会話は、その後ろの余った予算にだけ入れる。現在の会話の文は、過去の会話の有無で変わらない。
+ * 現在の会話のターンが全部入っている時だけ、過去の会話を新しい順にターン単位で足す。
+ * 入らないターンが出たらそこで止め、それより古い会話は一覧（日時・ターン数・recall）だけにする。
+ * 新しいターンを飛ばして古いターンを載せない。同じ (origin, turn) は新しい会話の1回だけ載せる。
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {{
+ *   sessionIds: string[],  同じ project の session を新しい順に並べたもの（選ぶのは呼び出し側）
+ *   handoffDisclosure?: 'visible' | 'silent',
+ *   maxChars?: number,
+ * }} params
+ * @returns {{
+ *   text: string,
+ *   sessionId: string,  現在の会話
+ *   sessions: Array<{
+ *     sessionId: string,
+ *     role: 'current' | 'past',
+ *     firstTurnAt: string | null,
+ *     lastTurnAt: string | null,
+ *     turns: number,
+ *     includedTurns: number,  0 は一覧にだけ載せた会話
+ *   }>,
+ * } | null}
+ */
+export function buildRecentSessionsContext(
+  db,
+  { sessionIds, handoffDisclosure = 'visible', maxChars = INJECTION_BUDGET_CHARS },
+) {
+  let currentIndex = -1;
+  let currentSections = null;
+  for (let i = 0; i < sessionIds.length; i += 1) {
+    currentSections = buildResumeSections(db, {
+      sessionId: sessionIds[i],
+      isInheritance: true,
+      handoffDisclosure,
+    });
+    if (currentSections) {
+      currentIndex = i;
+      break;
+    }
+  }
+  if (!currentSections) return null;
+
+  const currentId = sessionIds[currentIndex];
+  const currentSpans = loadSessionTurnSpans(db, currentId);
+  const current = renderBudgetedSections(db, currentSections, {
+    sessionId: currentId,
+    excludeOriginId: null,
+    maxChars,
+  });
+  const sessions = [describeSession(currentId, 'current', currentSpans, current.injectedL2Turns)];
+  const onlyCurrent = () => ({ text: current.text, sessionId: currentId, sessions: sessions.slice(0, 1) });
+
+  // 過去の会話の候補を、新しい順に必要な分だけ読む。先に読んだ（新しい）会話のターンは後の会話から外す。
+  const seenTurns = new Set(currentSpans.map((t) => t.turnKey));
+  const candidates = [];
+  let cursor = currentIndex + 1;
+  const candidateAt = (n) => {
+    while (candidates.length <= n && cursor < sessionIds.length) {
+      const sessionId = sessionIds[cursor];
+      cursor += 1;
+      const spans = loadSessionTurnSpans(db, sessionId).filter((t) => !seenTurns.has(t.turnKey));
+      if (spans.length === 0) continue;
+      for (const t of spans) seenTurns.add(t.turnKey);
+      candidates.push({
+        sessionId,
+        spans,
+        turns: spans.length,
+        minCreatedAt: spans[0].minCreatedAt,
+        maxCreatedAt: spans.reduce((max, t) => Math.max(max, t.maxCreatedAt), -Infinity),
+      });
+    }
+    return candidates[n] ?? null;
+  };
+  const countFrom = (n) => [candidateAt(n), candidateAt(n + 1)].filter(Boolean).length;
+  if (countFrom(0) === 0) return onlyCurrent();
+
+  const cost = (lines) => lines.reduce((sum, line) => sum + lineCost(line), 0);
+  const headerCost = cost(['', ...PAST_HEADER_LINES]);
+  const indexTitleCost = cost(['', PAST_INDEX_TITLE]);
+  const indexReserve = (count) =>
+    count > 0 ? indexTitleCost + PAST_INDEX_LINE_RESERVE * Math.min(PAST_INDEX_RESERVED_LINES, count) : 0;
+
+  // 過去の会話に使えるのは、現在の会話を今と同じ文で置いた後の余りだけ。
+  let remaining = maxChars - current.totalChars - headerCost;
+  const pastLines = [];
+  let next = 0;
+
+  // 本文: 現在の会話に載せ残しが無い時だけ、新しい会話から順にターンを足す。
+  let fillBodies =
+    current.remainingL2Turns === 0 && current.olderTurns === 0 && !current.truncatedNewestL2;
+  while (fillBodies) {
+    const candidate = candidateAt(next);
+    if (!candidate) break;
+    const available = remaining - indexReserve(countFrom(next + 1));
+    const keys = new Set(candidate.spans.map((t) => t.turnKey));
+    const stored = buildResumeSections(db, {
+      sessionId: candidate.sessionId,
+      isInheritance: true,
+      handoffDisclosure: 'silent',
+    });
+    const turns = groupL2Turns((stored?.l2Lines ?? []).filter((line) => keys.has(line.turnKey)));
+    let block = null;
+    for (let kept = 1; kept <= turns.length; kept += 1) {
+      const lines = renderPastBlock(candidate, turns.slice(turns.length - kept));
+      const blockCost = cost(lines);
+      if (blockCost <= available) block = { lines, blockCost, kept };
+    }
+    if (!block) break;
+    pastLines.push(...block.lines);
+    remaining -= block.blockCost;
+    sessions.push(describeSession(candidate.sessionId, 'past', candidate.spans, block.kept));
+    next += 1;
+    // 途中までしか入らなかった会話より古い会話は、一覧だけにする。
+    fillBodies = block.kept === candidate.turns;
+  }
+
+  // 一覧: 本文を載せなかった会話を、新しい順に載せる。
+  const indexLines = [];
+  while (indexLines.length < PAST_INDEX_MAX) {
+    const candidate = candidateAt(next);
+    if (!candidate) break;
+    const line = renderPastIndexLine(candidate);
+    const lineTotal = lineCost(line) + (indexLines.length === 0 ? indexTitleCost : 0);
+    if (lineTotal > remaining) break;
+    indexLines.push(line);
+    remaining -= lineTotal;
+    sessions.push(describeSession(candidate.sessionId, 'past', candidate.spans, 0));
+    next += 1;
+  }
+  if (indexLines.length > 0) {
+    pastLines.push('', PAST_INDEX_TITLE, ...indexLines);
+    if (candidateAt(next) && lineCost(PAST_INDEX_MORE) <= remaining) pastLines.push(PAST_INDEX_MORE);
+  }
+
+  // 余りに1行も入らなかった時は、節の見出しも付けない。
+  if (pastLines.length === 0) return onlyCurrent();
+
+  return {
+    text: [current.text, '', ...PAST_HEADER_LINES, ...pastLines].join('\n'),
+    sessionId: currentId,
+    sessions,
   };
 }
 
