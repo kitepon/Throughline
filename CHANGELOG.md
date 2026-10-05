@@ -10,6 +10,23 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-10-05
+
+### 修正
+
+- Claudeの席で、完了ターンの控えが256件に達した後、`observer-read`・`observer-wait`へ前に受け取った位置（`--after-cursor`）を渡すと、1ターン増えるたびに`resync_required`が返る不具合を直す（[ADR 0035](docs/adr/0035-observer-cursor-prefix-only.md)）。位置の検証が、位置に入っている控えの下限の番号と今の下限の番号を比べていた。上限に達すると1ターンごとに古い1件が落ちて下限が1上がるので、追いついている位置も必ず無効になった。下限はproject全体で1つなので、落ちた控えが別の古い会話のものでも同じだった。
+- 位置の検証は、位置が指す会話の先頭から読んだ分が今も同じかどうか（`prefix_sha256`の照合）だけで行う。別の古い会話の控えが落ちても、今の会話の位置は有効なままで、`append`・`delta`が返る。
+- 位置の形、snapshotの返し方、`resync_required`を終了コード0で返すことは変わらない。0.15.0以前が出した位置は、そのまま使える。
+
+### 残る制限
+
+- 1つの会話だけで控えが256件を超えると、その会話の先頭が落ちるので、その会話の位置は今までどおり1ターンごとに`resync_required`になる。
+
+### 確認した範囲
+
+- 古い会話の控えで上限まで埋まったprojectで、新しい会話のターンを1つずつ足す再現。0.15.0は2ターン目から毎回`resync_required`、0.15.1は毎回`append`と、足したターンだけの`delta`を返す。
+- BellTeamのコンテナで、控えが上限に達している席（連番は329まで進み、保持は256件、会話は27本、最新の会話の控えは14件）の控えを一時ファイルへ写し、最新の会話へ3ターン足した。読み終えた位置を毎回取り直しても、0.15.0は3回とも`resync_required`、0.15.1は3回とも`append`を返す。控えはhashとsession idだけで、本文は含まない。
+
 ## [0.15.0] — 2026-10-05
 
 ### 追加
@@ -1754,7 +1771,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/kitepon/Throughline/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kitepon/Throughline/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/kitepon/Throughline/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/kitepon/Throughline/compare/v0.14.1...v0.14.2

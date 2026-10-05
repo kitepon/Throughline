@@ -65,7 +65,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と現行schemaで検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
 | [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
-| [src/observer-turn-feed.mjs](src/observer-turn-feed.mjs) | Observer向けのcompleted-only Claude receipt／Codex `task_complete` projection、opaque cursor、fixed-through pagination。DB/WALを公開せず、host ambiguityとcursor不整合はfail closedにする |
+| [src/observer-turn-feed.mjs](src/observer-turn-feed.mjs) | Observer向けのcompleted-only Claude receipt／Codex `task_complete` projection、opaque cursor、fixed-through pagination。DB/WALを公開せず、host ambiguityとcursor不整合はfail closedにする。cursorの検証は、その会話のchainの先頭から`length`件のdigest照合だけで行い、控えの下限の番号（`history_floor`）は比べない（ADR 0035） |
 | [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー。圧縮の要約行（`isCompactSummary: true`）はターンの始まりにも本文にもしない。`turn_number` は要約行の分も進める（ADR 0032 決定5）。別の会話から届いた発言は、host が付ける定型の注意書きを落とす |
 | [src/turn-start.mjs](src/turn-start.mjs) | ターンの始まり方（`prompt` / `self` / `unknown`）を host が transcript に書いた印だけで判定する。Claude `origin.kind`、Grok `synthetic_reason`、Cursor の自己開始固定文 (ADR 0024) |
 | [src/transcript-usage.mjs](src/transcript-usage.mjs) | 最新 assistant の `message.usage` から実測トークン数を抽出、1M context 検出 |

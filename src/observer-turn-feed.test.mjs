@@ -126,11 +126,16 @@ test('observer feed: Claude history floor, host/thread switch, cross-host tie, a
   try {
     const options = box.receiptOptions;
     seedCompletedTurnReceiptStore({ projectPath: box.project, receiptOptions: options, targetSessionId: 'claude-session' });
+    const full = resolveObserverTurnFeed({ projectPath: box.project, receiptOptions: options, codexHome: box.home });
     writeCompletedTurnReceipt({ projectPath: box.project, targetSessionId: 'claude-session', originSessionId: 'o257', userBody: 'user-body-257', assistantBody: 'assistant-body-257', completedAt: 257 }, options);
+    // 同じ会話の先頭の控えが落ちた時は、先頭からの照合が合わなくなるので resync（ADR 0035）
+    assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: full.throughCursor, receiptOptions: options, codexHome: box.home }).status, 'resync_required');
     const latest = resolveObserverTurnFeed({ projectPath: box.project, receiptOptions: options, codexHome: box.home });
     const decoded = decodeObserverCursor(latest.throughCursor);
-    const beforeFloor = encodeObserverCursor({ ...decoded, history_floor: 1 });
-    assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: beforeFloor, receiptOptions: options, codexHome: box.home }).status, 'resync_required');
+    assert.equal(decoded.history_floor, 2);
+    // 下限の番号は位置に入れたままだが、検証には使わない。先頭からの照合が合えば有効
+    const olderFloor = encodeObserverCursor({ ...decoded, history_floor: 1 });
+    assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: olderFloor, receiptOptions: options, codexHome: box.home }).status, 'unchanged');
     assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: `${latest.throughCursor}x`, receiptOptions: options, codexHome: box.home }).status, 'resync_required');
     const oldVersion = `tlc1.${Buffer.from(JSON.stringify({ ...decoded, schema: 'throughline.observer_cursor.v0' })).toString('base64url')}`;
     assert.equal(resolveObserverTurnFeed({ projectPath: box.project, cursor: oldVersion, receiptOptions: options, codexHome: box.home }).status, 'resync_required');
@@ -155,6 +160,51 @@ test('observer feed: Claude history floor, host/thread switch, cross-host tie, a
     writeCompletedTurnReceipt({ projectPath: box.project, targetSessionId: 'claude-tie-current', originSessionId: 'tie-current', userBody: 'tuc', assistantBody: 'tac', completedAt: Date.parse('2026-07-15T00:04:00.000Z') }, options);
     assert.equal(resolveObserverTurnFeed({ projectPath: box.project, receiptOptions: options, codexHome: box.home }).status, 'ambiguous_parent');
   } finally { rmSync(box.root, { recursive: true, force: true }); }
+});
+
+test('observer feed: 控えが上限に達して別の古い会話の控えが落ちても、今の会話の位置は有効なまま', () => {
+  const box = fixture();
+  const dbPath = join(box.root, 'throughline.db');
+  let db;
+  try {
+    // 古い会話の控えで上限まで埋まっている席で、新しい会話が始まる
+    seedCompletedTurnReceiptStore({ projectPath: box.project, receiptOptions: box.receiptOptions, targetSessionId: 'old-session' });
+    db = createProjectionDb(dbPath, box.project, 'live-session');
+    const read = (afterCursor) => readObserverTurnPage({
+      projectPath: box.project, afterCursor, codexHome: box.home, receiptOptions: box.receiptOptions, dbPath,
+    });
+    const floorOf = (cursor) => decodeObserverCursor(cursor).history_floor;
+
+    addClaudeTurn(box, db, { sessionId: 'live-session', origin: 'live-1', turn: 1, user: 'user-1', assistant: 'assistant-1', at: 1001 });
+    let cursor = read(null).throughCursor;
+    assert.equal(floorOf(cursor), 2);
+    for (let turn = 2; turn <= 5; turn++) {
+      // 1 ターンごとに古い会話の控えが1件落ち、控え全体の下限が1上がる
+      addClaudeTurn(box, db, { sessionId: 'live-session', origin: `live-${turn}`, turn, user: `user-${turn}`, assistant: `assistant-${turn}`, at: 1000 + turn });
+      assert.equal(resolveObserverTurnFeed({
+        projectPath: box.project, cursor, codexHome: box.home, receiptOptions: box.receiptOptions,
+      }).status, 'append');
+      const page = read(cursor);
+      assert.equal(page.status, 'delta');
+      assert.deepEqual(page.turns.map((item) => item.user), [`user-${turn}`]);
+      assert.equal(page.page.complete, true);
+      assert.equal(floorOf(page.throughCursor), turn + 1);
+      cursor = page.throughCursor;
+    }
+    // 追いついた位置は、次のターンが来るまで unchanged
+    assert.equal(resolveObserverTurnFeed({
+      projectPath: box.project, cursor, codexHome: box.home, receiptOptions: box.receiptOptions,
+    }).status, 'unchanged');
+    // 読み遅れた位置（2 ターン前）からも、残りを続きとして読める
+    addClaudeTurn(box, db, { sessionId: 'live-session', origin: 'live-6', turn: 6, user: 'user-6', assistant: 'assistant-6', at: 1006 });
+    addClaudeTurn(box, db, { sessionId: 'live-session', origin: 'live-7', turn: 7, user: 'user-7', assistant: 'assistant-7', at: 1007 });
+    const late = read(cursor);
+    assert.equal(late.status, 'delta');
+    assert.deepEqual(late.turns.map((item) => item.user), ['user-6', 'user-7']);
+  } finally {
+    db?.close();
+    rmSync(box.root, { recursive: true, force: true });
+  }
 });
 
 test('observer feed: Codex pair hashes reuse DB capture role aggregation', () => {

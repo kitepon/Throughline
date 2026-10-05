@@ -47,7 +47,7 @@ export function resolveObserverTurnFeed({ projectPath, cursor = null, codexHome,
     ? emptyCandidate()
     : candidates.find((item) => item.host === prior.host && item.threadHash === prior.thread_sha256);
   if (!priorCandidate || prior.host !== null &&
-    (prior.history_floor < priorCandidate.historyFloor || prior.length > priorCandidate.chain.length ||
+    (prior.length > priorCandidate.chain.length ||
       prefixDigest(priorCandidate.chain.slice(0, prior.length)) !== prior.prefix_sha256)) {
     return { schema: OBSERVER_CURSOR_SCHEMA, status: 'resync_required', afterCursor: cursor, throughCursor: null };
   }
@@ -254,7 +254,7 @@ function decodeCursorForRead(token, projectSha256) {
 function validateCursorCandidate(cursor, candidates) {
   if (cursor.host === null) return emptyCandidate();
   const current = candidates.find((item) => item.host === cursor.host && item.threadHash === cursor.thread_sha256);
-  if (!current || cursor.history_floor < current.historyFloor || cursor.length > current.chain.length ||
+  if (!current || cursor.length > current.chain.length ||
     prefixDigest(current.chain.slice(0, cursor.length)) !== cursor.prefix_sha256) return null;
   return current;
 }
