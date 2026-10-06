@@ -7,7 +7,7 @@ import { CLAUDE_HOST, CODEX_HOST, isCodexSessionId } from './hosts/identity.mjs'
 import { parseCodexRolloutFile } from './codex-rollout-memory.mjs';
 import { getLogicalTurnGroups } from './transcript-reader.mjs';
 import { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
-import { CURRENT_VERSION } from './db.mjs';
+import { CURRENT_VERSION, settleFirstRead } from './db.mjs';
 
 export { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 
@@ -86,6 +86,7 @@ export function readAuditorContext({
   }
 
   try {
+    settleFirstRead(db);
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
     if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) {
       return emptyResult('schema_mismatch', 'unsupported_db_schema', {
@@ -201,6 +202,7 @@ export function readCompletedPairProjection({
     throw new AuditorContextError('E_AUDITOR_CONTEXT_DB_OPEN', 'auditor context DB could not be opened', { cause });
   }
   try {
+    settleFirstRead(db, { timeoutMs: OBSERVER_PROJECTION_BUSY_TIMEOUT_MS });
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
     if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) throw new AuditorContextError('E_AUDITOR_CONTEXT_SCHEMA', 'auditor context DB schema is unsupported');
     const session = db.prepare('SELECT session_id, project_path FROM sessions WHERE session_id = ?').get(sessionId);

@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.5] — 2026-10-07
+
+### 修正
+
+- Windowsで、同じhookが続けて走る会話（Cursorが約10秒おきにターンを回す会話など）の間に、hookが`disk I/O error`で落ちることがある不具合を直す（[ADR 0036](docs/adr/0036-first-read-retry-on-io-error.md)）。落ちるのはDBを開いた直後の最初の読み取りで、落ちたhookはその回の記憶の注入や保存をしなかった。hookはDBを閉じずに終わる。終わったprocessの片付けと次のprocessの最初の読み取りが重なると、SQLiteがWALの索引を切り詰められずに失敗を返していた。最初の読み取りを、`disk I/O error`の間だけ25msごとに読み直す（hookは最長5秒）。
+- 読み取り専用でDBを開く所（`handoff-context`、`latest-session`、`auto-handoff status`、`recall`、`factory-diagnostics`、`caveat-context`、Spotter向けの`auditor-context`とObserver向けの読み出し）も同じ形で落ちていたので、同じ読み直しを通す。`migrate`も通す。
+
+### 追加
+
+- `hook-failures.log`に、SQLiteの拡張code（`errcode`）を残す。`disk I/O error`は文面が同じでも、codeで原因が分かれる。
+
+### 確認した範囲
+
+- Windows 11（Node 24.20.0）の切り離した置き場。DBを開いて閉じずに終わる短命のprocessを6列で続ける再現で、直す前は5,295本のうち128本が`disk I/O error`（code 1546）で落ち、読み直しを入れると5,180本とも開けた（読み直したのは139本、最大2回、最長74ms）。読み取り専用は、直す前に4,059本のうち217本が落ちた。
+- 同じ端末で、足した試験（240本）がこの版では2回とも通り、読み直しを外すと同じ試験が`disk I/O error`で落ちる。
+- Linux（Node 26）では、直す前から同じ再現で1,398本とも開ける。
+
+### 確認していない範囲
+
+- Windowsのどの操作が失敗を返したか。SQLiteのcode（切り詰めの失敗）までで、その下は確かめていない。
+- 2026-10-04に同じ端末で起きたSessionStartとUserPromptSubmitの失敗が、同じ形だったか（当時の版は理由を残していない）。
+- Codexの状態DBなど、他の製品のDBを読む所（`codex-restore-source-audit`）は変えていない。
+
 ## [0.15.4] — 2026-10-06
 
 ### 修正
@@ -1831,7 +1854,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.4...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.5...HEAD
+[0.15.5]: https://github.com/kitepon/Throughline/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/kitepon/Throughline/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/kitepon/Throughline/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/kitepon/Throughline/compare/v0.15.1...v0.15.2

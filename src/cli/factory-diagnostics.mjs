@@ -6,7 +6,7 @@ import { defaultAuditorContextDbPath } from '../auditor-context.mjs';
 import { buildFactoryDiagnostics } from '../factory-diagnostics.mjs';
 import { findCodexThreadCandidate, defaultCodexHome } from '../codex-thread-index.mjs';
 import { resolveCodexThreadIdentity } from '../codex-thread-identity.mjs';
-import { CURRENT_VERSION } from '../db.mjs';
+import { CURRENT_VERSION, settleFirstRead } from '../db.mjs';
 import { isEquivalentCodexHookCommand } from './install.mjs';
 import { _internal as doctorInternal } from './doctor.mjs';
 
@@ -51,6 +51,7 @@ export function inspectFactoryDatabase({
   let db;
   try {
     db = new DatabaseSync(dbPath, { readOnly: true });
+    settleFirstRead(db);
     const schemaVersion = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
     if (schemaVersion !== CURRENT_VERSION || !hasFactoryDatabaseShape(db)) {
       return databaseResult('not_ready', schemaVersion, false);

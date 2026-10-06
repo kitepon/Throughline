@@ -95,6 +95,19 @@ test('logHookFailureは、失敗した位置をstackの先頭から残す', () =
   }
 });
 
+test('logHookFailureは、SQLiteの拡張codeを残す', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
+  try {
+    logHookFailure('HOOK_PROMPT_SUBMIT_FAILED', Object.assign(new Error('disk I/O error'), { errcode: 1546 }), { home });
+    logHookFailure('HOOK_PROMPT_SUBMIT_FAILED', new Error('no errcode'), { home });
+    const [first, second] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(first.errcode, 1546);
+    assert.equal('errcode' in second, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('logHookFailureは、長い文面を上限で切る', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
   try {

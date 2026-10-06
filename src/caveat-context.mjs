@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { settleFirstRead } from './db.mjs';
 
 import {
   AUDITOR_CONTEXT_DB_SCHEMA_VERSION,
@@ -31,6 +32,7 @@ export function readCaveatContext({
   try {
     db = new DatabaseSync(dbPath, { readOnly: true });
     db.exec('PRAGMA busy_timeout = 1000');
+    settleFirstRead(db, { timeoutMs: 1000 });
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
     if (version < 9 || version > AUDITOR_CONTEXT_DB_SCHEMA_VERSION) return empty('schema_mismatch');
 

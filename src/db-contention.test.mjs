@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { settleFirstRead } from './db.mjs';
 
 const DB_MODULE_URL = pathToFileURL(fileURLToPath(new URL('./db.mjs', import.meta.url))).href;
 
@@ -118,5 +119,66 @@ test('getDbは、新しいDBを複数のprocessが同時に開いても、全員
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  }
+});
+
+test('settleFirstReadは、disk I/O errorの間だけ最初の読み取りを読み直す', () => {
+  const ioError = Object.assign(new Error('disk I/O error'), { errcode: 1546 });
+  let calls = 0;
+  settleFirstRead({
+    prepare() {
+      calls += 1;
+      if (calls <= 2) throw ioError;
+      return { get: () => ({ user_version: 12 }) };
+    },
+  });
+  assert.equal(calls, 3);
+
+  // 他の失敗は読み直さず、そのまま返す。lock の待ちは busy_timeout が受け持つ。
+  const locked = Object.assign(new Error('database is locked'), { errcode: 5 });
+  let lockedCalls = 0;
+  assert.throws(() => settleFirstRead({ prepare() { lockedCalls += 1; throw locked; } }), /database is locked/u);
+  assert.equal(lockedCalls, 1);
+
+  // 期限まで解けなければ、同じ失敗を返す。
+  let persistentCalls = 0;
+  assert.throws(
+    () => settleFirstRead({ prepare() { persistentCalls += 1; throw ioError; } }, { timeoutMs: 60 }),
+    /disk I\/O error/u,
+  );
+  assert.ok(persistentCalls >= 2, `calls ${persistentCalls}`);
+});
+
+test('getDbとopenReadOnlyDbは、DBを閉じずに終わる短命のprocessが続いても開ける', async () => {
+  // hookはDBを閉じずに終わる。Windowsでは、終わったprocessの片付けと次のprocessの最初の読み取りが重なると、
+  // SQLiteが `disk I/O error` を返した（修理前は実機で、240本のうち5本以上が落ちる割合）。他のOSでは元から起きない。
+  const home = mkdtempSync(join(tmpdir(), 'throughline-db-unclosed-'));
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const lanes = 6;
+  const perLane = 40;
+  const failures = [];
+  try {
+    const initialize = spawn(process.execPath, ['--input-type=module', '-e', `
+      import { getDb } from ${JSON.stringify(DB_MODULE_URL)};
+      getDb().close();
+    `], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+    assert.equal((await waitForExit(initialize)).code, 0);
+
+    await Promise.all(Array.from({ length: lanes }, async (_, lane) => {
+      for (let index = 0; index < perLane; index += 1) {
+        const open = (lane + index) % 2 === 0 ? 'getDb()' : 'openReadOnlyDb()';
+        const child = spawn(process.execPath, ['--input-type=module', '-e', `
+          import { getDb, openReadOnlyDb } from ${JSON.stringify(DB_MODULE_URL)};
+          const db = ${open};
+          db.prepare('SELECT count(*) AS n FROM sessions').get();
+          process.exit(0);
+        `], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+        const result = await waitForExit(child);
+        if (result.code !== 0) failures.push({ open, ...result });
+      }
+    }));
+    assert.deepEqual(failures, []);
+  } finally {
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });

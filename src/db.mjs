@@ -18,6 +18,7 @@ export function openReadOnlyDb(path = DB_PATH) {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
+    settleFirstRead(db);
     return db;
   } catch (error) {
     db.close();
@@ -32,8 +33,37 @@ function isSqliteBusy(error) {
   return /database is locked/u.test(String(error?.message ?? ''));
 }
 
+function isSqliteIoError(error) {
+  if (typeof error?.errcode === 'number') return (error.errcode & 0xff) === 10;
+  return /disk I\/O error/u.test(String(error?.message ?? ''));
+}
+
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 開いた接続の最初の読み取りを済ませる。`disk I/O error` の間は 25ms ごとに読み直す (ADR 0036)。
+ *
+ * Windows では、DB を閉じずに終わった process の片付けと、次の process の最初の読み取りが重なると、
+ * SQLite が WAL の索引 (-shm) を切り詰められず `disk I/O error` (SQLITE_IOERR_TRUNCATE) を返す。
+ * hook は DB を閉じずに終わるので、同じ hook が続けて走る会話で起きる。重なりは 100ms ほどで解ける。
+ * 最初の読み取りが通った接続は索引を持ち続けるので、後の読み書きではこの形にならない。
+ * 読み取り専用の接続でも起きるので、Throughline の DB を開く所は全部ここを通す。
+ * @param {DatabaseSync} db
+ * @param {{ timeoutMs?: number }} [options]
+ */
+export function settleFirstRead(db, { timeoutMs = DB_BUSY_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      db.prepare('PRAGMA user_version').get();
+      return;
+    } catch (error) {
+      if (!isSqliteIoError(error) || Date.now() >= deadline) throw error;
+      sleepSync(WAL_SWITCH_RETRY_MS);
+    }
+  }
 }
 
 /**
@@ -395,6 +425,7 @@ export function migrateDefaultDb() {
   try {
     db = new DatabaseSync(DB_PATH);
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
+    settleFirstRead(db);
     db.exec('PRAGMA foreign_keys = ON');
 
     const beforeSchemaVersion = Number(db.prepare('PRAGMA user_version').get().user_version ?? 0);
@@ -452,6 +483,7 @@ export function getDb() {
   const db = new DatabaseSync(DB_PATH);
   try {
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
+    settleFirstRead(db);
     ensureWalJournalMode(db);
     db.exec('PRAGMA foreign_keys = ON');
     initSchema(db);

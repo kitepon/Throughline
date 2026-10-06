@@ -52,6 +52,9 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
   // どの処理で落ちたかが分からない（2026-10-04、Windows の SessionStart と UserPromptSubmit の失敗）。
   const frames = stackFrames(error);
   if (frames.length > 0) entry.stack = frames;
+  // SQLite の失敗は、文面が同じでも番号で原因が分かれる（`disk I/O error` は 1546 なら索引の切り詰め、
+  // 522 なら読み取り）。node:sqlite が付ける拡張 code を残す。
+  if (typeof error?.errcode === 'number') entry.errcode = error.errcode;
   // どの会話の失敗かを残す（errorが `hookContext` を持つ時）。回数と文面だけでは、失敗した会話を
   // 端末の他の記録から探すことになる。
   const context = error?.hookContext;
