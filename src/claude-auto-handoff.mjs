@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readClaudeAutoHandoffConfig, claudeAutoHandoffEnabledFor } from './claude-auto-handoff-config.mjs';
 import { CLAUDE_HOST, hostOfSessionId } from './hosts/identity.mjs';
-import { claudeHostAdapter } from './hosts/claude.mjs';
+import { claudeHostAdapter, readClaudeRelocatedCwd } from './hosts/claude.mjs';
 import {
   isJunkAssistantText,
   normalizeTerminalText,
@@ -222,7 +222,15 @@ export function requestClaudeAutoHandoff({
   }
 
   // /tl と同じ印。後継の最初の指示が、この会話を前任として合流させる。
-  writeBaton(openDb(), { projectPath, sessionId, now });
+  const db = openDb();
+  // 会話が別の project へ移っている時（Claude Desktop）は、sessions の project も移った先にそろえる。
+  // 合流は前任と後継の project が同じ時だけ行う。付け替えは Stop でも行うが、移った後に1回も Stop を
+  // 通らないまま引き継ぐ会話があり、その時は後継へ記憶が入らなかった（0.15.2・0.15.3、macOS で実測）。
+  if (readClaudeRelocatedCwd(payload.transcript_path)) {
+    db.prepare('UPDATE sessions SET project_path = ? WHERE session_id = ? AND project_path <> ?')
+      .run(projectPath, sessionId, projectPath);
+  }
+  writeBaton(db, { projectPath, sessionId, now });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   removeStale(dir, now);
   const handoffId = randomUUID();

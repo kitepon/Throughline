@@ -33,6 +33,7 @@ Claude Desktop の新しい会話は、画面を開いただけでは process �
    印の project は、会話を起動した場所（`CLAUDE_PROJECT_DIR`）を、その OS の書き方にそろえたもの（0.14.2）。
    Claude Desktop で会話を別の project へ移している時は、transcript の `relocated` の行（`relocatedCwd`）が示す移った先を使う。
    `CLAUDE_PROJECT_DIR` は移る前の場所のまま届くため（0.15.2）。
+   この時、前任の `sessions.project_path` も移った先へ付け替える（0.15.4）。後継は同じ project の前任だけを合流させる。
    hook の cwd は Bash の `cd` に追従するので使わない。後継は起動した場所で立ち、その cwd で印を探す。
    手動の `/compact`、無効な project、subagent の中の圧縮（payload に `agent_id`）、script から起動した会話
    （`CLAUDE_CODE_ENTRYPOINT` が `sdk-` で始まる）では止めない。

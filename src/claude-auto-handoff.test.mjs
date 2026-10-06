@@ -70,13 +70,19 @@ test('PreCompact: 会話が別の project へ移っている時は、移った�
   writeFileSync(transcriptPath, jsonl([user('読んで', '2026-10-05T22:38:17.050Z'), assistant('読みました', '2026-10-05T22:39:18.926Z'),
     { type: 'relocated', sessionId: SESSION, relocatedCwd: moved }]));
   const onlyMoved = { enabled: true, projects: [moved] };
+  // SessionStart は移る前の場所で sessions の行を作っている
+  const relocatedDb = makeBatonDb();
+  relocatedDb.exec('CREATE TABLE sessions (session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
+  relocatedDb.prepare('INSERT INTO sessions VALUES (?, ?)').run(SESSION, scratch);
 
-  const { result, db } = request(dir, { config: onlyMoved, transcriptPath, env: { CLAUDE_PROJECT_DIR: scratch }, payload: { cwd: moved } });
+  const { result, db } = request(dir, { db: relocatedDb, config: onlyMoved, transcriptPath, env: { CLAUDE_PROJECT_DIR: scratch }, payload: { cwd: moved } });
   assert.equal(result.status, 'requested');
   assert.equal(result.block, true);
   assert.equal(result.projectPath, moved);
   assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, moved);
   assert.equal(db.prepare('SELECT session_id FROM handoff_batons WHERE project_path = ?').get(moved).session_id, SESSION);
+  assert.equal(db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(SESSION).project_path, moved,
+    '後継は同じ project の前任だけを合流させるので、sessions の project も移った先にそろえる');
 }));
 
 test('PreCompact: 移っていない会話は、これまでどおり起動した project で決める', () => withDir(dir => {
@@ -715,6 +721,59 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.equal(decisions.filter(entry => entry.phase === 'pre-tool-use-stop').length, 1);
   const merged = decisions.find(entry => entry.phase === 'prompt-submit' && entry.merged);
   assert.deepEqual([merged.triggered_path, merged.injection.auto_handoff_id], ['baton', record.handoff_id]);
+}));
+
+test('hook: 別の project へ移した会話（Claude Desktop）を、移った後に1回も Stop を通らないまま引き継いでも、後継へ記憶が入る', () => withDir(async home => {
+  // Desktop は「フォルダなし」で始めた会話を project へ移す。SessionStart は移る前の場所で呼ばれ、
+  // CLAUDE_PROJECT_DIR は移った後も移る前の場所のまま届く。
+  const scratch = join(home, 'scratch-2026-10-05-ac3fa8');
+  const project = join(home, 'project');
+  mkdirSync(scratch, { recursive: true });
+  mkdirSync(project, { recursive: true });
+  const transcriptPath = join(home, 'transcript.jsonl');
+  const base = Date.parse('2026-10-05T22:38:00Z');
+  const at = seconds => new Date(base + seconds * 1000).toISOString();
+  const moved = { ...fakeClaudePath(home), CLAUDE_PROJECT_DIR: scratch };
+  const hook = (command, payload, cwd = project) =>
+    cli(home, [command], JSON.stringify({ session_id: SESSION, cwd, transcript_path: transcriptPath, ...payload }), moved);
+
+  assert.equal(cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--project', project, '--json']).status, 0);
+  assert.equal(hook('session-start', { hook_event_name: 'SessionStart', source: 'startup' }, scratch).status, 0);
+  writeFileSync(transcriptPath, jsonl([
+    user('14個を順に読んで', at(0)),
+    assistant('読み終えました。', at(60)),
+    { type: 'relocated', sessionId: SESSION, relocatedCwd: project },
+    user('part06 から part09 をもう一度読んで', at(3000)),
+    assistant('part06 から読みます。', at(3002)),
+    toolUse('toolu_6', 'Read', { file_path: join(project, 'part06.txt') }),
+  ]));
+
+  const pre = hook('pre-compact', { hook_event_name: 'PreCompact', trigger: 'auto' });
+  assert.equal(pre.status, 2, pre.stderr);
+  const stopped = hook('pre-tool-use', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_use_id: 'toolu_6', permission_mode: 'bypassPermissions' });
+  assert.equal(JSON.parse(stopped.stdout).continue, false);
+  const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
+  let handoff;
+  for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
+  assert.equal(handoff.error_code, 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
+
+  // 後継の最初の指示（起動時に渡された継続の指示）
+  const recordFile = join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.json`);
+  const record = JSON.parse(readFileSync(recordFile, 'utf8'));
+  writeFileSync(recordFile, JSON.stringify({ ...record, state: 'launching', error_code: null }));
+  const successorPayload = { session_id: SUCCESSOR, cwd: project, hook_event_name: 'SessionStart', source: 'startup' };
+  assert.equal(cli(home, ['session-start'], JSON.stringify(successorPayload), fakeClaudePath(home)).status, 0);
+  const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
+    prompt: claudeContinuationInput(record) }), fakeClaudePath(home));
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
+  assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: part06 から part09 をもう一度読んで\n/);
+  assert.match(first.stdout, /\*\*止める直前に呼ぼうとして、実行されなかった道具\*\*: Read .*part06\.txt\n/);
+
+  const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'));
+  assert.equal(db.prepare('SELECT merged_into FROM sessions WHERE session_id = ?').get(SESSION).merged_into, SUCCESSOR);
+  assert.equal(db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(SESSION).project_path, project);
+  db.close();
 }));
 
 test('hook: 自動継続が無効な時、自動圧縮を止めず、何も残さない', () => withDir(home => {

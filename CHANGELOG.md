@@ -10,6 +10,24 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.4] — 2026-10-06
+
+### 修正
+
+- Claude Desktopで別のprojectへ移した会話を、移った後に1回もターンを終えないまま自動継続で引き継ぐと、後継へ記憶が入らない不具合を直す（0.15.2・0.15.3）。後継の最初の指示は、前任と後継のprojectが同じ時だけ前任を合流させる。前任の`sessions.project_path`を移った先へ付け替えるのはターン終了（Stop）だけだったので、その前に引き継ぐと移る前の場所のまま残り、合流が`project_mismatch`で見送られていた。後継は継続の指示だけを受け取り、記憶と止めた時点の依頼を持たずに動き出していた。
+- 自動圧縮を止める時（`pre-compact`）にも、移っている会話の`sessions.project_path`を移った先へ付け替える。
+
+### 確認した範囲
+
+- macOS、Claude Desktop（同梱の2.1.286、権限はバイパス、0.15.3）。画面から送った指示で、圧縮を止める・旧い会話を止める・後継を立てる・継続の指示が届く、の4段が通り、承認待ちは出なかった。1つ目の後継には記憶が入らず（上の不具合）、後継は自分でフォルダを調べて作業を続け、次の引き継ぎ（後継から後継、記憶あり）を経て作業を完了した。
+- macOS、同じ会話の本物のtranscriptの写しを使い、切り離したHOMEでhookを手で呼ぶ再現。0.15.3は`pre-compact`の後も`sessions.project_path`が移る前の場所で、後継の最初の指示は`project_mismatch`・注入なし。この版は移った先へ付け替わり、合流して注入する。
+
+### 確認していない範囲
+
+- Claude Desktopの画面で、この版の1つ目の後継に記憶が入ること。
+- Linuxで実物のClaude Codeを動かした通し。Windowsのバイパスの会話、Opus・Fableの後継（0.15.3と同じ）。
+
+
 ## [0.15.3] — 2026-10-06
 
 ### 修正
@@ -1813,7 +1831,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.3...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.4...HEAD
+[0.15.4]: https://github.com/kitepon/Throughline/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/kitepon/Throughline/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/kitepon/Throughline/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kitepon/Throughline/compare/v0.15.0...v0.15.1
