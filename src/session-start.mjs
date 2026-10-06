@@ -24,9 +24,8 @@
  *
  * 【自動継続の後継】 ADR 0033
  *
- *   同じ project で後継の立ち上げ中の引き継ぎがある時だけ、この会話の受け口（inbox socket）を
- *   控える。worker がそれを読んで、継続の指示を1通送る。記憶の注入は、その指示が届いた時の
- *   UserPromptSubmit（上の二相ハンドオフの第二相）が行う。
+ *   後継は、継続の指示を最初の指示として付けて起動される。SessionStart では何もしない。
+ *   記憶の注入と受領は、その指示の UserPromptSubmit（上の二相ハンドオフの第二相）が行う。
  */
 
 import { getDb } from './db.mjs';
@@ -41,7 +40,6 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { CLAUDE_HOST, hostAdapterForSessionId, hostOfSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
-import { recordClaudeSuccessorTarget } from './claude-auto-handoff.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
 
@@ -169,11 +167,6 @@ export async function run() {
     intent_note: intentNote,
     pending_registered: true,
   });
-
-  // 自動継続の後継として立ち上がった会話なら、worker が指示を送れるように受け口を控える (ADR 0033)。
-  if (hostOfSessionId(session_id) === CLAUDE_HOST) {
-    recordClaudeSuccessorTarget({ payload, env: process.env, now });
-  }
 
   // Cursor は beforeSubmitPrompt が additional_context を持たない。
   // 新規 composer 会話の sessionStart が公式の注入口なので、ここで第二相を実行する。

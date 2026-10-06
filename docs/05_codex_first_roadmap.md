@@ -28,8 +28,8 @@
 最初の成立検証はCodex Desktopで行う。OSごとの仕組みと受入条件は共通にし、
 差分は既存の `src/os/` と配送ライブラリの環境適合へ閉じ込める。
 VS Code・CLIとClaude/Grok/Cursorの対応はhostごとに同じ条件で検証する。
-Claude Codeは同じ並び（圧縮を止める、旧い会話を止める、新しい会話を立てる、継続の指示を1通送る）を、
-Claude Codeの入口（hook、`claude --bg`、会話ごとの受け口）で行う（[ADR 0033](adr/0033-claude-auto-handoff-new-session.md)）。
+Claude Codeは同じ並び（圧縮を止める、旧い会話を止める、新しい会話を立てる、継続の指示を1通渡す）を、
+Claude Codeの入口（hook、最初の指示つきの`claude --bg`）で行う（[ADR 0033](adr/0033-claude-auto-handoff-new-session.md)）。
 この節の処理順と進行状態の細目はCodexだけに適用する。
 一つのhostの成功で他のhostも対応済みとはしない。
 

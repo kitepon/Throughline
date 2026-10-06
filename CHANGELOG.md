@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.15.3] — 2026-10-06
+
+### 修正
+
+- Claude Codeの自動継続（`auto-handoff enable --host claude`）で、旧い会話が権限のバイパス（`bypassPermissions`）の時、後継が継続の指示を受け取らずに止まる不具合を直す。後継は旧い会話の権限を引き継ぐ。Claude Codeは、バイパス中の会話へ別の会話やprocessから届いた文を、送り手が権限のmodeを名乗らない限り利用者の承認まで止める（画面には`Held peer message`と出る）。0.15.2までは、後継を立てた後で受け口へ指示を送っていたので、ここで止まり、記録は`unknown`・`handoff_delivery_timeout`になっていた。バイパス以外の権限では起きない。
+- 継続の指示は、後継を立てる時の最初の指示として渡す（`claude --bg … "<指示>"`）。立てた後で外から送らない。後継の受信の設定（`crossSessionInbound`）は変えない（[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)の4と5を書き換え）。
+- 受領は、後継の最初の指示が`~/.throughline/claude-auto-handoff/<旧会話のsession_id>.accepted`に残し、workerがそれを待って`sent`にする。最初の指示は、workerが後継のIDを記録へ写す前に届くことがあるので、その間は指示が運ぶ引き継ぎIDで後継と認める。期限（60秒）までに残らなければ`unknown`・`handoff_delivery_unconfirmed`にし、後継は立て直さない。`handoff_successor_target_unavailable`と`handoff_delivery_timeout`は出なくなる。
+- 継続の指示の文に、「実行されなかった道具」はまだ実行されていないこと、最初にそれを呼び出すことを書き足す。指示が利用者の発言として届くようになり、Haiku 4.5の後継が、止められた道具をやり直さずに「読みました」と書いて先へ進んだ回があった（macOS、1回）。
+- 後継の`SessionStart`は受け口を控えなくなる。Codexの自動継続は変えない。
+
+### 確認した範囲
+
+- macOS、Claude Desktop（同梱の2.1.286、権限はバイパス、0.15.2）。作業フォルダを移した会話で、圧縮を止める・旧い会話を止める・後継を立てる、の3段がDesktopの画面から送った指示で通り、4段目が上の理由で止まることを確かめた。
+- macOS、端末の会話（Claude Code 2.1.289、Haiku 4.5）。この版で、バイパスの会話は4回、編集の自動許可（`acceptEdits`）の会話も4回、連続で引き継いで14個を読み切り完了。どの引き継ぎも`sent`で、承認待ちは出ない。指示の文を書き足す前の版では、バイパスで2回動かし、1回は完了、1回は上の「読みました」で未完了。
+- Windows 11、端末の会話（2.1.289、Haiku 4.5、`acceptEdits`）。この版で4回連続で引き継いで完了。最初の指示（改行と日本語を含む）は、そのまま後継のhookへ届く。
+
+### 確認していない範囲
+
+- Claude Desktopの画面で、この版が最後まで通ること（後継が指示を受け取って作業を終える所）。
+- Linuxで実物のClaude Codeを動かした通し。単体と結合の試験だけ。
+- Windowsのバイパスの会話、Opus・Fableの後継。
+
+
 ## [0.15.2] — 2026-10-06
 
 ### 修正
@@ -1790,7 +1813,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.3...HEAD
+[0.15.3]: https://github.com/kitepon/Throughline/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/kitepon/Throughline/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/kitepon/Throughline/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/kitepon/Throughline/compare/v0.14.3...v0.15.0

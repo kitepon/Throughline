@@ -10,7 +10,6 @@ import {
   requestClaudeAutoHandoff,
   stopClaudeTurnForHandoff,
   completeClaudeTurnWithoutHandoff,
-  recordClaudeSuccessorTarget,
   acceptClaudeAutoContinuation,
   runClaudeAutoHandoffWorker,
   readClaudeAutoHandoff,
@@ -243,64 +242,48 @@ test('Stop: 圧縮を止めた後、道具を呼ばずにターンが終わっ�
   assert.equal(readClaudeAutoHandoff(SESSION, dir).state, 'stopped');
 }));
 
-/** 止めた直後の記録を作り、後継の SessionStart と配送を差し替えて worker を走らせる。 */
-async function runWorker(dir, { spawn, send, onLaunched }) {
+/** 止めた直後の記録を作り、後継の起動を差し替えて worker を走らせる。 */
+async function runWorker(dir, { spawn, onLaunched }) {
   request(dir);
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', permission_mode: 'acceptEdits',
     effort: { level: 'high' } }, dir, launchWorker: async () => {} });
-  const calls = { spawn: [], send: [] };
+  const calls = { spawn: [] };
   const record = await runClaudeAutoHandoffWorker(SESSION, {
     dir, env: { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'claude-desktop', CLAUDE_CODE_MESSAGING_SOCKET: '/old.sock',
       CLAUDE_CODE_MESSAGING_TOKEN: 'old-token', CLAUDE_PROJECT_DIR: '/work/app', CLAUDE_CODE_USE_BEDROCK: '1' },
-    targetTimeoutMs: 300, sendTimeoutMs: 300, pollMs: 10,
+    acceptTimeoutMs: 300, pollMs: 10,
     spawn: (command, args, options) => {
       calls.spawn.push({ command, args, options });
       const result = spawn(command, args, options);
-      if (result.status === 0) onLaunched?.();
+      if (result.status === 0) onLaunched?.(args);
       return result;
     },
-    send: async (target, text, options) => { calls.send.push({ target, text }); return send(target, text, options); },
   });
   return { record, calls };
 }
 
-const launchedOk = () => ({ status: 0, stdout: 'Starting background service…\nbackgrounded · a41a97ae · tl-app-1234 (idle — send a prompt to start)\n', stderr: '' });
-const successorStarts = dir => () => recordClaudeSuccessorTarget({
-  payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
-  env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/271650.sock', CLAUDE_CODE_MESSAGING_TOKEN: 'secret-token' }, dir });
+const launchedOk = () => ({ status: 0, stdout: 'Starting background service…\nbackgrounded · a41a97ae · tl-app-1234\n', stderr: '' });
+// 後継の最初の UserPromptSubmit。起動時に渡された指示で、受領を残す。worker が後継の ID を記録へ写す前に届く。
+const successorStarts = (dir, predecessorId = SESSION) => args => acceptClaudeAutoContinuation({
+  predecessorId, successorSessionId: SUCCESSOR, prompt: args.at(-1), dir, now: 5_000 });
 
-test('worker: 指示を待つ後継を同じprojectに立て、後継の受け口へ継続の指示を1通送る', () => withDir(async dir => {
-  const { record, calls } = await runWorker(dir, {
-    spawn: launchedOk,
-    onLaunched: successorStarts(dir),
-    send: async (target, text, options) => {
-      // 届いた指示で、後継の最初の UserPromptSubmit が受領を記録する
-      const accepted = acceptClaudeAutoContinuation({ predecessorId: SESSION, successorSessionId: SUCCESSOR, prompt: text, dir });
-      assert.ok(accepted);
-      return await options.confirm_acceptance(new AbortController().signal)
-        ? { status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' }
-        : { status: 'unknown', outcome_unknown: true, reason: 'unconfirmed' };
-    },
-  });
+test('worker: 継続の指示を最初の指示として付けて後継を同じprojectに立て、後継の受領を待つ', () => withDir(async dir => {
+  const { record, calls } = await runWorker(dir, { spawn: launchedOk, onLaunched: successorStarts(dir) });
   assert.equal(calls.spawn.length, 1);
   const { command, args, options } = calls.spawn[0];
   assert.equal(command, 'claude');
   assert.deepEqual(args, ['--bg', '--name', `tl-app-${record.handoff_id.slice(0, 8)}`, '--effort', 'high',
-    '--permission-mode', 'acceptEdits', '--settings', '{"worktree":{"bgIsolation":"none"}}'],
-    '指示は起動時に渡さない。モデルは transcript が無いので付かない');
+    '--permission-mode', 'acceptEdits', '--settings', '{"worktree":{"bgIsolation":"none"}}', claudeContinuationInput(record)],
+    '指示は起動時に渡す（外から送ると、権限のバイパス中の後継が承認まで止める）。モデルは transcript が無いので付かない');
+  assert.match(args.at(-1), new RegExp(`^Throughline自動継続 ${record.handoff_id}\\n注入された記憶と元のユーザー依頼に従い、未完了の作業をそのまま継続してください。`));
   assert.equal(options.cwd, '/work/app');
   assert.deepEqual(options.env, { PATH: '/bin', CLAUDE_CODE_USE_BEDROCK: '1' }, '会話ごとの環境変数は後継へ渡さない');
+  assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe'], 'stdin を渡さない（claude は stdin も指示に足す）');
 
-  assert.equal(calls.send.length, 1);
-  assert.deepEqual(calls.send[0].target, { socket_path: '/tmp/cc-socks/271650.sock', token: 'secret-token' });
-  assert.equal(calls.send[0].text, claudeContinuationInput(record));
-  assert.match(calls.send[0].text, new RegExp(`^Throughline自動継続 ${record.handoff_id}\\n注入された記憶と元のユーザー依頼に従い、未完了の作業をそのまま継続してください。`));
-
-  assert.deepEqual([record.state, record.error_code], ['sent', null]);
+  assert.deepEqual([record.state, record.error_code, record.accepted_at], ['sent', null, 5_000]);
   assert.deepEqual(record.successor, { short_id: 'a41a97ae', session_id: SUCCESSOR });
-  assert.deepEqual(readdirSync(join(dir, 'targets')), [], '受け口の控えは読んだら消す');
-  assert.doesNotMatch(JSON.stringify(publicClaudeAutoHandoff(record)), /secret-token|cc-socks/);
-  assert.doesNotMatch(readFileSync(join(dir, `${SESSION}.json`), 'utf8'), /secret-token/, 'token は記録に残さない');
+  assert.equal(existsSync(join(dir, `${SESSION}.accepted`)), false, '受領の控えは読んだら消す');
+  assert.equal(existsSync(join(dir, 'targets')), false, '受け口は控えない');
 
   // 引き継ぎ済みの会話の道具は、後継を案内して止める
   const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app' }, dir,
@@ -309,9 +292,8 @@ test('worker: 指示を待つ後継を同じprojectに立て、後継の受け�
 }));
 
 test('worker: 止めた時点の依頼とモデルを transcript から写し、色付きの出力からも後継のIDを読む。後継が止められた時は元の依頼を運ぶ', () => withDir(async dir => {
-  const sendOk = async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' });
   const colored = () => ({ status: 0, stderr: '',
-    stdout: 'backgrounded · \u001b[36ma41a97ae\u001b[39m · tl-app-1234\u001b[2m (idle — send a prompt to start)\u001b[22m\n' });
+    stdout: 'backgrounded · \u001b[36ma41a97ae\u001b[39m · tl-app-1234\u001b[2m\u001b[22m\n' });
   const run = async (sessionId, transcriptPath, toolUseId) => {
     const db = makeBatonDb();
     requestClaudeAutoHandoff({ payload: { session_id: sessionId, trigger: 'auto', cwd: '/work/app', transcript_path: transcriptPath },
@@ -319,13 +301,12 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
     await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/app', transcript_path: transcriptPath,
       tool_use_id: toolUseId }, dir, launchWorker: async () => {} });
     const calls = [];
-    const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, send: sendOk, pollMs: 10, targetTimeoutMs: 300,
+    const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300,
       transcriptTimeoutMs: 300,
       spawn: (command, args) => {
         calls.push(args);
         // 止めた道具の呼び出しは、hook の後で transcript に書かれる
-        recordClaudeSuccessorTarget({ payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
-          env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock' }, dir });
+        successorStarts(dir, sessionId)(args);
         return colored();
       } });
     return { record, calls };
@@ -364,12 +345,10 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   // 後継 B が止められた時、最後の user 発言は A からの継続の指示。現在地には元の依頼を運ぶ
   const transcriptB = join(dir, 'b.jsonl');
   writeFileSync(transcriptB, jsonl([
-    user(`Another Claude session sent a message:\n${claudeContinuationInput(first.record)}\n\nThis came from another Claude session — not typed by your user.`,
-      '2026-10-04T03:01:00Z'),
+    user(claudeContinuationInput(first.record), '2026-10-04T03:01:00Z'),
     assistant('part09 を読みました。次に part10 を読みます。', '2026-10-04T03:01:20Z', 'claude-opus-5'),
     { type: 'assistant', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'tool_use', id: 'toolu_10', name: 'Read', input: {} }] } },
   ]));
-  rmSync(join(dir, 'targets'), { recursive: true, force: true });
   const second = await run(SUCCESSOR, transcriptB, 'toolu_10');
   assert.deepEqual(second.record.in_flight, {
     user: { content: '14個のファイルを順に読んで', timestamp: Date.parse('2026-10-04T03:00:10Z') },
@@ -428,13 +407,11 @@ test('worker: 止めたターンを DB へ取り込み、ここまでにした�
   // hook は並んで走る。記録に残る止めた道具は、応答の中の2つ目のこともある
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 't5' },
     dir, launchWorker: async () => {} });
-  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, targetTimeoutMs: 300, transcriptTimeoutMs: 300,
+  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 300,
     openDb: () => db,
-    send: async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' }),
-    spawn: () => {
-      recordClaudeSuccessorTarget({ payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
-        env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock' }, dir });
-      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app (idle — send a prompt to start)\n' };
+    spawn: (command, args) => {
+      successorStarts(dir)(args);
+      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app\n' };
     } });
   assert.equal(record.state, 'sent');
   assert.deepEqual(record.in_flight.steps, [
@@ -474,13 +451,11 @@ test('worker: 止めたターンを取り込めなくても後継を立て、取
     env: {}, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcript, tool_use_id: 'toolu_1' },
     dir, launchWorker: async () => {} });
-  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, targetTimeoutMs: 300, transcriptTimeoutMs: 300,
+  const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 300,
     openDb: () => db,
-    send: async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' }),
-    spawn: () => {
-      recordClaudeSuccessorTarget({ payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app' },
-        env: { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock' }, dir });
-      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app (idle — send a prompt to start)\n' };
+    spawn: (command, args) => {
+      successorStarts(dir)(args);
+      return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app\n' };
     } });
   assert.equal(record.state, 'sent');
   assert.equal(record.in_flight.turn, null);
@@ -488,23 +463,19 @@ test('worker: 止めたターンを取り込めなくても後継を立て、取
   assert.equal(publicClaudeAutoHandoff(record).in_flight_captured, false);
 }));
 
-test('worker: 立ち上げ・受け口・配送の失敗は固定の理由を残し、結果が不明な配送は再送しない', () => withDir(async dir => {
-  const sendOk = async () => ({ status: 'accepted', outcome_unknown: false, reason: 'receiver_confirmed' });
+test('worker: 立ち上げの失敗は固定の理由を残し、受領を確かめられない時は後継を立て直さない', () => withDir(async dir => {
   const cases = [
-    [{ spawn: () => ({ error: Object.assign(new Error('not found'), { code: 'ENOENT' }) }), send: sendOk }, 'failed', 'handoff_claude_cli_unavailable', 0],
-    [{ spawn: () => ({ status: 1, stdout: '', stderr: 'Workspace not trusted' }), send: sendOk }, 'failed', 'handoff_successor_launch_failed', 0],
-    [{ spawn: () => ({ status: 0, stdout: 'unexpected output', stderr: '' }), send: sendOk }, 'failed', 'handoff_successor_launch_failed', 0],
-    [{ spawn: launchedOk, send: sendOk }, 'failed', 'handoff_successor_target_unavailable', 0],
-    [{ spawn: launchedOk, onLaunched: successorStarts(dir),
-      send: async () => ({ status: 'not_sent', outcome_unknown: false, reason: 'connect_failed' }) }, 'failed', 'handoff_delivery_connect_failed', 1],
-    [{ spawn: launchedOk, onLaunched: successorStarts(dir),
-      send: async () => ({ status: 'unknown', outcome_unknown: true, reason: 'unconfirmed' }) }, 'unknown', 'handoff_delivery_unconfirmed', 1],
+    [{ spawn: () => ({ error: Object.assign(new Error('not found'), { code: 'ENOENT' }) }) }, 'failed', 'handoff_claude_cli_unavailable'],
+    [{ spawn: () => ({ status: 1, stdout: '', stderr: 'Workspace not trusted' }) }, 'failed', 'handoff_successor_launch_failed'],
+    [{ spawn: () => ({ status: 0, stdout: 'unexpected output', stderr: '' }) }, 'failed', 'handoff_successor_launch_failed'],
+    // 後継は立ったが、最初の指示の受領が期限までに残らない
+    [{ spawn: launchedOk }, 'unknown', 'handoff_delivery_unconfirmed'],
   ];
-  for (const [deps, state, code, sends] of cases) {
+  for (const [deps, state, code] of cases) {
     rmSync(join(dir, `${SESSION}.json`), { force: true });
     rmSync(join(dir, `${SESSION}.claim`), { force: true });
-    const { record, calls } = await runWorker(dir, deps);
-    assert.deepEqual([record.state, record.error_code, calls.send.length], [state, code, sends], code);
+    const { record } = await runWorker(dir, deps);
+    assert.deepEqual([record.state, record.error_code], [state, code], code);
   }
   // 結果が不明な引き継ぎは、次の道具でも立ち上げ直さない
   const launched = [];
@@ -513,52 +484,42 @@ test('worker: 立ち上げ・受け口・配送の失敗は固定の理由を残
   assert.equal((await runClaudeAutoHandoffWorker(SESSION, { dir, spawn: () => { throw new Error('must not spawn'); } })).state, 'unknown');
 }));
 
-test('SessionStart: 後継の立ち上げ中の引き継ぎがある project の、新しく始まった会話だけが受け口を控える', () => withDir(async dir => {
-  const env = { CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock', CLAUDE_CODE_MESSAGING_TOKEN: 't' };
-  const start = (overrides = {}, environment = env) => recordClaudeSuccessorTarget({
-    payload: { session_id: SUCCESSOR, source: 'startup', cwd: '/work/app', ...overrides }, env: environment, dir });
-  assert.equal(start(), false, '引き継ぎが無い');
-  request(dir);
-  assert.equal(start(), false, 'まだ旧い会話を止めていない');
-
-  const write = fields => writeFileSync(join(dir, `${SESSION}.json`),
-    JSON.stringify({ ...readClaudeAutoHandoff(SESSION, dir), ...fields }));
-  write({ state: 'launching' });
-  assert.equal(start({ cwd: '/work/other' }), false, '別の project');
-  assert.equal(start({ source: 'resume' }), false);
-  assert.equal(start({ source: 'compact' }), false);
-  assert.equal(start({ agent_id: 'agent-1' }), false);
-  assert.equal(start({}, {}), false, '受け口を持たない会話');
-  assert.equal(start({ session_id: `grok:${SUCCESSOR}` }), false);
-  assert.equal(start(), true);
-  rmSync(join(dir, 'targets'), { recursive: true });
-
-  write({ state: 'launched', successor: { short_id: 'a41a97ae', session_id: null } });
-  assert.equal(start({ session_id: 'bbbbbbbb-0000-4000-8000-000000000001' }), false, '後継のIDと合わない会話');
-  assert.equal(start(), true);
-  write({ state: 'sent' });
-  rmSync(join(dir, 'targets'), { recursive: true });
-  assert.equal(start(), false, '送り終えた引き継ぎ');
-}));
-
-test('最初の指示: 後継だけが止めた時点の依頼を受け取り、この引き継ぎの配送だけが受領になる', () => withDir(async dir => {
+test('最初の指示: 後継だけが止めた時点の依頼を受け取り、この引き継ぎの指示だけが受領になる', () => withDir(async dir => {
   request(dir);
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app' }, dir, launchWorker: async () => {} });
   const accept = (overrides = {}) => acceptClaudeAutoContinuation({ predecessorId: SESSION, successorSessionId: SUCCESSOR, dir, ...overrides });
-  assert.equal(accept(), null, '後継がまだ立っていない');
+  const acceptance = () => existsSync(join(dir, `${SESSION}.accepted`))
+    ? JSON.parse(readFileSync(join(dir, `${SESSION}.accepted`), 'utf8')) : null;
   const record = readClaudeAutoHandoff(SESSION, dir);
+  const instruction = claudeContinuationInput(record);
+  assert.equal(accept({ prompt: instruction }), null, '後継をまだ立てていない（stopped）');
   const inFlight = { user: { content: '依頼', timestamp: 1 }, last_fragment: null };
-  writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ ...record, state: 'sending',
-    successor: { short_id: 'a41a97ae', session_id: SUCCESSOR }, in_flight: inFlight }));
-  assert.equal(accept({ successorSessionId: 'bbbbbbbb-0000-4000-8000-000000000001' }), null, '後継ではない会話');
+  const expected = { handoffId: record.handoff_id, projectPath: '/work/app', inFlight, transcriptPath: null };
+  const write = fields => writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ ...record, in_flight: inFlight, ...fields }));
+
+  // 立ち上げ中（後継の ID はまだ記録に無い）: 指示が運ぶ引き継ぎ ID で後継と認める
+  write({ state: 'launching' });
+  assert.equal(accept(), null, '指示を持たない会話');
+  assert.equal(accept({ prompt: '別の指示' }), null, '同じ project で人が始めた別の会話');
+  assert.equal(accept({ prompt: 'Throughline自動継続 00000000-0000-4000-8000-000000000000\n…' }), null, '別の引き継ぎの指示');
+  assert.equal(acceptance(), null);
+  assert.deepEqual(accept({ prompt: instruction, now: 9_000 }), expected);
+  assert.deepEqual(acceptance(), { handoff_id: record.handoff_id, successor_session_id: SUCCESSOR, accepted_at: 9_000 });
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).accepted_at, null, '記録は worker だけが書き換える');
+  accept({ prompt: instruction, now: 9_999 });
+  assert.equal(acceptance().accepted_at, 9_000, '受領は1回だけ残す');
+  rmSync(join(dir, `${SESSION}.accepted`));
+
+  // 後継の ID が記録に入った後: ID で後継と認める
+  write({ state: 'launched', successor: { short_id: 'a41a97ae', session_id: null } });
+  assert.equal(accept({ successorSessionId: 'bbbbbbbb-0000-4000-8000-000000000001', prompt: instruction }), null, '後継ではない会話');
   assert.equal(accept({ predecessorId: 'aaaaaaaa-0000-4000-8000-000000000009' }), null);
   assert.equal(accept({ predecessorId: `codex:${SESSION}` }), null);
-
   // 人が先に別の指示を打った時は、依頼は渡すが受領にはしない
-  assert.deepEqual(accept({ prompt: '別の指示' }), { handoffId: record.handoff_id, projectPath: '/work/app', inFlight, transcriptPath: null });
-  assert.equal(readClaudeAutoHandoff(SESSION, dir).accepted_at, null);
-  accept({ prompt: `Another Claude session sent a message:\n${claudeContinuationInput(record)}`, now: 9_000 });
-  assert.equal(readClaudeAutoHandoff(SESSION, dir).accepted_at, 9_000);
+  assert.deepEqual(accept({ prompt: '別の指示' }), expected);
+  assert.equal(acceptance(), null);
+  accept({ prompt: instruction, now: 9_500 });
+  assert.equal(acceptance().accepted_at, 9_500);
 }));
 
 test('公開CLI: --host claude は enable・disable・status・worker を受け取る', () => {
@@ -710,19 +671,14 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.equal(handoff.in_flight_captured, true);
   assert.equal(record.in_flight.turn.origin_session_id, SESSION);
   assert.equal(record.in_flight.turn.details, 3);
+  // 後継の最初の指示は、worker が後継の ID を記録へ写す前（launching）に届くことがある
   writeFileSync(recordFile, JSON.stringify({ ...record, state: 'launching', error_code: null }));
   const started = hook('session-start', { hook_event_name: 'SessionStart', source: 'startup' }, SUCCESSOR);
   assert.equal(started.status, 0, started.stderr);
   assert.equal(started.stdout, '');
-  assert.equal(existsSync(join(handoffDir, 'targets')), false, '受け口を持たない会話は控えない');
-  const withSocket = cli(home, ['session-start'], JSON.stringify({ session_id: SUCCESSOR, cwd: project, hook_event_name: 'SessionStart', source: 'startup' }),
-    { ...extra, CLAUDE_CODE_MESSAGING_SOCKET: join(home, 'in.sock'), CLAUDE_CODE_MESSAGING_TOKEN: 'secret-token' });
-  assert.equal(withSocket.status, 0, withSocket.stderr);
-  assert.deepEqual(readdirSync(join(handoffDir, 'targets')), [`${SUCCESSOR}.json`]);
-  writeFileSync(recordFile, JSON.stringify({ ...record, state: 'sending', error_code: null,
-    successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }));
+  assert.equal(existsSync(join(handoffDir, 'targets')), false, '受け口は控えない');
 
-  const prompt = `Another Claude session sent a message:\n${claudeContinuationInput(record)}`;
+  const prompt = claudeContinuationInput(record);
   const first = cli(home, ['prompt-submit'], JSON.stringify({ session_id: SUCCESSOR, cwd: project, hook_event_name: 'UserPromptSubmit', prompt }), extra);
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
@@ -734,7 +690,9 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.equal(first.stdout.split('big1.txt と big2.txt を読んで').length, 2, '止めたターンの依頼は現在地に1回だけ');
   assert.doesNotMatch(first.stdout, /宣言|\/clear/);
   assert.ok(first.stdout.length <= 9_501);
-  assert.ok(JSON.parse(readFileSync(recordFile, 'utf8')).accepted_at > 0, '届いた指示で受領を記録する');
+  const acceptance = JSON.parse(readFileSync(join(handoffDir, `${SESSION}.accepted`), 'utf8'));
+  assert.deepEqual([acceptance.handoff_id, acceptance.successor_session_id], [record.handoff_id, SUCCESSOR], '最初の指示が受領を残す');
+  assert.ok(acceptance.accepted_at > 0);
 
   // 記憶は後継へ合流している（今の /tl の引き継ぎと同じ）
   const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'));

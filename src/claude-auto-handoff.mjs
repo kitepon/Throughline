@@ -8,21 +8,21 @@
  *   2. PreToolUse                : 記録がある会話の次の道具を、実行させずに止める（deny + continue:false）。
  *                                  止めた時点の依頼・設定を記録へ写し、後継を立てる worker を起動する。
  *   3. worker                    : 止めたターンを DB へ取り込み（発言の全部と道具の入出力）、ここまでにしたことを
- *                                  記録へ写す。`claude --bg` で、指示を待つ新しい会話を同じ project に立てる。
- *   4. worker                    : 後継の SessionStart が残した受け口へ、配送ライブラリで継続の指示を1通送る。
- *                                  届いた時の UserPromptSubmit が baton を消費し、記憶を注入する。
+ *                                  記録へ写す。`claude --bg` を、継続の指示を最初の指示として付けて、同じ project に立てる。
+ *   4. 後継の UserPromptSubmit   : その指示が baton を消費し、記憶を注入して、受領を残す。worker は受領を待つ。
+ *                                  外から後継へ文を送らない。権限のバイパス中の会話は、外から届いた文を
+ *                                  利用者の承認まで止めるため（0.15.3）。
  *
  * 旧い会話は止めるだけで、空にしない。手動の /compact と subagent の中の圧縮は対象にしない。
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
  */
 
-import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { sendClaudeInbox } from 'aiterm-steer-delivery';
 import { readClaudeAutoHandoffConfig, claudeAutoHandoffEnabledFor } from './claude-auto-handoff-config.mjs';
 import { CLAUDE_HOST, hostOfSessionId } from './hosts/identity.mjs';
 import { claudeHostAdapter } from './hosts/claude.mjs';
@@ -45,7 +45,7 @@ const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throug
 const STALE_RECORD_MS = 24 * 60 * 60 * 1000;
 // session id を記録のファイル名に使う。Claude の id は UUID で、path の区切りを含む値は受け付けない。
 const CLAUDE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-// `claude --bg` の出力（例: "backgrounded · a41a97ae · name (idle — send a prompt to start)"）。
+// `claude --bg` の出力（例: "backgrounded · a41a97ae · name"。指示なしで立てた時は "(idle — send a prompt to start)" が続く）。
 // 後継の中から起動した時は ID に色の制御文字が付くので、外してから読む。
 const BACKGROUNDED_PATTERN = /backgrounded\s+\S+\s+([0-9a-f]{8})\b/;
 // 後継へ渡さない、会話ごとの環境変数。後継は自分の値を持つ。
@@ -54,11 +54,14 @@ const PER_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_ME
 
 // requested と failed は、次の道具の hook が後継の立ち上げを始められる。
 const RETRYABLE_STATES = new Set(['requested', 'failed']);
-const TARGET_WAIT_STATES = new Set(['launching', 'launched']);
-const ACCEPTABLE_STATES = new Set(['launched', 'sending', 'sent', 'unknown']);
+// 後継の最初の指示は、worker が後継の ID を記録へ写す前に届くことがある（launching）。
+const ACCEPTABLE_STATES = new Set(['launching', 'launched', 'sent', 'unknown']);
 
 export const claudeAutoHandoffDir = () => join(homedir(), '.throughline', 'claude-auto-handoff');
+// 0.15.2 までが受け口の控えを置いた場所。期限の掃除だけを続ける。
 const targetsDir = (dir) => join(dir, 'targets');
+// 後継の最初の指示が残す受領。記録（worker が書き換える）とは別のファイルにして、書き込みが重ならないようにする。
+const acceptancePath = (sessionId, dir) => join(dir, `${sessionId}.accepted`);
 
 class ClaudeHandoffError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -141,7 +144,7 @@ function removeStale(dir, now) {
       throw error;
     }
     for (const name of names) {
-      if (!/\.(json|claim|log)$/.test(name)) continue;
+      if (!/\.(json|claim|log|accepted)$/.test(name)) continue;
       const path = join(folder, name);
       let modifiedAt;
       try { modifiedAt = statSync(path).mtimeMs; }
@@ -476,44 +479,12 @@ export function completeClaudeTurnWithoutHandoff({ sessionId, dir = claudeAutoHa
 
 /** 後継へ送る継続の指示。引き継ぎIDを含め、後継の最初の指示がこの配送のものかを照合できるようにする。 */
 export function claudeContinuationInput(record) {
+  // この文は後継の最初の指示（利用者の発言）として届く。止めた道具をやり直さずに「済んだ」と書いて
+  // 先へ進む後継が出たので（Haiku 4.5、macOS で実測）、実行されていない道具から始めることを明記する。
   return `Throughline自動継続 ${record.handoff_id}\n` +
     '注入された記憶と元のユーザー依頼に従い、未完了の作業をそのまま継続してください。' +
-    '直前の実行結果を確認し、完了済みの操作を重複実行しないでください。';
-}
-
-/**
- * SessionStart から呼ぶ。同じ project で後継の立ち上げ中の引き継ぎがある時だけ、この会話の受け口を控える。
- * worker が、`claude --bg` の返した ID と会話の ID を照合して読み、読んだら消す。
- */
-export function recordClaudeSuccessorTarget({ payload, env = process.env, dir = claudeAutoHandoffDir(), now = Date.now() }) {
-  const sessionId = payload?.session_id;
-  const socketPath = env.CLAUDE_CODE_MESSAGING_SOCKET;
-  if (!validSessionId(sessionId) || payload.agent_id || payload.source !== 'startup' ||
-      typeof socketPath !== 'string' || !socketPath) return false;
-  const cwd = payload.cwd ?? process.cwd();
-  const waiting = listClaudeAutoHandoffs({ dir }).some(record =>
-    TARGET_WAIT_STATES.has(record.state) && sameProjectPath(record.project_path, cwd) &&
-    (!record.successor?.short_id || sessionId.startsWith(record.successor.short_id)));
-  if (!waiting) return false;
-  writeJsonPrivate(join(targetsDir(dir), `${sessionId}.json`), {
-    session_id: sessionId, socket_path: socketPath, token: env.CLAUDE_CODE_MESSAGING_TOKEN ?? null, recorded_at: now,
-  });
-  return true;
-}
-
-function takeSuccessorTarget(shortId, dir) {
-  let names;
-  try { names = readdirSync(targetsDir(dir)); }
-  catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
-  const name = names.find(entry => entry.startsWith(shortId) && entry.endsWith('.json'));
-  if (!name) return null;
-  const path = join(targetsDir(dir), name);
-  const target = readJson(path);
-  rmSync(path, { force: true });
-  return target;
+    '記憶の「実行されなかった道具」は、まだ実行されていません。最初にそれを実際に呼び出してから、先へ進んでください。' +
+    '「ここまでにしたこと」に載っている完了済みの操作は、重複実行しないでください。';
 }
 
 /**
@@ -526,13 +497,24 @@ export function acceptClaudeAutoContinuation({ predecessorId, successorSessionId
   dir = claudeAutoHandoffDir(), now = Date.now() }) {
   if (!validSessionId(predecessorId) || typeof successorSessionId !== 'string') return null;
   const record = readClaudeAutoHandoff(predecessorId, dir);
-  if (!record || !ACCEPTABLE_STATES.has(record.state) || !record.successor?.short_id ||
-      !successorSessionId.startsWith(record.successor.short_id)) return null;
-  if (typeof prompt === 'string' && prompt.includes(`Throughline自動継続 ${record.handoff_id}`) && !record.accepted_at) {
-    updateRecord(predecessorId, { accepted_at: now }, { dir, now });
+  if (!record || !ACCEPTABLE_STATES.has(record.state)) return null;
+  const carriesInstruction = typeof prompt === 'string' && prompt.includes(`Throughline自動継続 ${record.handoff_id}`);
+  // 後継の ID が記録に入っていれば ID で、まだなら指示が運ぶ引き継ぎ ID で、後継と認める。
+  const isSuccessor = record.successor?.short_id
+    ? successorSessionId.startsWith(record.successor.short_id)
+    : carriesInstruction;
+  if (!isSuccessor) return null;
+  if (carriesInstruction && !record.accepted_at && !existsSync(acceptancePath(predecessorId, dir))) {
+    writeJsonPrivate(acceptancePath(predecessorId, dir),
+      { handoff_id: record.handoff_id, successor_session_id: successorSessionId, accepted_at: now });
   }
   return { handoffId: record.handoff_id, projectPath: record.project_path, inFlight: record.in_flight ?? null,
     transcriptPath: record.transcript_path ?? null };
+}
+
+function readAcceptance(sessionId, handoffId, dir) {
+  const acceptance = readJson(acceptancePath(sessionId, dir));
+  return acceptance?.handoff_id === handoffId && typeof acceptance.accepted_at === 'number' ? acceptance : null;
 }
 
 function successorArgs(record) {
@@ -543,6 +525,9 @@ function successorArgs(record) {
   if (permissionMode) args.push('--permission-mode', permissionMode);
   // 後継は旧い会話の続きなので、同じ作業ツリーを編集する。別の worktree へ移さない。
   args.push('--settings', JSON.stringify({ worktree: { bgIsolation: 'none' } }));
+  // 継続の指示は、起動時の最初の指示として渡す。立てた後で外から送ると、権限のバイパス中の後継は
+  // その文を利用者の承認まで止める（Claude Code の cross-session messaging の決まり）。
+  args.push(claudeContinuationInput(record));
   return args;
 }
 
@@ -553,17 +538,16 @@ function successorEnv(env) {
 }
 
 /**
- * 後継を立てて、継続の指示を1通送る。失敗は固定の理由を記録して止まる。送信の結果が不明な時は再送しない。
+ * 継続の指示を付けて後継を立て、後継の最初の指示が受領を残すのを待つ。失敗は固定の理由を記録して止まる。
+ * 受領を確かめられない時も、後継を立て直さない（同じ指示を持った会話を2つ作らない）。
  */
 export async function runClaudeAutoHandoffWorker(sessionId, {
   dir = claudeAutoHandoffDir(),
   env = process.env,
   spawn = spawnPortableSync,
-  send = sendClaudeInbox,
   openDb = null,
   transcriptTimeoutMs = 5_000,
-  targetTimeoutMs = 30_000,
-  sendTimeoutMs = 30_000,
+  acceptTimeoutMs = 60_000,
   pollMs = 200,
 } = {}) {
   let record = readClaudeAutoHandoff(sessionId, dir);
@@ -573,7 +557,8 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   const fail = code => update({ state: 'failed', error_code: code });
 
   // 止めた時点の依頼・ここまでにしたこと・その時のモデルを写し、止めたターンを DB へ取り込む。
-  // 後継の最初の指示が、これを現在地として受け取る。
+  // 後継の最初の指示が、これを現在地として受け取る。前の引き継ぎの受領が残っていれば消す。
+  rmSync(acceptancePath(sessionId, dir), { force: true });
   await waitForStoppedToolUse(record, { timeoutMs: transcriptTimeoutMs, pollMs });
   const inFlight = record.transcript_path ? snapshotInFlight(record, dir) : null;
   if (inFlight && openDb) inFlight.turn = captureStoppedTurn(record, openDb);
@@ -597,31 +582,15 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   }
   update({ state: 'launched', successor: { short_id: shortId, session_id: null } });
 
-  let target = null;
-  for (const deadline = Date.now() + targetTimeoutMs; !target && Date.now() < deadline;) {
-    target = takeSuccessorTarget(shortId, dir);
-    if (!target) await delay(pollMs);
+  // 指示は起動時に渡してある。後継の最初の UserPromptSubmit が受領を残すのを待つ。
+  for (const deadline = Date.now() + acceptTimeoutMs; Date.now() < deadline;) {
+    const acceptance = readAcceptance(sessionId, record.handoff_id, dir);
+    if (acceptance) {
+      rmSync(acceptancePath(sessionId, dir), { force: true });
+      return update({ state: 'sent', error_code: null, accepted_at: acceptance.accepted_at,
+        successor: { short_id: shortId, session_id: acceptance.successor_session_id } });
+    }
+    await delay(pollMs);
   }
-  if (!target) return fail('handoff_successor_target_unavailable');
-  update({ successor: { short_id: shortId, session_id: target.session_id } });
-
-  // ここから先は後継へ指示が届き得る。結果が不明でも、同じ指示をもう一度送らない。
-  update({ state: 'sending' });
-  const result = await send(
-    { socket_path: target.socket_path, ...(target.token ? { token: target.token } : {}) },
-    claudeContinuationInput(record),
-    {
-      timeout_ms: sendTimeoutMs,
-      confirm_acceptance: async signal => {
-        while (!signal.aborted) {
-          if (readClaudeAutoHandoff(sessionId, dir)?.accepted_at) return true;
-          await delay(pollMs);
-        }
-        return false;
-      },
-    },
-  );
-  if (result.status === 'accepted') return update({ state: 'sent', error_code: null });
-  if (result.status === 'not_sent') return fail(`handoff_delivery_${result.reason}`);
-  return update({ state: 'unknown', error_code: `handoff_delivery_${result.reason}` });
+  return update({ state: 'unknown', error_code: 'handoff_delivery_unconfirmed' });
 }
