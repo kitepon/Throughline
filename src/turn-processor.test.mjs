@@ -274,6 +274,46 @@ test('Claude Stop flush barrierは、期限までtranscriptのファイルが無
   }
 });
 
+test('Claude Stop flush barrierは、期限までtranscriptにuserの発言が1つも無い時だけtranscript_head_lostを返す', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'throughline-stop-head-lost-'));
+  const transcriptPath = join(root, 'head-lost.jsonl');
+  let elapsed = 0;
+  const clock = { now: () => elapsed, wait: async (milliseconds) => { elapsed += milliseconds; } };
+  const line = (entry) => JSON.stringify(entry);
+  const assistant = (content) => ({ type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content } });
+  try {
+    // ターンの途中でtranscriptのフォルダが消され、Claude Codeが残りの行だけでファイルを作り直した形（Linux 2.1.292で実測）。
+    const tail = [
+      line(assistant([{ type: 'thinking', thinking: '' }])),
+      line(assistant([{ type: 'text', text: '最後の応答' }])),
+      line({ type: 'system', subtype: 'stop_hook_summary', hookCount: 3 }),
+      line({ type: 'ai-title', aiTitle: '題' }),
+    ];
+    writeFileSync(transcriptPath, tail.join('\n') + '\n', 'utf8');
+    assert.deepEqual(await waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: '最後の応答', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), { status: 'transcript_head_lost' });
+    assert.equal(elapsed, 30, 'a user line that is written late must still get the whole deadline');
+
+    // userの発言が残っているのに完了が見えない時は、失敗のまま（保存できたはずの会話）。
+    writeFileSync(transcriptPath,
+      [line({ type: 'user', message: { role: 'user', content: '依頼' } }), ...tail].join('\n') + '\n', 'utf8');
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: '別の応答', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), /not visible before deadline/);
+
+    // 発言が1つも無いファイル（書き始め）は、先頭を失ったとは言えない。失敗のまま。
+    writeFileSync(transcriptPath, line({ type: 'mode', mode: 'normal' }) + '\n', 'utf8');
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: '最後の応答', timeoutMs: 30, intervalMs: 10, ...clock,
+    }), /not visible before deadline/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Claude Stop flush barrierはmarkerなし旧payloadをone-shot互換へ残す', async () => {
   let reads = 0;
   const result = await waitForClaudeStopTranscriptFlush({

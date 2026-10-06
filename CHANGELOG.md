@@ -10,6 +10,22 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-10-07
+
+### 修正
+
+- Claudeのターンの途中で会話記録（transcript）のフォルダが消され、Claude Codeが残りの行だけでファイルを作り直した時、Stopのhookが`Claude Stop transcript completion was not visible before deadline`で失敗し、`HOOK_PROCESS_TURN_FAILED`を数えていたのを直す（[ADR 0038](docs/adr/0038-stop-flush-barrier-head-lost-transcript.md)）。期限まで待って、transcriptに応答だけがあり利用者の発言が1つも無い時は、失敗に数えず、`backfill.log`に`skipped: "transcript_head_lost"`を残して終わる。ファイルが残らなかった時（`transcript_absent`、[ADR 0029](docs/adr/0029-stop-flush-barrier-absent-transcript.md)）と同じ扱いにする。
+- 利用者の発言が残っているのに完了が見えない時は、今までどおり失敗に数える。
+
+### 確認した範囲
+
+- Linuxのコンテナ（0.15.5、Claude Code 2.1.292）で2026-10-07に起きた失敗の、transcriptとStopのpayloadを切り離した置き場で再生した。0.15.5は同じ文面で失敗して1回数え、この版は失敗に数えず`transcript_head_lost`を記録した。
+
+### 確認していない範囲
+
+- 同じ朝に同じ試験の道具で数えられた残り11回の失敗は、transcriptが後で消されていて、同じ形だったかを直接は見ていない。11回とも、その会話の最後のStopで起きている。
+- macOSとWindowsでは、この形の失敗を再現していない（足した試験はCIの3環境で走る）。
+
 ## [0.16.0] — 2026-10-07
 
 ### 変更
@@ -1876,7 +1892,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.1...HEAD
+[0.16.1]: https://github.com/kitepon/Throughline/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/kitepon/Throughline/compare/v0.15.5...v0.16.0
 [0.15.5]: https://github.com/kitepon/Throughline/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/kitepon/Throughline/compare/v0.15.3...v0.15.4

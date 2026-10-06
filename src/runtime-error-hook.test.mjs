@@ -98,6 +98,20 @@ test('Claude Stopで、transcriptのファイルが無い会話は失敗に数�
     skipped: 'transcript_absent',
   }]);
 
+  // ターンの途中でtranscriptが消され、応答の行だけでファイルが作り直された。依頼が残っていないので、失敗に数えない（ADR 0038）。
+  const headLostPath = join(root, 'head-lost.jsonl');
+  writeFileSync(headLostPath, JSON.stringify({ type: 'assistant',
+    message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'PROBE_OK' }] } }) + '\n');
+  const headLost = stop({
+    session_id: 'a1b2c3d4-0000-4000-8000-000000000003', transcript_path: headLostPath, cwd: root,
+    hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'PROBE_OK',
+  });
+  assert.equal(headLost.status, 0, headLost.stderr);
+  assert.equal(existsSync(storePath), false, 'a transcript that lost its head must not be counted as a hook failure');
+  assert.equal(existsSync(join(root, '.throughline', 'logs', 'hook-failures.log')), false);
+  assert.deepEqual([readLog('backfill.log').at(-1).session_id, readLog('backfill.log').at(-1).skipped],
+    ['a1b2c3d4-0000-4000-8000-000000000003', 'transcript_head_lost']);
+
   // ファイルはあるのに、Stopが渡した応答がそこに無い。保存できなかった会話なので、失敗のまま数える。
   const presentPath = join(root, 'present.jsonl');
   writeFileSync(presentPath, JSON.stringify({ type: 'user', message: { role: 'user', content: 'request' } }) + '\n');

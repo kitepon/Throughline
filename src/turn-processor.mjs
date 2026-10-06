@@ -33,6 +33,7 @@
 import { getDb } from './db.mjs';
 import {
   readRawEntries,
+  readTranscript,
   readLatestLogicalTurnCompletions,
   sliceCurrentTurnEntries,
   extractDetailBlocks,
@@ -60,6 +61,12 @@ export const CLAUDE_STOP_TRANSCRIPT_FLUSH_INTERVAL_MS = 25;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+/** transcript に assistant の発言だけがあり、user の発言が1つも無い（会話の始まりを失っている）。 */
+function isTranscriptHeadLost(transcriptPath) {
+  const turns = readTranscript(transcriptPath);
+  return turns.length > 0 && !turns.some(turn => turn.role === 'user');
+}
+
 /**
  * Claude Stop payloadのassistant identityがtranscriptへ永続化されるまで待つ。
  * markerは本文ソースにせず、transcript可視化のbarrierにだけ使う。
@@ -77,6 +84,10 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
  * 期限まで待ってもtranscriptのファイル自体が無い時は、失敗にせず `transcript_absent` を返す
  * （ADR 0029）。Claude Codeを `--no-session-persistence` で起動すると、hookへ `transcript_path` は
  * 渡るが、ファイルは最後まで作られない。ファイルがあるのに完了が見えない時は、今までどおり失敗にする。
+ *
+ * 期限まで待って、transcriptにassistantの発言だけがありuserの発言が1つも無い時は、失敗にせず
+ * `transcript_head_lost` を返す（ADR 0038）。ターンの途中でtranscriptが消されると、Claude Codeは
+ * 残りの行だけでファイルを作り直す。そのターンの依頼はどこにも残っていない。
  */
 export async function waitForClaudeStopTranscriptFlush({
   transcriptPath,
@@ -87,6 +98,7 @@ export async function waitForClaudeStopTranscriptFlush({
   readCompletions = readLatestLogicalTurnCompletions,
   isTurnCaptured = () => true,
   transcriptExists = existsSync,
+  transcriptHeadLost = isTranscriptHeadLost,
   now = Date.now,
   wait = delay,
 }) {
@@ -115,8 +127,9 @@ export async function waitForClaudeStopTranscriptFlush({
     }
     const remaining = deadline - now();
     if (remaining <= 0) {
-      if (typeof transcriptPath === 'string' && transcriptPath && !transcriptExists(transcriptPath)) {
-        return { status: 'transcript_absent' };
+      if (typeof transcriptPath === 'string' && transcriptPath) {
+        if (!transcriptExists(transcriptPath)) return { status: 'transcript_absent' };
+        if (transcriptHeadLost(transcriptPath)) return { status: 'transcript_head_lost' };
       }
       throw new Error('Claude Stop transcript completion was not visible before deadline');
     }
@@ -279,8 +292,8 @@ async function processStop() {
       lastAssistantMessage: last_assistant_message,
       isTurnCaptured: (fragmentTurnNumbers) => isLogicalTurnCaptured(db, origin, fragmentTurnNumbers),
     });
-    if (flush.status === 'transcript_absent') {
-      // 保存する元が無い。失敗には数えず、どの会話のStopを見送ったかを端末内に残す（ADR 0029）。
+    if (flush.status === 'transcript_absent' || flush.status === 'transcript_head_lost') {
+      // 保存する元が無い。失敗には数えず、どの会話のStopを見送ったかを端末内に残す（ADR 0029・0038）。
       logBackfill({
         ts: new Date().toISOString(),
         hook: 'stop',
@@ -288,7 +301,7 @@ async function processStop() {
         target,
         origin,
         transcript_path,
-        skipped: 'transcript_absent',
+        skipped: flush.status,
       });
       process.exit(0);
     }
