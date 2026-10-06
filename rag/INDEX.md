@@ -29,6 +29,7 @@ rag/
 
 ## Claude自動継続の根拠
 
+- [既存の会話をDesktopで開く一次ソース抜粋](01-hooks/raw/claude-desktop-session-open-extract.md) — `claude --desktop --resume <session-id>`は裏の実行を停止した会話を開く。実行中のbackground sessionは移せない。Desktop受入で最後の後継の完了報告を画面から確認した。
 - [圧縮・会話の起動・受け口の一次ソース抜粋](01-hooks/raw/claude-compact-hooks-extract.md) — `PreCompact`は圧縮を止められる（exit code 2）が`continue`は捨てられる。`PreToolUse`の`deny`+`continue:false`で道具を実行させずにターンを止められる。`claude --bg`は指示なしで起動すると指示待ちの会話が立つ。会話ごとの受け口（inbox socket）へ外から1通送ると、入力待ちの会話でターンが始まる。[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)で、対話の会話から後継へ3回連続で引き継ぎ、圧縮は1回も走らなかった。Finding 6・第三仮説（PreCompactでの再投影）に対する現行の答えは[ADR 0033](../docs/adr/0033-claude-auto-handoff-new-session.md)。
 
 ## Question this RAG was built to answer

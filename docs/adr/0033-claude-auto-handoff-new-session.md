@@ -92,8 +92,8 @@ Claude Desktop の新しい会話は、画面を開いただけでは process �
 ## Consequences
 
 - 有効な project では、Claude Code の自動圧縮は走らない。旧い会話は、止めた道具の hook の文を出して止まる。
-- 続きは裏の会話（agent view）で動く。`claude agents` の一覧と `claude attach <id>` で見られる。Claude Desktop の画面には
-  出ず、後継のターンが終わって入力待ちになった後に Desktop で開ける。
+- 続きは裏の会話（agent view）で動く。`claude agents` の一覧と `claude attach <id>` で見られる。Desktopへは自動表示しない。
+  作業完了を確認して裏の実行を停止した後、`claude --desktop --resume <session-id>`で同じ会話をDesktopに開ける。
 - `PreToolUse` hook は、有効な端末の全ての Claude の会話で、道具の呼び出しのたびに1回走る。
 - 止めたターンは Stop hook を通らない。worker が取り込む（0.14.1）。発言が1つも無いまま止めたターンは、
   user の行と道具の入出力だけが入る。完了の受領（Stop が出すもの）は、止めたターンには出さない。
@@ -120,4 +120,5 @@ Claude Desktop の新しい会話は、画面を開いただけでは process �
   旧い会話を止める・後継を立てる、の3段は通った。継続の指示は、バイパス中の後継が承認待ちで止めた（0.15.3 で渡し方を変えた理由）。
 - 0.15.3（継続の指示を最初の指示として渡す）。macOS の端末の会話（2.1.289、Haiku 4.5）で、バイパスは4回、`acceptEdits` も4回、
   連続で引き継いで完了。Windows 11 の端末の会話（`acceptEdits`）でも4回連続で引き継いで完了した。
-- 0.15.3 が Claude Desktop の画面で最後まで通ること、Linux の実物での通し、Fable、subagent が動いている最中の引き継ぎは確かめていない。
+- 0.15.4。macOSのClaude Desktopの画面から、移動済みの会話（Opus 5.5、high、バイパス）と、最初からフォルダを選んだ会話（同モデル・強度、auto）を試した。前者は最初の後継へ記憶が入り、4個の再読を完了した。後者は3回引き継ぎ、14個を順に読み、結果を作った。圧縮・読み直し・読み飛ばし・承認待ちは無かった。試行の経緯と範囲は[実測記録](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md#claude-desktopの画面2026-10-06)を参照する。
+- 0.15.3以降のLinuxの実物での通し、Windowsのバイパス、Fable、subagentが動いている最中の引き継ぎは確かめていない。

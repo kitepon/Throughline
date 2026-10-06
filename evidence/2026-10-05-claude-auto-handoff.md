@@ -145,3 +145,51 @@ Windows 11（10.0.26200）、Node 24.20、Claude Code 2.1.289（npm の入口）
 - Claude Desktop の画面から始めた会話で、同じ hook が同じに動くかは確かめていない。同梱の本体 2.1.286 を端末から
   起動した会話では動いた。Desktop が本体を起動する時の環境（PATH、`CLAUDE_CODE_ENTRYPOINT=claude-desktop`）での動作は未確認。
 - Windows は Haiku 4.5 だけで確かめた。
+
+## Claude Desktopの画面（2026-10-06）
+
+**0.15.4で、Desktopから最初の後継への記憶注入と作業完了を確認した。フォルダを選んで始めた会話では3回連続で引き継いだ。**
+
+前の節は10月4〜5日の端末試験の記録で、この節は10月6日10:00〜10:02 JSTの追加受入である。
+macOS 27.0、Desktop同梱のClaude Code 2.1.286、後継はHomebrewの2.1.289。
+モデルは画面で選択済みのOpus 5.5、推論強度はhigh。製品の継承設定をそのまま検証した。
+公開されたThroughline 0.15.4を使い、試験用projectだけ自動継続を有効にした。
+圧縮の窓はproject設定の`CLAUDE_CODE_AUTO_COMPACT_WINDOW=141000`。
+
+| 始めた会話 | 権限 | 引き継ぎ | 記憶注入 | 実際の作業結果 |
+|---|---|---|---|---|
+| フォルダなしで始め、後から試験projectへ移動した既存会話 | bypassPermissions | 1回 | 最初の後継に5,718字。`merged:true`、`merge_skip_reason:null`、`sent`、受領あり | part06〜09を順に1回ずつReadし、result4.txtに「再読完了」、FINISHED-4 |
+| 画面で最初から試験projectを選んだ新会話 | auto | 3回 | 各後継に6,906 / 7,471 / 7,832字。全て合流・受領済み | part01〜14を順に1回ずつReadし、result5.txtに「DESKTOP-FOLDER-OK」/「14」、FINISHED-5 |
+
+新会話の起動場所はDesktopの`Starting local session … in <試験project>`で確認し、
+transcriptの`relocated`は0件だった。読み取りの成功した道具と結果を会話の鎖に沿って照合した。
+途中で止めたReadはpart04、part09、part14で、それぞれ次の後継が最初に実行した。
+読み飛ばし・完了済みファイルの読み直し・制限付きRead・重複Writeは無かった。
+両ケースの今回の実行範囲に圧縮記録・`Held peer message`・権限待ちは無く、
+`hook-failures.log`も無かった。runtime errorのopenは0件だった。
+
+### 試行の経緯と証明範囲
+
+- 移動済み会話への最初の指示では、モデルが過去2回の停止を理由に道具を呼ばずに終了した。
+  `PreCompact`は引き継ぎを要求したが、仕様どおりStopで取り下げられ、後継は作られなかった。
+  更新済みであることと今回のReadを実際に呼ぶことを画面から指示し、次の試行で注入と完了を確認した。
+  この実機試験だけで、Stopを挟まない移動直後のDB更新まで独立に証明したとはしない。
+- フォルダ選択済みの新会話は、前試験の後継が残したbatonにより、その記憶も最初に引き継いだ。
+  過去の記憶が無い会話としての試験ではない。フォルダを移さずに起動し、新しい依頼を連続継承して完了したことを証明する。
+- Linux・Windowsの追加試験、Fable、subagent実行中、既定の圧縮容量は今回の対象に含めていない。
+- Jevの画面操作は対象選択で停止した。画面で対象会話と入力を確認し、agent-desktopの標準キーボード操作で入力・送信した。
+  会話の受け口へ外から文は送っていない。
+
+[実測JSON](2026-10-06-claude-desktop-acceptance.json)に会話の鎖、引き継ぎID、設定、注入量、
+成功したRead/Write、結果のhashと判定を保存した。元のtranscriptと引き継ぎ記録は端末のprivate cacheに控えた。
+試験後は自動継続を無効に戻し、今回立てた4つの後継を停止・削除した。
+全体のClaude設定は試験前とバイト単位で一致する。Desktopの利用者の会話と試験用フォルダは残した。
+
+### 完了した後継をDesktopで開く
+
+利用者の質問を受け、停止済みの最後の後継`fb9f06b4-588e-4ee1-bb21-cf92235d851c`を、
+`claude --desktop --resume <session-id>`で開いた。新しい会話や追加のモデル応答は作っていない。
+Desktopの画面で、題名「tl-tl-claude-probe-3eacc0af」、引き継ぎの指示、part14の再開、
+`FINISHED-5`、結果ファイルへのリンク、完了報告を確認した。同じsessionIdが`kind:interactive`で登録された。
+Desktopへの自動表示と、実行中の後継のDesktop表示は確認していない。
+公式仕様は[一次ソース抜粋](../rag/01-hooks/raw/claude-desktop-session-open-extract.md)を参照する。

@@ -1,0 +1,211 @@
+{
+  "schema": "throughline.desktop_acceptance.v1",
+  "measured_at": "2026-10-06T01:03:38.013683+00:00",
+  "throughline": "0.15.4",
+  "source_runtime": "Claude Desktop 2.1.286",
+  "successor_runtime": "Claude Code 2.1.289",
+  "os": "macOS 27.0",
+  "compact_window": 141000,
+  "cases": [
+    {
+      "name": "relocated",
+      "source_session_id": "04bf5ab3-4b29-4b35-9b85-02a48eec51a1",
+      "chain": [
+        "04bf5ab3-4b29-4b35-9b85-02a48eec51a1",
+        "ae285d20-e9fe-4b04-ba47-727afc3d6907"
+      ],
+      "handoffs": [
+        {
+          "handoff_id": "6f8c16b6-00e5-4a1b-b59e-af31a97d57f8",
+          "source_session_id": "04bf5ab3-4b29-4b35-9b85-02a48eec51a1",
+          "successor_session_id": "ae285d20-e9fe-4b04-ba47-727afc3d6907",
+          "state": "sent",
+          "error_code": null,
+          "accepted_at": "2026-10-06T01:00:16.540000+00:00",
+          "settings": {
+            "model": "claude-opus-5-5",
+            "effort": "high",
+            "permission_mode": "bypassPermissions"
+          },
+          "stopped_tools": [
+            {
+              "name": "Read",
+              "target": "part06.txt"
+            }
+          ],
+          "in_flight_captured": true,
+          "merged": true,
+          "merge_skip_reason": null,
+          "injection_chars": 5718,
+          "injection_header": true,
+          "original_request_present": true,
+          "stopped_tool_present": true,
+          "source_project_matches": true
+        }
+      ],
+      "successful_reads": [
+        "part06.txt",
+        "part07.txt",
+        "part08.txt",
+        "part09.txt"
+      ],
+      "successful_writes": [
+        "result4.txt"
+      ],
+      "result": "再読完了",
+      "result_sha256": "ae7b911ba2e0c1169ba4e0f1c83059885bd425716001cea17239e7e0f1c8be45",
+      "compact_records": 0,
+      "held_peer_messages": 0,
+      "permission_waits": [],
+      "pass": true
+    },
+    {
+      "name": "folder_selected",
+      "source_session_id": "f7648f19-cb6c-4a60-91d8-f82e18e62ec9",
+      "chain": [
+        "f7648f19-cb6c-4a60-91d8-f82e18e62ec9",
+        "0ce9dd92-c04d-4713-878c-6e7a214f5fe7",
+        "6e1af017-3eb4-4be6-b57d-c43c7d7015a3",
+        "fb9f06b4-588e-4ee1-bb21-cf92235d851c"
+      ],
+      "handoffs": [
+        {
+          "handoff_id": "e297ce24-4c5e-4780-a7ed-ab4aae400445",
+          "source_session_id": "f7648f19-cb6c-4a60-91d8-f82e18e62ec9",
+          "successor_session_id": "0ce9dd92-c04d-4713-878c-6e7a214f5fe7",
+          "state": "sent",
+          "error_code": null,
+          "accepted_at": "2026-10-06T01:01:41.742000+00:00",
+          "settings": {
+            "model": "claude-opus-5-5",
+            "effort": "high",
+            "permission_mode": "auto"
+          },
+          "stopped_tools": [
+            {
+              "name": "Read",
+              "target": "part04.txt"
+            }
+          ],
+          "in_flight_captured": true,
+          "merged": true,
+          "merge_skip_reason": null,
+          "injection_chars": 6906,
+          "injection_header": true,
+          "original_request_present": true,
+          "stopped_tool_present": true,
+          "source_project_matches": true
+        },
+        {
+          "handoff_id": "14afed68-5c42-4d81-b397-1119dbaa72c1",
+          "source_session_id": "0ce9dd92-c04d-4713-878c-6e7a214f5fe7",
+          "successor_session_id": "6e1af017-3eb4-4be6-b57d-c43c7d7015a3",
+          "state": "sent",
+          "error_code": null,
+          "accepted_at": "2026-10-06T01:01:56.585000+00:00",
+          "settings": {
+            "model": "claude-opus-5-5",
+            "effort": "high",
+            "permission_mode": "auto"
+          },
+          "stopped_tools": [
+            {
+              "name": "Read",
+              "target": "part09.txt"
+            }
+          ],
+          "in_flight_captured": true,
+          "merged": true,
+          "merge_skip_reason": null,
+          "injection_chars": 7471,
+          "injection_header": true,
+          "original_request_present": true,
+          "stopped_tool_present": true,
+          "source_project_matches": true
+        },
+        {
+          "handoff_id": "3eacc0af-33a1-4eed-99d2-c899c97d6c3d",
+          "source_session_id": "6e1af017-3eb4-4be6-b57d-c43c7d7015a3",
+          "successor_session_id": "fb9f06b4-588e-4ee1-bb21-cf92235d851c",
+          "state": "sent",
+          "error_code": null,
+          "accepted_at": "2026-10-06T01:02:10.572000+00:00",
+          "settings": {
+            "model": "claude-opus-5-5",
+            "effort": "high",
+            "permission_mode": "auto"
+          },
+          "stopped_tools": [
+            {
+              "name": "Read",
+              "target": "part14.txt"
+            }
+          ],
+          "in_flight_captured": true,
+          "merged": true,
+          "merge_skip_reason": null,
+          "injection_chars": 7832,
+          "injection_header": true,
+          "original_request_present": true,
+          "stopped_tool_present": true,
+          "source_project_matches": true
+        }
+      ],
+      "successful_reads": [
+        "part01.txt",
+        "part02.txt",
+        "part03.txt",
+        "part04.txt",
+        "part05.txt",
+        "part06.txt",
+        "part07.txt",
+        "part08.txt",
+        "part09.txt",
+        "part10.txt",
+        "part11.txt",
+        "part12.txt",
+        "part13.txt",
+        "part14.txt"
+      ],
+      "successful_writes": [
+        "result5.txt"
+      ],
+      "result": "DESKTOP-FOLDER-OK\n14",
+      "result_sha256": "1a062a2fd5f45409cdd8aaf1820e9e12633aa62a548991edb5843ba898431608",
+      "compact_records": 0,
+      "held_peer_messages": 0,
+      "permission_waits": [],
+      "pass": true,
+      "relocated_records": 0,
+      "initial_memory_inherited": true,
+      "initial_predecessor_id": "ae285d20-e9fe-4b04-ba47-727afc3d6907"
+    }
+  ],
+  "hook_failure_log_exists": false,
+  "open_runtime_errors": 0,
+  "notes": [
+    "移動済みの会話の最初の指示は、モデルが過去の停止を理由に道具を呼ばずに終えた。次の明示指示でReadを呼び、後継への注入と完了を確認した。",
+    "フォルダ選択済みの新会話は、前試験の後継が残したbatonでその記憶も引き継いだ。フォルダ移動は無く、新しい依頼の14個を順に処理した。"
+  ],
+  "cleanup": {
+    "auto_handoff_disabled": true,
+    "claude_settings_bytes_unchanged": true,
+    "removed_background_sessions": [
+      "0ce9dd92-c04d-4713-878c-6e7a214f5fe7",
+      "6e1af017-3eb4-4be6-b57d-c43c7d7015a3",
+      "ae285d20-e9fe-4b04-ba47-727afc3d6907",
+      "fb9f06b4-588e-4ee1-bb21-cf92235d851c"
+    ],
+    "user_desktop_sessions_preserved": true
+  },
+  "desktop_open": {
+    "session_id": "fb9f06b4-588e-4ee1-bb21-cf92235d851c",
+    "command": "claude --desktop --resume <session-id>",
+    "background_stopped_before_open": true,
+    "title": "tl-tl-claude-probe-3eacc0af",
+    "observed_finish_marker": "FINISHED-5",
+    "observed_result_link": "result5.txt",
+    "automatic_desktop_display": false,
+    "pass": true
+  }
+}

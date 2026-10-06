@@ -53,7 +53,8 @@
   `backgrounded · <id> · <name> (idle — send a prompt to start)` と出て、指示を待つ会話が立つ（実機。SessionStart は走る）。
   `--model`・`--effort`・`--permission-mode`・`--name`・`--settings` を受ける。`--session-id` は無視される
   （短い ID は session id の先頭8桁）。別の background session の中から起動すると、出力の ID に色の制御文字が付く。
-- 動いている background session は Desktop へ移せない（`claude --desktop --resume`）。ターンが終わった後は開ける。
+- 動いている background session は Desktop へ移せない（`claude --desktop --resume`）。裏の実行を停止した後に開ける。
+  現行の公式仕様は[Desktopの会話を開く一次ソース抜粋](claude-desktop-session-open-extract.md)を参照する。
 
 ## 既存の会話へ外から送る口（inbox socket）
 

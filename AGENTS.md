@@ -456,7 +456,7 @@ versioned JSONだけを使う。Observer向け`observer-read`／`observer-wait`�
 
 Codex自動新規タスク継続は[実装契約と受入](docs/05_codex_first_roadmap.md#自動新規タスク継続の設計案)に従う。macOSのDesktopで連続継承と最終完了を確認済み。既定では無効とし、`auto-handoff enable`で有効化する。実測JSONと公開履歴はevidenceへ置く。
 
-Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、`claude --bg`で立てた新しい会話へ、配送ライブラリで継続の指示を1通送る。Linux・macOS・Windowsの対話の会話から、連続の引き継ぎを確認済み（Claude Desktopの画面から始めた会話は未確認）。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
+Claude Codeの自動継続は[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)に従う。自動圧縮を止めて旧い会話を止め、継続の指示を最初の指示として付けた`claude --bg`で新しい会話を立てる。Linux・macOS・Windowsの対話の会話と、macOSのClaude Desktopの画面から始めた会話で、記憶注入と作業完了を確認済み。Desktopは移動済みの会話と、最初からフォルダを選んだ会話を確認した。実測と検証範囲は[evidence](evidence/2026-10-05-claude-auto-handoff.md)に置く。既定では無効とし、`auto-handoff enable --host claude`で有効化する。
 
 [docs/08_codex_dual_support.md](docs/08_codex_dual_support.md) と [docs/09_rollback_context_trim_insight.md](docs/09_rollback_context_trim_insight.md) は趣旨が異なるが、矛盾するものではない。
 
