@@ -19,7 +19,7 @@
 
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
+import { dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -38,6 +38,7 @@ import { resolveMergeTarget } from './session-merger.mjs';
 import { writeBaton } from './baton.mjs';
 import { sameProjectPath } from './project-path.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
+import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
 
 export const CLAUDE_AUTO_HANDOFF_SCHEMA = 'throughline.claude-auto-handoff.v2';
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
@@ -260,6 +261,17 @@ function readLatestModel(transcriptPath) {
     if (typeof model === 'string' && model.startsWith('claude-')) return model;
   }
   return null;
+}
+
+/**
+ * 止める会話の題。人が付けた題を先に読む（Claude Desktop の題と、`--name` で付いた後継の名前もこの行に入る）。
+ * 無ければ Claude Code が付けた題を読む。
+ */
+function readSessionTitle(transcriptPath) {
+  const entries = readRawEntries(transcriptPath);
+  const latest = (type, key) => entries.findLast(entry => entry?.type === type &&
+    typeof entry[key] === 'string' && entry[key].trim())?.[key] ?? null;
+  return latest('custom-title', 'customTitle') ?? latest('ai-title', 'aiTitle');
 }
 
 const CONTINUATION_MARKER = /Throughline自動継続 ([0-9a-f-]{36})/;
@@ -525,8 +537,15 @@ function readAcceptance(sessionId, handoffId, dir) {
   return acceptance?.handoff_id === handoffId && typeof acceptance.accepted_at === 'number' ? acceptance : null;
 }
 
+/** 後継の名前。一覧で、どの project の何の作業の続きかを読めるようにする。概要は前任の題、無ければ元の依頼から取る。 */
+function successorName(record) {
+  return composeAutoHandoffTitle({ projectPath: record.project_path,
+    titles: [record.transcript_path ? readSessionTitle(record.transcript_path) : null, record.in_flight?.user?.content] });
+}
+
 function successorArgs(record) {
-  const args = ['--bg', '--name', `tl-${basename(record.project_path)}-${record.handoff_id.slice(0, 8)}`];
+  // 名前は `--name=` の形で渡す。project のフォルダ名が `-` で始まっても、option として読まれない。
+  const args = ['--bg', `--name=${successorName(record)}`];
   const { model, effort, permission_mode: permissionMode } = record.settings ?? {};
   if (model) args.push('--model', model);
   if (effort) args.push('--effort', effort);

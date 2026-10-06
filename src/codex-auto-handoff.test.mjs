@@ -10,7 +10,8 @@ import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemor
 import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoffMemory,
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
-import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary } from './codex-auto-handoff.mjs';
+import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
+  autoHandoffTargetName, nameAutoHandoffTarget } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -290,4 +291,31 @@ test('forkした子の先頭metadataを保持し、継承された親metadataで
   assert.equal(state.latestTurnId, 'child-turn');
   assert.equal(state.stoppedAt, state.turnStartAt);
   assert.throws(() => readCodexHandoffState(file, { threadId: 'parent' }), /handoff_thread_mismatch/);
+}));
+
+test('後継タスクの名前は project 名・前任の題・自動引き継ぎの印で作り、名前の無い後継からは元のタスクの題をさかのぼる', async () => withDb(async db => {
+  const named = (operation, title) => updateAutoHandoff(db, operation.handoff_id, { runtime_json: { projectId: null, title } }).operation;
+  const a = named(request(db, 'A', { projectPath: '/Users/kite/Developer/BellTeam' }).operation, 'ASCからの連絡を確認');
+  assert.equal(autoHandoffTargetName(db, a), 'BellTeam｜ASCからの連絡を確認（自動引き継ぎ）');
+
+  // A の後継 B は、名前を付けない版が作った。題は継続の指示として見える
+  updateAutoHandoff(db, a.handoff_id, { target_thread_id: 'B' });
+  const b = named(request(db, 'B', { projectPath: '/Users/kite/Developer/BellTeam' }).operation, continuationInput(a));
+  assert.equal(b.previous_handoff_id, a.handoff_id);
+  assert.equal(autoHandoffTargetName(db, b), 'BellTeam｜ASCからの連絡を確認（自動引き継ぎ）');
+
+  // B の後継 C は、この形の名前を持つ。重ねても同じ名前になる
+  updateAutoHandoff(db, b.handoff_id, { target_thread_id: 'C' });
+  const c = named(request(db, 'C', { projectPath: '/Users/kite/Developer/BellTeam' }).operation, autoHandoffTargetName(db, b));
+  assert.equal(autoHandoffTargetName(db, c), 'BellTeam｜ASCからの連絡を確認（自動引き継ぎ）');
+
+  // 題がどこにも無い時は project 名と印だけ
+  const lone = named(request(db, 'D', { projectPath: 'C:\\Users\\kite_\\Throughline' }).operation, '');
+  assert.equal(autoHandoffTargetName(db, lone), 'Throughline（自動引き継ぎ）');
+
+  const sent = [];
+  assert.equal(await nameAutoHandoffTarget(async (method, params) => { sent.push([method, params]); return {}; }, 'T', 'BellTeam（自動引き継ぎ）'), true);
+  assert.deepEqual(sent, [['thread/name/set', { threadId: 'T', name: 'BellTeam（自動引き継ぎ）' }]]);
+  const rejected = async () => { throw Object.assign(new Error('unknown method'), { delivery_code: 'CODEX_RECEIVER_REJECTED' }); };
+  assert.equal(await nameAutoHandoffTarget(rejected, 'T', 'x'), false, '名前を付けられなくても、引き継ぎは止めない');
 }));

@@ -18,6 +18,7 @@ import { ensureAutoHandoffSummaries, renderAutoHandoffMemory } from './codex-aut
 import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
   settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
 import { resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
+import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
 
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
 const stateRoot = () => join(homedir(), '.throughline', 'codex-auto-handoff');
@@ -120,6 +121,30 @@ async function sourceNativeState(operation, runtime) {
     }, runtime);
 }
 
+/**
+ * 後継タスクの名前。一覧で、どの project の何の作業の続きかを読めるようにする。概要は前任の題から取る。
+ * 前任が名前の無い後継（題が継続の指示になっている）なら、引き継ぎをさかのぼって元のタスクの題を使う。
+ */
+export function autoHandoffTargetName(db, operation) {
+  const titles = [];
+  for (let current = operation, depth = 0; current && depth < 20; depth++) {
+    titles.push(current.runtime?.title);
+    current = current.previous_handoff_id ? getAutoHandoff(db, current.previous_handoff_id) : null;
+  }
+  return composeAutoHandoffTitle({ projectPath: operation.project_path, titles });
+}
+
+/** 後継タスクに名前を付ける。名前は表示だけに使うので、付けられなくても引き継ぎは止めない（理由は worker のログに残す）。 */
+export async function nameAutoHandoffTarget(request, targetId, name) {
+  try {
+    await request('thread/name/set', { threadId: targetId, name });
+    return true;
+  } catch (cause) {
+    process.stderr.write(`[auto-handoff] thread/name/set failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
+    return false;
+  }
+}
+
 async function createTarget(db, operation, runtime) {
   const targetId = await withCodexReceiver(autoHandoffDeliveryProfile, { thread_id: operation.source_thread_id, codex_home: operation.codex_home },
     async request => {
@@ -133,6 +158,8 @@ async function createTarget(db, operation, runtime) {
         if (!CODEX_NATIVE_ID_PATTERN.test(targetId ?? '') || !sameProjectPath(start.cwd, operation.project_path)) throw error('handoff_target_response_invalid');
         updateAutoHandoff(db, operation.handoff_id, { target_thread_id: targetId, mutation_stage: 'inject' });
       }
+      // 最初のターンの前に付ける。付けないと、継続の指示がそのままタスクの題として見える。
+      await nameAutoHandoffTarget(request, targetId, autoHandoffTargetName(db, operation));
       if (!operation.runtime.targetMemoryInjected) {
         const text = renderAutoHandoffMemory(db, operation);
         await request('thread/inject_items', { threadId: targetId, items: [{ type: 'message', role: 'developer',

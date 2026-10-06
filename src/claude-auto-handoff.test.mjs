@@ -278,9 +278,10 @@ test('worker: 継続の指示を最初の指示として付けて後継を同じ
   assert.equal(calls.spawn.length, 1);
   const { command, args, options } = calls.spawn[0];
   assert.equal(command, 'claude');
-  assert.deepEqual(args, ['--bg', '--name', `tl-app-${record.handoff_id.slice(0, 8)}`, '--effort', 'high',
+  assert.deepEqual(args, ['--bg', '--name=app（自動引き継ぎ）', '--effort', 'high',
     '--permission-mode', 'acceptEdits', '--settings', '{"worktree":{"bgIsolation":"none"}}', claudeContinuationInput(record)],
-    '指示は起動時に渡す（外から送ると、権限のバイパス中の後継が承認まで止める）。モデルは transcript が無いので付かない');
+    '指示は起動時に渡す（外から送ると、権限のバイパス中の後継が承認まで止める）。モデルは transcript が無いので付かない。' +
+    '名前は、前任の題も依頼も読めないので project 名と印だけ');
   assert.match(args.at(-1), new RegExp(`^Throughline自動継続 ${record.handoff_id}\\n注入された記憶と元のユーザー依頼に従い、未完了の作業をそのまま継続してください。`));
   assert.equal(options.cwd, '/work/app');
   assert.deepEqual(options.env, { PATH: '/bin', CLAUDE_CODE_USE_BEDROCK: '1' }, '会話ごとの環境変数は後継へ渡さない');
@@ -334,7 +335,8 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   assert.equal(first.record.state, 'sent');
   assert.equal(first.record.successor.short_id, 'a41a97ae');
   assert.equal(first.record.settings.model, 'claude-opus-5');
-  assert.deepEqual(first.calls[0].slice(3, 5), ['--model', 'claude-opus-5']);
+  assert.deepEqual(first.calls[0].slice(1, 4), ['--name=app｜14個のファイルを順に読んで（自動引き継ぎ）', '--model', 'claude-opus-5'],
+    '前任に題が無い時は、元の依頼を名前の概要にする');
   assert.deepEqual(first.record.in_flight, {
     user: { content: '14個のファイルを順に読んで', timestamp: Date.parse('2026-10-04T03:00:10Z') },
     last_fragment: { content: 'part05 を読みました。次に part06 を読みます。', timestamp: Date.parse('2026-10-04T03:00:14Z') },
@@ -351,6 +353,8 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
   // 後継 B が止められた時、最後の user 発言は A からの継続の指示。現在地には元の依頼を運ぶ
   const transcriptB = join(dir, 'b.jsonl');
   writeFileSync(transcriptB, jsonl([
+    // `--name` で立てた会話には、Claude Code が名前を題として書く
+    { type: 'custom-title', customTitle: first.calls[0][1].slice('--name='.length), sessionId: SUCCESSOR },
     user(claudeContinuationInput(first.record), '2026-10-04T03:01:00Z'),
     assistant('part09 を読みました。次に part10 を読みます。', '2026-10-04T03:01:20Z', 'claude-opus-5'),
     { type: 'assistant', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'tool_use', id: 'toolu_10', name: 'Read', input: {} }] } },
@@ -365,6 +369,39 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
     stopped_tools_total: 1,
     turn: null,
   });
+  assert.equal(second.calls[0][1], first.calls[0][1], '引き継ぎを重ねても、project 名と印は積み重ならない');
+}));
+
+test('worker: 後継の名前は project 名・前任の題・自動引き継ぎの印で作る。人が付けた題を Claude Code の題より先に使う', () => withDir(async dir => {
+  const nameFor = async (sessionId, titleLines) => {
+    const transcriptPath = join(dir, `${sessionId}.jsonl`);
+    writeFileSync(transcriptPath, jsonl([
+      user('14個のファイルを順に読んで', '2026-10-04T03:00:10Z'),
+      ...titleLines,
+      assistant('part04 を読みました。', '2026-10-04T03:00:12Z'),
+    ]));
+    const db = makeBatonDb();
+    requestClaudeAutoHandoff({ payload: { session_id: sessionId, trigger: 'auto', cwd: '/work/app', transcript_path: transcriptPath },
+      env: {}, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
+    await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/app', transcript_path: transcriptPath },
+      dir, launchWorker: async () => {} });
+    let name = null;
+    await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
+      spawn: (command, args) => { name = args[1]; successorStarts(dir, sessionId)(args); return launchedOk(); } });
+    return name;
+  };
+  // 端末の会話: Claude Code が付けた題（新しい方）
+  assert.equal(await nameFor('aaaaaaaa-0000-4000-8000-000000000001', [
+    { type: 'ai-title', aiTitle: 'ファイルの読み込み' }, { type: 'ai-title', aiTitle: '14ファイル順序読み込みと結果記録' },
+  ]), '--name=app｜14ファイル順序読み込みと結果記録（自動引き継ぎ）');
+  // Claude Desktop の会話と、人が名前を変えた会話: 題は custom-title に入る
+  assert.equal(await nameFor('aaaaaaaa-0000-4000-8000-000000000002', [
+    { type: 'custom-title', customTitle: 'MCP共有ラッパー設計' }, { type: 'ai-title', aiTitle: '別の題' },
+  ]), '--name=app｜MCP共有ラッパー設計（自動引き継ぎ）');
+  // 改行・二重引用符・長い題は、1行の引数として渡せる形にする
+  assert.equal(await nameFor('aaaaaaaa-0000-4000-8000-000000000003', [
+    { type: 'custom-title', customTitle: `"結果" を\n${'長'.repeat(60)}` },
+  ]), '--name=app｜結果 を（自動引き継ぎ）');
 }));
 
 function makeMemoryDb() {

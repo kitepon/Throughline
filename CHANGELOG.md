@@ -10,6 +10,28 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-07
+
+### 変更
+
+- 自動継続が立てる後継に、`<project 名>｜<作業の概要>（自動引き継ぎ）`の名前を付ける（[ADR 0037](docs/adr/0037-auto-handoff-successor-title.md)）。一覧を見た時に、どのprojectの何の作業の続きかを読めるようにする。
+  - Claude Code: 今までの名前は`tl-<フォルダ名>-<引き継ぎIDの先頭8桁>`で、Claude Desktopの一覧にもそのまま出ていた。作業の概要は前任の会話の題（Claude Desktopの題、人が付けた題、Claude Codeが付けた題の順）から取り、題が無ければ止めた時点の依頼の最初の行を使う。
+  - Codex: 今までは後継タスクに名前を付けておらず、継続の指示（`Throughline自動継続 <ID> / <ID>`）がそのまま題として見えていた。前任のタスクの題を概要にして、後継を作った直後に`thread/name/set`で付ける。前任がこの版より前に立てた名前の無い後継なら、引き継ぎの記録をさかのぼって元のタスクの題を使う。
+- 概要は40字で切る。引き継ぎを重ねても、project名と印は積み重ならない。AIは呼ばない。
+- Codexで名前を付けられなかった時も、引き継ぎは止めない（理由はworkerのログに残る）。
+
+### 確認した範囲
+
+- Linux（Claude Code 2.1.292、Haiku）の切り離した置き場で、本物の会話に自動圧縮と道具のhookを渡した。後継は`p1｜read file fruit colors（自動引き継ぎ）`の名前で立ち、継続の指示を受け取った。その後継からもう一度引き継ぐと、3つ目も同じ名前になった。
+- Linux（Codex 0.160.1）のapp-serverで、新しいスレッドに最初のターンの前に付けた名前が、ターンの後も残る。
+- 公開するpackageを展開して、本物のworkerから後継を立て、`claude agents`に出る名前が渡した名前と一致することを3環境で見た（題は日本語・全角の記号・`&`・二重引用符を含む）: Linux（Claude Code 2.1.292）、macOS（2.1.289）、Windows 11（2.1.292、PowerShellのshim経由、Node 24.20.0）。
+- macOSのCodex Desktopに同梱のCodex（0.160.1）が`thread/name/set`を持つ。
+
+### 確認していない範囲
+
+- Codex Desktopの実機での自動継続の通し（後継タスクが一覧に新しい名前で出るところ）。確かめたのは、同じ版のCodexのapp-serverで名前が付いて残ることまで。
+- Claude Desktopの一覧に新しい名前が出るところ。今までの名前（`tl-…`）がDesktopの題としてそのまま出ていたことは、macOSの記録で見ている。
+
 ## [0.15.5] — 2026-10-07
 
 ### 修正
@@ -1854,7 +1876,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.15.5...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/kitepon/Throughline/compare/v0.15.5...v0.16.0
 [0.15.5]: https://github.com/kitepon/Throughline/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/kitepon/Throughline/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/kitepon/Throughline/compare/v0.15.2...v0.15.3
