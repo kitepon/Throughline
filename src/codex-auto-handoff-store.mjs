@@ -22,6 +22,21 @@ export function findAutoHandoffForTarget(db, threadId) {
   return decode(db.prepare('SELECT * FROM codex_handoffs WHERE target_thread_id = ?').get(threadId));
 }
 
+export function findAutoHandoffForTurn(db, threadId, turnId) {
+  return decode(db.prepare('SELECT * FROM codex_handoffs WHERE source_thread_id = ? AND source_turn_id = ?')
+    .get(threadId, turnId));
+}
+
+/**
+ * 継続の指示が後継へ届いた、または届いたかもしれない引き継ぎ（新しい順）。後継が作業を持っているので、
+ * 同じ旧タスクから別の後継を立てない。配送の前に失敗した引き継ぎは入れない。
+ */
+export function listDeliveredAutoHandoffsForSource(db, threadId) {
+  return db.prepare(`SELECT * FROM codex_handoffs WHERE source_thread_id = ? AND target_thread_id IS NOT NULL
+    AND (queued_submission_id IS NOT NULL OR state IN ('submitted', 'continued') OR mutation_stage = 'submit')
+    ORDER BY created_at DESC`).all(threadId).map(decode);
+}
+
 export function listAutoHandoffs(db, { projectPath = null, limit = 20 } = {}) {
   const rows = projectPath == null
     ? db.prepare('SELECT * FROM codex_handoffs ORDER BY created_at DESC LIMIT ?').all(limit)

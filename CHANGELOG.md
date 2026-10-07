@@ -10,6 +10,27 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.2] — 2026-10-07
+
+### 修正
+
+- Codexの自動継続で、引き継ぎ済みの旧タスクへ新しい入力が届くたびに、同じ作業を引き継いだ後継がもう1つ立っていたのを直す（[ADR 0039](docs/adr/0039-codex-auto-handoff-one-successor-per-source.md)）。重複を見ていたのは元のタスクと元のターンの組で、旧タスクに新しいターンが出来ると別の引き継ぎとして受けていた。継続の指示が届いた後継が残っている間は、新しい引き継ぎを作らず、ターンを止めて、止めた理由に引き継ぎID・後継の名前・`codex://threads/<後継>`を書き、Desktopで後継を開く。後継がさらに引き継いでいれば、その先を示す。
+- workerは、継続の指示を送る直前に、同じ旧タスクの別の引き継ぎが先に指示を送っていないかを確かめる。送られていれば`handoff_source_already_continued`で止まり、後継へ指示を送らない。
+- 止めた事を`~/.throughline/codex-auto-handoff/redirects.jsonl`に1行残す（会話の本文は書かない）。
+
+### 変わらない事
+
+- 配送の前に失敗した引き継ぎしか無い旧タスクと、後継が残っていない（消した、アーカイブした）旧タスクからは、今までどおり新しい後継を立てる。
+- 旧タスクへ打った入力は後継へ渡さない。後継で打ち直す。
+
+### 確認した範囲
+
+- macOSのCodex Desktop（0.16.1）で2026-10-07に起きた記録（同じ旧タスクから3つの引き継ぎ）を読んだ。
+
+### 確認していない範囲
+
+- Codex Desktopの画面で、旧タスクに止めた理由がどう見えるか。
+
 ## [0.16.1] — 2026-10-07
 
 ### 修正
@@ -1892,7 +1913,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.1...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.2...HEAD
+[0.16.2]: https://github.com/kitepon/Throughline/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/kitepon/Throughline/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/kitepon/Throughline/compare/v0.15.5...v0.16.0
 [0.15.5]: https://github.com/kitepon/Throughline/compare/v0.15.4...v0.15.5

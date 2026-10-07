@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, closeSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, writeFileSync, appendFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,7 +13,8 @@ import { findCodexThreadCandidate } from './codex-thread-index.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
 import { readAutoHandoffConfig, autoHandoffEnabledFor } from './codex-auto-handoff-config.mjs';
 import { getAutoHandoff, requestAutoHandoff, updateAutoHandoff, failAutoHandoff,
-  claimAutoHandoff, releaseAutoHandoff, freezeCodexMemory, continuationInput } from './codex-auto-handoff-store.mjs';
+  claimAutoHandoff, releaseAutoHandoff, freezeCodexMemory, continuationInput,
+  findAutoHandoffForTurn, listDeliveredAutoHandoffsForSource } from './codex-auto-handoff-store.mjs';
 import { ensureAutoHandoffSummaries, renderAutoHandoffMemory } from './codex-auto-handoff-memory.mjs';
 import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
   settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
@@ -66,8 +67,45 @@ export async function launchAutoHandoffWorker(id) {
   } finally { closeSync(log); }
 }
 
+function liveSuccessors(db, threadId, options, seen) {
+  const found = [];
+  for (const operation of listDeliveredAutoHandoffsForSource(db, threadId)) {
+    if (operation.handoff_id === options.exceptHandoffId || seen.has(operation.handoff_id)) continue;
+    seen.add(operation.handoff_id);
+    const deeper = liveSuccessors(db, operation.target_thread_id, options, seen);
+    if (deeper.length) { found.push(...deeper); continue; }
+    const thread = options.findThread({ threadId: operation.target_thread_id, codexHome: operation.codex_home,
+      projectPath: operation.project_path, requireProjectMatch: true });
+    if (thread) found.push({ operation, mtimeMs: thread.mtimeMs ?? 0 });
+  }
+  return found;
+}
+
+/**
+ * 旧タスクの作業を今持っている後継の引き継ぎ。継続の指示が届いた引き継ぎをたどり、後継がさらに引き継いで
+ * いればその先へ進む。後継のrolloutが無い枝（消した、アーカイブした）は数えない。無ければ null。
+ * 0.16.1 までに同じ旧タスクから複数の後継が立っていた時は、最後に動いた後継を返す。
+ */
+export function findLiveAutoHandoffSuccessor(db, threadId,
+  { exceptHandoffId = null, findThread = findCodexThreadCandidate } = {}) {
+  return liveSuccessors(db, threadId, { exceptHandoffId, findThread }, new Set())
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.operation ?? null;
+}
+
+function openSuccessor(operation) {
+  const result = openUrlWithOsHandler(`codex://threads/${encodeURIComponent(operation.target_thread_id)}`);
+  return !result.error && result.status === 0;
+}
+
+/** 引き継ぎ済みの旧タスクを止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
+function recordAutoHandoffRedirect(entry) {
+  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  appendFileSync(join(stateRoot(), 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
+
 export async function requestCodexAutoHandoff({ payload, db = null,
-  config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker } = {}) {
+  config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
+  findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
   if (!CODEX_NATIVE_ID_PATTERN.test(threadId ?? '') || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '') ||
@@ -82,6 +120,19 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   if (!sessionPart) throw error('handoff_codex_home_unavailable');
   const codexHome = rolloutPath.slice(0, sessionPart.index);
   const actualDb = db ?? getDb();
+  // 引き継ぎ済みの旧タスクへ、新しい入力が来た。作業は後継が持っているので、後継を増やさずに止めて後継を示す。
+  const successor = findAutoHandoffForTurn(actualDb, threadId, turnId) ? null
+    : findLiveAutoHandoffSuccessor(actualDb, threadId, { findThread });
+  if (successor) {
+    const opened = openThread(successor);
+    recordRedirect({ at: new Date().toISOString(), source_thread_id: threadId, source_turn_id: turnId,
+      handoff_id: successor.handoff_id, target_thread_id: successor.target_thread_id, opened });
+    return { status: 'ok', operationId: successor.handoff_id, inserted: false, redirected: true,
+      targetThreadId: successor.target_thread_id, opened, continue: false,
+      stopReason: `このタスクはThroughlineが新しいタスクへ引き継ぎ済みです（引き継ぎID: ${successor.handoff_id}）。` +
+        `続きは後継のタスク「${autoHandoffTargetName(actualDb, successor)}」で行ってください: ` +
+        `codex://threads/${successor.target_thread_id}` };
+  }
   const { operation, inserted } = requestAutoHandoff(actualDb, { threadId, turnId, projectPath: state.meta.cwd,
     rolloutPath, codexHome, openHost: config.openHost });
   if (inserted) {
@@ -218,7 +269,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
     nativeState: sourceNativeState, capture: captureCodexRolloutToDb, summaries: ensureAutoHandoffSummaries,
     createTarget, readTarget: targetState, openTarget, verify: verifyCodexParent,
     submit: submitCodexParentAnswer, notify: showAutoHandoffFailure, wait: waitForHandoff,
-    executable: () => platformDesktopFinder()(), ...dependencies };
+    executable: () => platformDesktopFinder()(), liveSuccessor: findLiveAutoHandoffSuccessor, ...dependencies };
   let operation = getAutoHandoff(db, id);
   if (!operation) throw error('handoff_not_found');
   if (operation.state === 'continued') return operation;
@@ -299,7 +350,16 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       if (target?.latestTurnId || !target?.settings || !settingsMatch(operation.runtime.preparedSettings, target.settings)) throw error('handoff_target_advanced');
       const parent = { thread_id: operation.target_thread_id, codex_home: operation.codex_home };
       await deps.verify(autoHandoffDeliveryProfile, parent, runtime);
-      update({ mutation_stage: 'submit' });
+      // 同じ旧タスクの別の引き継ぎが先に指示を送っていたら、後継を増やさない。確認と記録を1つのtransactionで行う。
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if (deps.liveSuccessor(db, operation.source_thread_id, { exceptHandoffId: id })) throw error('handoff_source_already_continued');
+        update({ mutation_stage: 'submit' });
+        db.exec('COMMIT');
+      } catch (cause) {
+        db.exec('ROLLBACK');
+        throw cause;
+      }
       const receipt = await deps.submit(autoHandoffDeliveryProfile, parent, operation.delivery_id, continuationInput(operation), runtime);
       update({ state: 'submitted', queued_submission_id: receipt.queued_submission_id, mutation_stage: null });
     }

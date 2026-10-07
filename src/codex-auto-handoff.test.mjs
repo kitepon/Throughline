@@ -11,7 +11,7 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
-  autoHandoffTargetName, nameAutoHandoffTarget } from './codex-auto-handoff.mjs';
+  autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -214,6 +214,116 @@ test('PreCompactの重複ではworkerを増やさず、manualと別projectでは
   assert.equal(first.continue, false); assert.equal(second.operationId, first.operationId); assert.equal(launched, 1);
   assert.equal((await requestCodexAutoHandoff({ ...args, payload: { ...payload, trigger: 'manual' } })).status, 'skipped');
   assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
+}));
+
+function desktopSource(home, thread, turn) {
+  const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
+  const file = join(dir, `rollout-${thread}.jsonl`);
+  writeFileSync(file, [{ type: 'session_meta', payload: { id: thread, originator: 'Codex Desktop', source: 'vscode', cwd: home } },
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: turn } }].map(JSON.stringify).join('\n') + '\n');
+  return { trigger: 'auto', cwd: home, session_id: thread, turn_id: turn, transcript_path: file };
+}
+
+function delivered(db, home, source, turnId, target, now, fields = {}) {
+  const operation = requestAutoHandoff(db, { threadId: source, turnId, projectPath: home,
+    rolloutPath: '/codex/rollout.jsonl', codexHome: join(home, 'codex'), openHost: 'desktop', now }).operation;
+  return updateAutoHandoff(db, operation.handoff_id, { target_thread_id: target, state: 'continued',
+    queued_submission_id: `receipt-${target}`, runtime_json: { title: 'ベルチーム' }, ...fields }).operation;
+}
+
+test('引き継ぎ済みの旧タスクへ新しい入力が来ても後継を増やさず、止めて今の後継を示して開く', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const first = delivered(db, home, thread, '22222222-2222-2222-2222-222222222222', 'successor-1', 1);
+  const payload = desktopSource(home, thread, '33333333-3333-3333-3333-333333333333');
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  const seen = { launched: 0, opened: [], recorded: [], asked: [] };
+  const args = { db, config, payload, launchWorker: async () => { seen.launched++; },
+    findThread: query => { seen.asked.push(query); return { mtimeMs: 1 }; },
+    openThread: operation => { seen.opened.push(operation.target_thread_id); return true; },
+    recordRedirect: entry => { seen.recorded.push(entry); } };
+  const result = await requestCodexAutoHandoff(args);
+  assert.equal(result.continue, false); assert.equal(result.redirected, true); assert.equal(result.inserted, false);
+  assert.equal(result.operationId, first.handoff_id); assert.equal(result.targetThreadId, 'successor-1');
+  assert.match(result.stopReason, /引き継ぎ済み/);
+  assert.match(result.stopReason, /codex:\/\/threads\/successor-1/);
+  assert.ok(result.stopReason.includes('｜ベルチーム（自動引き継ぎ）」'));
+  assert.equal(seen.launched, 0); assert.deepEqual(seen.opened, ['successor-1']);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM codex_handoffs').get().n, 1);
+  assert.equal(seen.asked[0].threadId, 'successor-1'); assert.equal(seen.asked[0].codexHome, join(home, 'codex'));
+  assert.equal(seen.recorded.length, 1);
+  assert.deepEqual({ ...seen.recorded[0], at: null }, { at: null, source_thread_id: thread,
+    source_turn_id: payload.turn_id, handoff_id: first.handoff_id, target_thread_id: 'successor-1', opened: true });
+
+  // 後継がさらに引き継いでいれば、その先を示す。開けなくても止めて、止めた理由に後継を書く。
+  delivered(db, home, 'successor-1', 'turn-b', 'successor-2', 2);
+  const chained = await requestCodexAutoHandoff({ ...args, openThread: () => false });
+  assert.equal(chained.targetThreadId, 'successor-2'); assert.equal(chained.opened, false);
+  assert.match(chained.stopReason, /codex:\/\/threads\/successor-2/);
+  assert.equal(seen.launched, 0);
+}));
+
+test('後継が残っていない旧タスクと、配送の前に失敗した旧タスクからは、新しい後継を立てる', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  let launched = 0;
+  const base = { db, config, launchWorker: async () => { launched++; },
+    openThread: () => { throw new Error('開かない'); }, recordRedirect: () => { throw new Error('記録しない'); } };
+  // 作成の途中で失敗した引き継ぎ（後継はあるが、継続の指示は送っていない）。
+  const failed = requestAutoHandoff(db, { threadId: thread, turnId: 'turn-a', projectPath: home,
+    rolloutPath: '/codex/rollout.jsonl', codexHome: join(home, 'codex'), openHost: 'desktop', now: 1 }).operation;
+  updateAutoHandoff(db, failed.handoff_id, { target_thread_id: 'never-started', state: 'failed', error_code: 'handoff_target_not_loaded' });
+  const afterFailure = await requestCodexAutoHandoff({ ...base, findThread: () => ({ mtimeMs: 1 }),
+    payload: desktopSource(home, thread, '33333333-3333-3333-3333-333333333333') });
+  assert.equal(afterFailure.inserted, true); assert.equal(afterFailure.redirected, undefined); assert.equal(launched, 1);
+  // 継続の指示は届いたが、後継のrolloutが無い（消した、アーカイブした）。
+  updateAutoHandoff(db, afterFailure.operationId, { target_thread_id: 'removed', state: 'continued', queued_submission_id: 'receipt' });
+  const afterRemoval = await requestCodexAutoHandoff({ ...base, findThread: () => null,
+    payload: desktopSource(home, thread, '44444444-4444-4444-4444-444444444444') });
+  assert.equal(afterRemoval.inserted, true); assert.equal(launched, 2);
+  // 同じturnのhookがもう一度来た時は、今までどおり同じ引き継ぎを返す。
+  const again = await requestCodexAutoHandoff({ ...base, findThread: () => ({ mtimeMs: 1 }),
+    payload: desktopSource(home, thread, '44444444-4444-4444-4444-444444444444') });
+  assert.equal(again.operationId, afterRemoval.operationId); assert.equal(again.inserted, false); assert.equal(launched, 2);
+}));
+
+test('同じ旧タスクから複数の後継が立っていた記録では、最後に動いた後継を選ぶ', async () => withDb(async (db, home) => {
+  delivered(db, home, 'old', 'turn-1', 'first', 1);
+  const active = delivered(db, home, 'old', 'turn-2', 'second', 2);
+  delivered(db, home, 'old', 'turn-3', 'third', 3);
+  // 配送結果が不明のまま止まった引き継ぎも、指示が届いたかもしれないので数える。
+  const unknown = requestAutoHandoff(db, { threadId: 'other', turnId: 'turn', projectPath: home,
+    rolloutPath: '/codex/rollout.jsonl', codexHome: join(home, 'codex'), openHost: 'desktop', now: 4 }).operation;
+  updateAutoHandoff(db, unknown.handoff_id, { target_thread_id: 'maybe', state: 'unknown', mutation_stage: 'submit' });
+  const mtimes = { first: 10, second: 30, third: 20, maybe: 1 };
+  const findThread = ({ threadId }) => ({ mtimeMs: mtimes[threadId] });
+  assert.equal(findLiveAutoHandoffSuccessor(db, 'old', { findThread }).handoff_id, active.handoff_id);
+  assert.equal(findLiveAutoHandoffSuccessor(db, 'old', { findThread, exceptHandoffId: active.handoff_id }).target_thread_id, 'third');
+  assert.equal(findLiveAutoHandoffSuccessor(db, 'other', { findThread }).target_thread_id, 'maybe');
+  assert.equal(findLiveAutoHandoffSuccessor(db, 'second', { findThread }), null);
+}));
+
+test('workerは、同じ旧タスクの別の引き継ぎが先に指示を送っていたら配送しない', async () => withDb(async db => {
+  const counters = { created: 0, notified: 0, submitted: 0 };
+  const submit = async () => { counters.submitted++; return { queued_submission_id: `receipt-${counters.submitted}` }; };
+  const liveSuccessor = (database, threadId, options) =>
+    findLiveAutoHandoffSuccessor(database, threadId, { ...options, findThread: () => ({ mtimeMs: 1 }) });
+  const first = request(db, 'shared-source', { now: 1 }).operation;
+  const firstResult = await runAutoHandoffWorker(first.handoff_id,
+    { db, dependencies: { ...workerDependencies(db, {}, submit, counters), liveSuccessor } });
+  assert.equal(firstResult.state, 'continued');
+  const second = request(db, 'shared-source', { turnId: 'turn-2', now: 2 }).operation;
+  const deps = workerDependencies(db, {}, submit, counters);
+  const result = await runAutoHandoffWorker(second.handoff_id, { db, dependencies: { ...deps, liveSuccessor,
+    readSource: () => ({ ...deps.readSource(), latestTurnId: 'turn-2' }),
+    capture: () => ({ status: 'captured' }),
+    createTarget: async (database, operation) => {
+      updateAutoHandoff(database, operation.handoff_id, { target_thread_id: 'second-target', mutation_stage: null,
+        runtime_json: { ...operation.runtime, targetPrepared: true, targetMemoryInjected: true,
+          preparedSettings: deps.readTarget(operation).settings } });
+    } } });
+  assert.equal(result.state, 'failed'); assert.equal(result.error_code, 'handoff_source_already_continued');
+  assert.equal(result.mutation_stage, null); assert.equal(result.queued_submission_id, null);
+  assert.equal(counters.submitted, 1); assert.equal(counters.notified, 1);
 }));
 
 test('公開CLIはactionに適合する引数だけを受け取る', () => {
