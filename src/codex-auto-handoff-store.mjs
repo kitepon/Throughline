@@ -37,6 +37,16 @@ export function listDeliveredAutoHandoffsForSource(db, threadId) {
     ORDER BY created_at DESC`).all(threadId).map(decode);
 }
 
+/**
+ * 継続の指示をまだ送っていない引き継ぎ（新しい順）。進んでいる最中の物と、配送の前に止まった物。
+ * 同じ旧タスクへ次の入力が来た時に、別の引き継ぎを作る前にここを見る。
+ */
+export function listUndeliveredAutoHandoffsForSource(db, threadId) {
+  return db.prepare(`SELECT * FROM codex_handoffs WHERE source_thread_id = ? AND queued_submission_id IS NULL
+    AND state NOT IN ('submitted', 'continued') AND (mutation_stage IS NULL OR mutation_stage <> 'submit')
+    ORDER BY created_at DESC, rowid DESC`).all(threadId).map(decode);
+}
+
 export function listAutoHandoffs(db, { projectPath = null, limit = 20 } = {}) {
   const rows = projectPath == null
     ? db.prepare('SELECT * FROM codex_handoffs ORDER BY created_at DESC LIMIT ?').all(limit)
@@ -106,13 +116,35 @@ export function releaseAutoHandoff(db, id, identity) {
     .run(id, JSON.stringify(identity));
 }
 
+/**
+ * 元turnを止めた後で旧タスクへ来た入力のturn番号。hookが止めたturnで、入力だけが残っている。
+ * 末尾から、止めた時刻より後に始まり、userの発言だけで、道具の記録が無いturnを、後続turnの数まで数える。
+ */
+function turnsAfterSourceStop(bodies, details, source) {
+  const after = new Set();
+  let remaining = source.laterTurns?.length ?? 0;
+  if (!remaining || !Number.isFinite(source.stoppedAt)) return after;
+  for (const number of [...new Set(bodies.map(row => row.turn_number))].sort((a, b) => b - a)) {
+    const rows = bodies.filter(row => row.turn_number === number);
+    if (rows.some(row => row.role !== 'user' || !(row.created_at > source.stoppedAt)) ||
+        details.some(row => row.turn_number === number)) break;
+    after.add(number);
+    if (--remaining === 0) break;
+  }
+  return after;
+}
+
 export function freezeCodexMemory(db, operation, settings, source) {
   const session = db.prepare('SELECT session_id, project_path FROM sessions WHERE session_id = ?')
     .get(operation.source_session_id);
   if (!session || session.project_path !== operation.project_path) throw new Error('handoff_memory_source_mismatch');
   const load = table => db.prepare(`SELECT * FROM ${table} WHERE session_id = ? ORDER BY created_at, id`)
     .all(operation.source_session_id);
-  const bodies = load('bodies'), skeletons = load('skeletons'), details = load('details');
+  const all = { bodies: load('bodies'), skeletons: load('skeletons'), details: load('details') };
+  // 引き継ぎの最中に旧タスクへ来た入力は、後継へ渡さない。記憶は元turnまでで凍結する。
+  const after = turnsAfterSourceStop(all.bodies, all.details, source);
+  const keep = row => !after.has(row.turn_number);
+  const bodies = all.bodies.filter(keep), skeletons = all.skeletons.filter(keep), details = all.details.filter(keep);
   return {
     version: 1, session: { ...session }, settings,
     sourceTurnId: operation.source_turn_id,

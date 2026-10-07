@@ -14,7 +14,8 @@ import { captureCodexRolloutToDb } from './codex-capture.mjs';
 import { readAutoHandoffConfig, autoHandoffEnabledFor } from './codex-auto-handoff-config.mjs';
 import { getAutoHandoff, requestAutoHandoff, updateAutoHandoff, failAutoHandoff,
   claimAutoHandoff, releaseAutoHandoff, freezeCodexMemory, continuationInput,
-  findAutoHandoffForTurn, listDeliveredAutoHandoffsForSource } from './codex-auto-handoff-store.mjs';
+  findAutoHandoffForTurn, listDeliveredAutoHandoffsForSource, listUndeliveredAutoHandoffsForSource,
+  HANDOFF_TERMINAL_STATES } from './codex-auto-handoff-store.mjs';
 import { ensureAutoHandoffSummaries, renderAutoHandoffMemory } from './codex-auto-handoff-memory.mjs';
 import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
   settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
@@ -38,7 +39,12 @@ const sourceState = (operation, options = {}) => readCodexHandoffState(operation
   { threadId: operation.source_thread_id, turnId: operation.source_turn_id, ...options });
 
 export function sourceBoundary(operation, state) {
-  if (state.latestTurnId !== operation.source_turn_id) throw error('handoff_source_advanced');
+  if (state.latestTurnId !== operation.source_turn_id) {
+    // 引き継ぎの最中に旧タスクへ来た入力は、hookが止める。入力を受けただけで止まったturnは、元turnの境界を進めない。
+    const later = state.laterTurns ?? [];
+    if (!later.length || later.some(turn => turn.activity)) throw error('handoff_source_advanced');
+    if (later.some(turn => !turn.closed)) return false;
+  }
   if (state.pendingCallCount) throw error('handoff_source_operation_pending');
   if (state.pendingNativeSessionCount) throw error('handoff_native_session_pending');
   return Number.isFinite(state.stoppedAt) && state.stoppedAt >= operation.created_at;
@@ -55,11 +61,11 @@ export async function waitForHandoff(check, { timeoutMs = 120_000, intervalMs = 
   throw error(timeoutCode);
 }
 
-export async function launchAutoHandoffWorker(id) {
+export async function launchAutoHandoffWorker(id, { resume = false } = {}) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
   const log = openSync(join(stateRoot(), `${id}.log`), 'a', 0o600);
   try {
-    const child = spawnPortable(process.execPath, [CLI_PATH, 'auto-handoff', 'worker', '--operation', id, '--json'],
+    const child = spawnPortable(process.execPath, [CLI_PATH, 'auto-handoff', resume ? 'resume' : 'worker', '--operation', id, '--json'],
       { detached: true, stdio: ['ignore', log, log], windowsHide: true });
     await new Promise((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); });
     child.unref();
@@ -103,9 +109,55 @@ function recordAutoHandoffRedirect(entry) {
   appendFileSync(join(stateRoot(), 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
+// workerを起動してから、workerが自分のprocessを記録へ名乗るまでの間。この間の引き継ぎは、進んでいる物として扱う。
+const WORKER_START_GRACE_MS = 15_000;
+// workerが1回の引き継ぎに掛ける時間の上限（各段の待ち時間の合計より長い）。process一覧を読めない時だけ使う。
+const WORKER_RUN_LIMIT_MS = 10 * 60_000;
+
+/** その引き継ぎのworkerが動いているか。名乗る前は、記録の更新時刻で見る。 */
+function workerActive(operation, processes, now) {
+  const identity = operation.worker_identity;
+  if (!identity) return now - operation.updated_at < WORKER_START_GRACE_MS;
+  let table;
+  // process一覧を読めない時は、後継を2つにしない側へ倒す。記録が新しい間は、動いている物として扱う。
+  try { table = processes(); } catch { return now - operation.updated_at < WORKER_RUN_LIMIT_MS; }
+  return table.some(p => p.pid === identity.pid && p.started_identity === identity.started_identity);
+}
+
+/**
+ * 配送の前に止まった引き継ぎを、同じ引き継ぎとしてやり直せるか。後継のタスクが出来ていて、まだ誰も使っておらず、
+ * 止まった後の旧タスクに動きが無い時だけ。後継が出来る前に止まった物は残る物が無いので、新しい引き継ぎで足りる。
+ */
+function resumableAfterStop(operation, rolloutPath, readTarget) {
+  if (operation.mutation_stage || !operation.target_thread_id) return false;
+  try {
+    const target = readTarget(operation);
+    if (!target || target.latestTurnId) return false;
+    const later = readCodexHandoffState(rolloutPath,
+      { threadId: operation.source_thread_id, turnId: operation.source_turn_id }).laterTurns;
+    return later.length > 0 && !later.some(turn => turn.activity);
+  } catch { return false; }
+}
+
+/**
+ * 同じ旧タスクの、継続の指示をまだ送っていない引き継ぎの扱い。workerが動いていれば「最中」、後継が出来たまま
+ * 止まっていれば「やり直し」。どちらでもなければ null（新しい引き継ぎを作る）。
+ */
+function settleUndeliveredAutoHandoff(db, threadId, { rolloutPath, processes, readTarget, now }) {
+  const undelivered = listUndeliveredAutoHandoffsForSource(db, threadId);
+  let table = null;
+  const running = () => (table ??= processes());
+  const inFlight = undelivered.find(operation => !HANDOFF_TERMINAL_STATES.has(operation.state) && workerActive(operation, running, now));
+  if (inFlight) return { kind: 'in_flight', operation: inFlight, seen: undelivered };
+  const stopped = undelivered.find(operation => operation.state !== 'unknown' && resumableAfterStop(operation, rolloutPath, readTarget));
+  if (stopped) return { kind: 'retry', operation: stopped, seen: undelivered };
+  return { kind: null, seen: undelivered };
+}
+
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
-  findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect } = {}) {
+  findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
+  processes = readRuntimeProcesses, readTarget = targetState, now = Date.now() } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
   if (!CODEX_NATIVE_ID_PATTERN.test(threadId ?? '') || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '') ||
@@ -121,8 +173,8 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const codexHome = rolloutPath.slice(0, sessionPart.index);
   const actualDb = db ?? getDb();
   // 引き継ぎ済みの旧タスクへ、新しい入力が来た。作業は後継が持っているので、後継を増やさずに止めて後継を示す。
-  const successor = findAutoHandoffForTurn(actualDb, threadId, turnId) ? null
-    : findLiveAutoHandoffSuccessor(actualDb, threadId, { findThread });
+  const sameTurn = findAutoHandoffForTurn(actualDb, threadId, turnId);
+  const successor = sameTurn ? null : findLiveAutoHandoffSuccessor(actualDb, threadId, { findThread });
   if (successor) {
     const opened = openThread(successor);
     recordRedirect({ at: new Date().toISOString(), source_thread_id: threadId, source_turn_id: turnId,
@@ -133,8 +185,42 @@ export async function requestCodexAutoHandoff({ payload, db = null,
         `続きは後継のタスク「${autoHandoffTargetName(actualDb, successor)}」で行ってください: ` +
         `codex://threads/${successor.target_thread_id}` };
   }
-  const { operation, inserted } = requestAutoHandoff(actualDb, { threadId, turnId, projectPath: state.meta.cwd,
-    rolloutPath, codexHome, openHost: config.openHost });
+  // 引き継ぎの最中（継続の指示を送る前）と、後継が出来たまま止まった旧タスクへ、新しい入力が来た。
+  // 別の引き継ぎを作ると後継が2つになるので、進んでいる引き継ぎを返すか、同じ引き継ぎをやり直す。
+  let settled = sameTurn ? { kind: null, seen: [] }
+    : settleUndeliveredAutoHandoff(actualDb, threadId, { rolloutPath, processes, readTarget, now });
+  let created = null;
+  if (!settled.kind) {
+    // 2つの入力がほぼ同時に来た時は、先に記録した方だけが引き継ぎを作る。確認と記録を1つのtransactionで行う。
+    actualDb.exec('BEGIN IMMEDIATE');
+    try {
+      const seen = new Set(settled.seen.map(operation => operation.handoff_id));
+      const raced = sameTurn ? null : listUndeliveredAutoHandoffsForSource(actualDb, threadId)
+        .find(operation => !seen.has(operation.handoff_id) && !HANDOFF_TERMINAL_STATES.has(operation.state));
+      if (raced) settled = { kind: 'in_flight', operation: raced };
+      else created = requestAutoHandoff(actualDb, { threadId, turnId, projectPath: state.meta.cwd,
+        rolloutPath, codexHome, openHost: config.openHost });
+      actualDb.exec('COMMIT');
+    } catch (cause) {
+      actualDb.exec('ROLLBACK');
+      throw cause;
+    }
+  }
+  if (settled.kind) {
+    const pending = settled.operation;
+    if (settled.kind === 'retry') {
+      try { await launchWorker(pending.handoff_id, { resume: pending.state === 'failed' }); }
+      catch { throw error('handoff_worker_start_failed'); }
+    }
+    recordRedirect({ at: new Date().toISOString(), kind: settled.kind, source_thread_id: threadId, source_turn_id: turnId,
+      handoff_id: pending.handoff_id, target_thread_id: pending.target_thread_id ?? null, opened: false });
+    return { status: 'ok', operationId: pending.handoff_id, inserted: false, continue: false,
+      ...(settled.kind === 'retry' ? { resumed: true } : { inFlight: true }),
+      stopReason: settled.kind === 'retry'
+        ? `Throughlineが、途中で止まった引き継ぎをやり直します（引き継ぎID: ${pending.handoff_id}）。後継のタスクが開いたら、続きはそちらで行ってください。`
+        : `Throughlineが、このタスクを新しいタスクへ引き継いでいる最中です（引き継ぎID: ${pending.handoff_id}）。後継のタスクが開いたら、続きはそちらで行ってください。` };
+  }
+  const { operation, inserted } = created;
   if (inserted) {
     try { await launchWorker(operation.handoff_id); }
     catch {
@@ -310,8 +396,11 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       const native = await deps.nativeState(operation, runtime);
       update({ state: 'source_stopped', settings_json: state.settings, runtime_json: { ...native, databasePath: DB_PATH } });
     }
+    // 最中に来た入力のturnが止まり切るまでの間は、境界がまだ見えない。短く待ってから判定する。
+    const confirmSourceBoundary = () => deps.wait(() => sourceBoundary(operation, deps.readSource(operation)) || null,
+      { timeoutMs: 30_000, timeoutCode: 'handoff_source_stop_unconfirmed' });
     if (operation.state === 'source_stopped') {
-      if (!sourceBoundary(operation, deps.readSource(operation))) throw error('handoff_source_stop_unconfirmed');
+      await confirmSourceBoundary();
       if (!operation.snapshot) {
         const captured = deps.capture(db, { threadId: operation.source_thread_id, codexHome: operation.codex_home,
           projectPath: operation.project_path });
@@ -344,7 +433,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       update({ state: 'target_ready' });
     }
     if (operation.state === 'target_ready') {
-      if (!sourceBoundary(operation, deps.readSource(operation))) throw error('handoff_source_stop_unconfirmed');
+      await confirmSourceBoundary();
       await deps.nativeState(operation, runtime);
       const target = deps.readTarget(operation);
       if (target?.latestTurnId || !target?.settings || !settingsMatch(operation.runtime.preparedSettings, target.settings)) throw error('handoff_target_advanced');

@@ -162,6 +162,9 @@ DBには引き継ぎID、元thread/turn、project/Codex環境、snapshot参照�
 元thread/turnの要求は一意にし、フックの重複で後継を増やさない。
 継続の指示が届いた旧タスクへ新しいturnが来た時は、後継が残っている間は要求を作らず、
 ターンを止めて今の後継を示して開く（[ADR 0039](adr/0039-codex-auto-handoff-one-successor-per-source.md)）。
+継続の指示を送る前の引き継ぎがある旧タスクへ新しいturnが来た時も、要求を作らない。workerが動いていれば
+進んでいる引き継ぎを返して止め、後継を作ったまま止まっていれば同じ引き継ぎをやり直す
+（[ADR 0040](adr/0040-auto-handoff-no-second-successor-while-pending.md)）。
 schema変更は `src/db.mjs` と製品所有migrationへ置き、
 schemaの版とmigrationは同じ製品releaseで更新する。
 

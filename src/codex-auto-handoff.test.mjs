@@ -429,3 +429,188 @@ test('後継タスクの名前は project 名・前任の題・自動引き継�
   const rejected = async () => { throw Object.assign(new Error('unknown method'), { delivery_code: 'CODEX_RECEIVER_REJECTED' }); };
   assert.equal(await nameAutoHandoffTarget(rejected, 'T', 'x'), false, '名前を付けられなくても、引き継ぎは止めない');
 }));
+
+// 元turn（止めた）の後に、旧タスクへ来た入力のturnが続くrollout。laterは後続turnの行。
+function sourceRollout(home, thread, turn, later = [], stoppedAt = '2026-10-07T00:49:01.000Z') {
+  const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
+  const file = join(dir, `rollout-${thread}.jsonl`);
+  const rows = [
+    { timestamp: '2026-10-07T00:47:00.000Z', type: 'session_meta', payload: { id: thread, originator: 'Codex Desktop', source: 'vscode', cwd: home } },
+    { timestamp: '2026-10-07T00:47:08.000Z', type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
+    { timestamp: '2026-10-07T00:47:09.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '進めて' }] } },
+    { timestamp: '2026-10-07T00:47:15.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: '進めるね' }] } },
+    { timestamp: stoppedAt, type: 'event_msg', payload: { type: 'turn_aborted', turn_id: turn, reason: 'interrupted' } },
+    ...later,
+  ];
+  writeFileSync(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+  return file;
+}
+
+// hookが止めたturnの、Codex Desktop 0.160.1 の実物の並び（入力を受けて、1秒ほどで止まる）。
+function stoppedInput(turn, at, { closed = true } = {}) {
+  return [
+    { timestamp: `${at}.071Z`, type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: {
+      model: 'model', cwd: '/project', model_provider_id: 'openai', approval_policy: 'never', permission_profile: { type: 'disabled' } } } },
+    { timestamp: `${at}.078Z`, type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
+    { timestamp: `${at}.206Z`, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '動いてる？' }] } },
+    { timestamp: `${at}.207Z`, type: 'event_msg', payload: { type: 'item_completed', turn_id: turn, item: { type: 'UserMessage' } } },
+    ...(closed ? [{ timestamp: `${at}.213Z`, type: 'event_msg', payload: { type: 'turn_aborted', turn_id: turn, reason: 'interrupted' } }] : []),
+  ];
+}
+
+test('入力を受けただけで止まった後続turnは元turnの境界を進めず、動きのある後続turnは進んだと判定する', async () => withDb((db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const operation = { source_thread_id: thread, source_turn_id: turn, created_at: Date.parse('2026-10-07T00:49:00.000Z') };
+  const read = later => readCodexHandoffState(sourceRollout(home, thread, turn, later), { threadId: thread, turnId: turn });
+  assert.deepEqual(read([]).laterTurns, []);
+  assert.equal(sourceBoundary(operation, read([])), true);
+  // 止まった入力が2つ続いても、元turnの境界のまま。
+  const two = read([...stoppedInput('turn-b', '2026-10-07T00:56:48'), ...stoppedInput('turn-c', '2026-10-07T00:56:58')]);
+  assert.deepEqual(two.laterTurns, [{ turnId: 'turn-b', closed: true, activity: false }, { turnId: 'turn-c', closed: true, activity: false }]);
+  assert.equal(two.latestTurnId, 'turn-c'); assert.equal(two.stoppedAt, Date.parse('2026-10-07T00:49:01.000Z'));
+  assert.equal(sourceBoundary(operation, two), true);
+  // まだ止まり切っていない入力は、止まるまで待つ（境界は未確認）。
+  assert.equal(sourceBoundary(operation, read(stoppedInput('turn-b', '2026-10-07T00:56:48', { closed: false }))), false);
+  // モデルの発言・道具の呼び出し・完了・圧縮があれば、旧タスクは進んでいる。
+  const activity = [
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: '動いてるよ' }] } },
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'response_item', payload: { type: 'function_call', call_id: 'c1', name: 'exec_command', arguments: '{}' } },
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'response_item', payload: { type: 'reasoning' } },
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'event_msg', payload: { type: 'agent_message', message: '動いてるよ' } },
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-b' } },
+    { timestamp: '2026-10-07T00:56:50.000Z', type: 'compacted', payload: {} },
+  ];
+  for (const row of activity) {
+    const state = read([...stoppedInput('turn-b', '2026-10-07T00:56:48', { closed: false }), row]);
+    assert.equal(state.laterTurns[0].activity, true, JSON.stringify(row.payload));
+    assert.throws(() => sourceBoundary(operation, state), /handoff_source_advanced/);
+  }
+  // 元turnの開始が見えないrolloutで最新turnが違う時は、今までどおり進んだと判定する。
+  assert.throws(() => sourceBoundary(operation, { latestTurnId: 'other', stoppedAt: Date.now(), pendingCallCount: 0 }), /handoff_source_advanced/);
+}));
+
+test('引き継ぎの最中に旧タスクへ入力が来ても、別の引き継ぎを作らず、進んでいる引き継ぎを返して止める', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turnA = '22222222-2222-2222-2222-222222222222';
+  const turnB = '33333333-3333-3333-3333-333333333333', turnC = '44444444-4444-4444-4444-444444444444';
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  const seen = { launched: [], recorded: [], opened: 0 };
+  const worker = { pid: 4242, started_identity: 'worker-born' };
+  const base = { db, config, launchWorker: async (id, options) => { seen.launched.push([id, options?.resume ?? false]); },
+    findThread: () => null, openThread: () => { seen.opened++; return true; }, recordRedirect: entry => { seen.recorded.push(entry); },
+    processes: () => [worker], readTarget: () => null };
+  const first = await requestCodexAutoHandoff({ ...base, payload: desktopSource(home, thread, turnA) });
+  assert.equal(first.inserted, true); assert.equal(seen.launched.length, 1);
+  const count = () => db.prepare('SELECT COUNT(*) AS n FROM codex_handoffs').get().n;
+
+  // workerが名乗る前（起動した直後）に来た入力。
+  const early = await requestCodexAutoHandoff({ ...base, payload: desktopSource(home, thread, turnB) });
+  assert.equal(early.inFlight, true); assert.equal(early.inserted, false); assert.equal(early.continue, false);
+  assert.equal(early.operationId, first.operationId); assert.match(early.stopReason, /引き継いでいる最中/);
+  assert.equal(count(), 1); assert.equal(seen.launched.length, 1);
+
+  // workerが後継を作った後（継続の指示を送る前）に来た入力。時間が経っていても、workerが動いていれば最中。
+  updateAutoHandoff(db, first.operationId, { state: 'memory_ready', target_thread_id: 'target-1', worker_identity_json: worker });
+  const later = await requestCodexAutoHandoff({ ...base, now: Date.now() + 3_600_000, payload: desktopSource(home, thread, turnC) });
+  assert.equal(later.inFlight, true); assert.equal(later.operationId, first.operationId);
+  assert.equal(count(), 1); assert.equal(seen.launched.length, 1); assert.equal(seen.opened, 0);
+  assert.deepEqual(seen.recorded.map(entry => [entry.kind, entry.source_turn_id, entry.handoff_id, entry.target_thread_id, entry.opened]),
+    [['in_flight', turnB, first.operationId, null, false], ['in_flight', turnC, first.operationId, 'target-1', false]]);
+
+  // 同じturnのhookがもう一度来た時は、今までどおり同じ引き継ぎを返す（最中の扱いにしない）。
+  const again = await requestCodexAutoHandoff({ ...base, payload: desktopSource(home, thread, turnA) });
+  assert.equal(again.operationId, first.operationId); assert.equal(again.inFlight, undefined); assert.equal(again.inserted, false);
+
+  // process一覧を読めない時は、記録が新しい間だけ最中として扱う（後継を2つにしない側へ倒す）。
+  const unreadable = () => { throw new Error('process一覧を読めません'); };
+  assert.equal((await requestCodexAutoHandoff({ ...base, processes: unreadable, payload: desktopSource(home, thread, turnC) })).inFlight, true);
+  assert.equal(count(), 1);
+
+  // workerが居なくなり、後継も残っていない引き継ぎは、最中に数えない。今までどおり新しい引き継ぎを作る。
+  const dead = await requestCodexAutoHandoff({ ...base, processes: () => [], payload: desktopSource(home, thread, turnC) });
+  assert.equal(dead.inserted, true); assert.notEqual(dead.operationId, first.operationId); assert.equal(count(), 2);
+}));
+
+test('後継が出来たまま止まった引き継ぎは、次の入力で同じ引き継ぎをやり直し、別の後継を作らない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turnA = '22222222-2222-2222-2222-222222222222';
+  const turnB = '33333333-3333-3333-3333-333333333333';
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  const seen = { launched: [], recorded: [] };
+  const base = { db, config, launchWorker: async (id, options) => { seen.launched.push([id, options?.resume ?? false]); },
+    findThread: () => null, openThread: () => { throw new Error('開かない'); }, recordRedirect: entry => { seen.recorded.push(entry); },
+    processes: () => [] };
+  const count = () => db.prepare('SELECT COUNT(*) AS n FROM codex_handoffs').get().n;
+  const fail = (turn, fields) => {
+    const rollout = sourceRollout(home, thread, turn);
+    const operation = requestAutoHandoff(db, { threadId: thread, turnId: turn, projectPath: home, rolloutPath: rollout,
+      codexHome: join(home, 'codex'), openHost: 'desktop', now: 1 }).operation;
+    return updateAutoHandoff(db, operation.handoff_id, { target_thread_id: 'target-1', state: 'failed',
+      resume_state: 'memory_ready', error_code: 'handoff_target_not_loaded', ...fields }).operation;
+  };
+  const input = (turn, later) => {
+    const file = sourceRollout(home, thread, turnA, later);
+    return { trigger: 'auto', cwd: home, session_id: thread, turn_id: turn, transcript_path: file };
+  };
+  const failed = fail(turnA, {});
+  const open = stoppedInput(turnB, '2026-10-07T00:56:48', { closed: false });
+
+  // 後継が残っていて、まだ誰も使っておらず、旧タスクに動きが無い。同じ引き継ぎを再開する。
+  const resumed = await requestCodexAutoHandoff({ ...base, readTarget: () => ({ latestTurnId: null }), payload: input(turnB, open) });
+  assert.equal(resumed.resumed, true); assert.equal(resumed.inserted, false); assert.equal(resumed.continue, false);
+  assert.equal(resumed.operationId, failed.handoff_id); assert.match(resumed.stopReason, /やり直します/);
+  assert.deepEqual(seen.launched, [[failed.handoff_id, true]]); assert.equal(count(), 1);
+  assert.deepEqual(seen.recorded.map(entry => [entry.kind, entry.handoff_id, entry.target_thread_id]), [['retry', failed.handoff_id, 'target-1']]);
+
+  // 後継を利用者がもう使っている・後継が消えている・結果不明・旧タスクが進んでいる時は、今までどおり新しい引き継ぎを作る。
+  const fresh = async (fields, readTarget, later = open) => {
+    db.prepare('DELETE FROM codex_handoffs').run(); seen.launched.length = 0;
+    const row = fail(turnA, fields);
+    const result = await requestCodexAutoHandoff({ ...base, readTarget, payload: input(turnB, later) });
+    assert.equal(result.inserted, true); assert.notEqual(result.operationId, row.handoff_id);
+    assert.deepEqual(seen.launched, [[result.operationId, false]]); assert.equal(count(), 2);
+  };
+  await fresh({}, () => ({ latestTurnId: 'used-by-user' }));
+  await fresh({}, () => null);
+  await fresh({ state: 'unknown', mutation_stage: 'inject' }, () => ({ latestTurnId: null }));
+  await fresh({ target_thread_id: null }, () => ({ latestTurnId: null }));
+  await fresh({}, () => ({ latestTurnId: null }), [
+    ...stoppedInput('turn-x', '2026-10-07T00:55:00', { closed: false }),
+    { timestamp: '2026-10-07T00:55:02.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: '続けたよ' }] } },
+    { timestamp: '2026-10-07T00:55:03.000Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-x' } },
+    ...open,
+  ]);
+}));
+
+test('workerは、最中に来て止まった入力では失敗せず、旧タスクが進んだ時だけ止まる', async () => withDb(async db => {
+  const run = async (source, laterTurns) => {
+    const operation = request(db, source, { now: 1 }).operation;
+    const counters = { created: 0, submitted: 0, notified: 0 };
+    const deps = workerDependencies(db, {}, async () => { counters.submitted++; return { queued_submission_id: 'receipt' }; }, counters);
+    const read = deps.readSource;
+    deps.readSource = item => ({ ...read(item), latestTurnId: 'input-during-handoff', laterTurns });
+    return { result: await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps }), counters };
+  };
+  const stopped = await run('stopped-input', [{ turnId: 'input-during-handoff', closed: true, activity: false }]);
+  assert.equal(stopped.result.state, 'continued'); assert.equal(stopped.counters.submitted, 1); assert.equal(stopped.counters.notified, 0);
+  const advanced = await run('advanced', [{ turnId: 'input-during-handoff', closed: true, activity: true }]);
+  assert.equal(advanced.result.state, 'failed'); assert.equal(advanced.result.error_code, 'handoff_source_advanced');
+  assert.equal(advanced.counters.created, 0); assert.equal(advanced.counters.submitted, 0);
+}));
+
+test('引き継ぎの最中に旧タスクへ来た入力は、凍結する記憶へ入れない', async () => withDb(db => {
+  const operation = request(db, 'frozen-source', { now: 1 }).operation;
+  const session = operation.source_session_id;
+  db.prepare('INSERT INTO sessions (session_id,project_path,created_at,updated_at) VALUES (?, ?, 1, 1)').run(session, '/project');
+  const body = db.prepare('INSERT INTO bodies (session_id,origin_session_id,turn_number,role,text,created_at) VALUES (?, ?, ?, ?, ?, ?)');
+  body.run(session, session, 1, 'user', '進めて', 100); body.run(session, session, 1, 'assistant', '途中まで進めた', 100);
+  body.run(session, session, 2, 'user', '動いてる？', 300); body.run(session, session, 3, 'user', 'ん？', 310);
+  db.prepare('INSERT INTO details (session_id,origin_session_id,turn_number,tool_name,kind,output_text,created_at) VALUES (?, ?, 1, ?, ?, ?, ?)')
+    .run(session, session, 'exec_command', 'tool_output', '結果', 999);
+  const later = [{ turnId: 'b', closed: true, activity: false }, { turnId: 'c', closed: true, activity: false }];
+  const frozen = freezeCodexMemory(db, operation, {}, { stoppedAt: 200, laterTurns: later });
+  assert.deepEqual(frozen.bodies.map(row => row.text), ['進めて', '途中まで進めた']);
+  assert.equal(frozen.sourceTurnNumber, 1); assert.equal(frozen.details.length, 1);
+  // 後続turnが無い時と、止める前からあった発言は、今までどおり全部入れる。
+  assert.equal(freezeCodexMemory(db, operation, {}, { stoppedAt: 200 }).bodies.length, 4);
+  assert.equal(freezeCodexMemory(db, operation, {}, { stoppedAt: 305, laterTurns: later }).bodies.length, 3);
+  assert.equal(freezeCodexMemory(db, operation, {}, { stoppedAt: 200, laterTurns: [later[0]] }).bodies.length, 3);
+}));

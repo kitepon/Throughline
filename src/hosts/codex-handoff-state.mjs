@@ -102,8 +102,13 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   const nativeSessions = new Set();
   let inheritedThroughlineMemory = false;
   let completedTools = 0;
+  // turnId を指定した時だけ、その turn より後に始まった turn を並べる。closed は止まった（turn_aborted）か完了したか、
+  // activity はモデルの発言・道具の呼び出し・圧縮・完了のどれかがあったか。入力を受けただけで止まった turn は activity が false。
+  const laterTurns = [];
+  let sourceSeen = false, later = null;
   for (const row of rows) {
     const payload = row.payload;
+    if (later && (row.type === 'compacted' || row.type === 'token_usage_record')) later.activity = true;
     // forkの先頭は子自身のmetadata。後続にコピーされた親のmetadataは識別へ使わない。
     if (row.type === 'session_meta') { meta ??= payload; continue; }
     if (row.type === 'turn_context' && (!turnId || payload.turn_id === turnId)) context = payload;
@@ -114,6 +119,8 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
     if (row.type === 'event_msg' && payload?.type === 'task_started') {
       latestTurnId = payload.turn_id;
       turnOpen = true;
+      if (turnId && latestTurnId === turnId) sourceSeen = true;
+      else if (turnId && sourceSeen) { later = { turnId: latestTurnId, closed: false, activity: false }; laterTurns.push(later); }
       hasTurnInput = pendingUser != null;
       if (!turnId || latestTurnId === turnId) {
         turnStartAt = Date.parse(row.timestamp); pendingCalls.clear(); completedTools = 0;
@@ -126,6 +133,12 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
       stoppedAt = Date.parse(row.timestamp); stoppedReason = payload.reason;
     }
     if (row.type === 'event_msg' && ['turn_aborted', 'task_complete'].includes(payload?.type) && payload.turn_id === latestTurnId) turnOpen = false;
+    if (later && row.type === 'event_msg' && payload?.turn_id === later.turnId) {
+      if (payload.type === 'turn_aborted') later.closed = true;
+      if (payload.type === 'task_complete') { later.closed = true; later.activity = true; }
+    }
+    if (later && row.type === 'event_msg' && payload?.type === 'agent_message') later.activity = true;
+    if (later && row.type === 'response_item' && !(payload?.type === 'message' && payload.role !== 'assistant')) later.activity = true;
     if (row.type === 'event_msg' && payload?.type === 'task_complete' && payload.turn_id === (turnId ?? latestTurnId)) {
       completedAt = Date.parse(row.timestamp);
     }
@@ -197,6 +210,6 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   }
   return { meta, settings, rawSettings, preparedSettings, context, latestTurnId, turnStartAt, stoppedAt, stoppedReason,
     completedAt, correlatedTurnId, hasTurnInput, progress, completedTools, pendingCallCount: pendingCalls.size,
-    pendingNativeSessionCount: nativeSessions.size, inheritedThroughlineMemory,
+    pendingNativeSessionCount: nativeSessions.size, inheritedThroughlineMemory, laterTurns,
     compactedRows: rows.filter(r => r.type === 'compacted').length };
 }

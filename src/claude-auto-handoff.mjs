@@ -136,6 +136,23 @@ export function publicClaudeAutoHandoff(record) {
     requested_at, updated_at };
 }
 
+/**
+ * 後継の会話が残っているか。受領が残った引き継ぎ（後継の session id が分かっている物）だけを見る。
+ * 後継の transcript は、Claude の projects の下の、後継を起動した project のフォルダに出来る。フォルダ名の付け方は
+ * OS で違うので、旧い会話の transcript の場所から projects をたどり、その下のフォルダを順に見る。
+ */
+function successorRemains(record) {
+  const successorId = record?.successor?.session_id;
+  if (record?.state !== 'sent' || !validSessionId(successorId) || typeof record.transcript_path !== 'string') return false;
+  const file = `${successorId}.jsonl`;
+  const own = dirname(record.transcript_path);
+  if (existsSync(join(own, file))) return true;
+  let folders;
+  try { folders = readdirSync(dirname(own), { withFileTypes: true }); }
+  catch { return false; }
+  return folders.some(entry => entry.isDirectory() && existsSync(join(dirname(own), entry.name, file)));
+}
+
 function removeStale(dir, now) {
   for (const folder of [dir, targetsDir(dir)]) {
     let names;
@@ -153,7 +170,14 @@ function removeStale(dir, now) {
         if (error.code === 'ENOENT') continue; // 別の hook が同時に消した
         throw error;
       }
-      if (now - modifiedAt > STALE_RECORD_MS) rmSync(path, { force: true });
+      if (now - modifiedAt <= STALE_RECORD_MS) continue;
+      // 後継が残っている会話の記録は消さない。消すと、旧い会話からもう1つ後継が立つ。
+      if (folder === dir && name.endsWith('.json')) {
+        let record = null;
+        try { record = readJson(path); } catch { /* 読めない記録は、期限どおり消す */ }
+        if (successorRemains(record)) continue;
+      }
+      rmSync(path, { force: true });
     }
   }
 }

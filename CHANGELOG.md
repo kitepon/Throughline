@@ -10,6 +10,33 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.3] — 2026-10-07
+
+### 修正
+
+- Codexの自動継続で、引き継ぎの最中（継続の指示を送る前）に旧タスクへ入力が来ると、同じ旧タスクから2つ目の引き継ぎが立っていたのを直す（[ADR 0040](docs/adr/0040-auto-handoff-no-second-successor-while-pending.md)）。1つ目は`handoff_source_advanced`で失敗して失敗の画面を出し、記憶だけが入った後継が残っていた。workerが動いている引き継ぎがある間は、新しい引き継ぎを作らず、ターンを止めて進んでいる引き継ぎのIDを示す。入力を受けただけで止まったturnは、元turnの境界を進めた物として数えない。
+- 後継を作った後、配送の前に止まった引き継ぎは、次の入力で同じ引き継ぎをやり直す（同じID、出来ている後継を使う）。今までは別の引き継ぎを作り、後継が2つになっていた。後継を利用者がもう使っている時、後継が消えている時、旧タスクが進んでいる時、後継を作る前に止まった時は、今までどおり新しい引き継ぎを作る。
+- 2つの入力がほぼ同時に来た時は、先に記録した方だけが引き継ぎを作る。
+- 引き継ぎの最中に旧タスクへ来た入力は、後継へ渡す記憶に入れない。
+- Claude Codeの自動継続で、引き継ぎの記録を24時間で掃除していたため、その後に同じ会話からもう1つ後継が立っていたのを直す。後継の会話が残っている間は、記録を消さない。
+
+### 変わらない事
+
+- 後継が残っていない（消した、アーカイブした）旧タスクからは、今までどおり新しい後継を立てる。
+- 止める場所は`PreCompact(auto)`のまま。旧タスクが圧縮に掛からない間は、旧タスクはそのまま動く。
+- DBの形は変えない（v12）。
+
+### 確認した範囲
+
+- macOSで、公開するtarballを切り離したHOMEへ入れ、2026-10-07の実物のrolloutと`codex_handoffs`の写しへ当てた。止まった入力が続くrolloutで境界が進まない事、最中の入力で行もworkerも増えない事、引き継ぎ済みの旧タスクと引き継いでいないタスクが0.16.2と同じ動きである事。
+- 同じ旧タスクへ6つの入力を同じ時刻に入れて、引き継ぎが1つだけ出来る事（LinuxとmacOS、本物のprocess）。
+
+### 確認していない範囲
+
+- 本物のCodex Desktopでの通しと、画面で最中の入力を止めた理由がどう見えるか。
+- 同じ引き継ぎのやり直しを、本物の後継のタスクで。
+- Claude Codeの記録を残す事を、本物のClaude Codeの会話で。
+
 ## [0.16.2] — 2026-10-07
 
 ### 修正
@@ -1913,7 +1940,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.2...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.3...HEAD
+[0.16.3]: https://github.com/kitepon/Throughline/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/kitepon/Throughline/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/kitepon/Throughline/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/kitepon/Throughline/compare/v0.15.5...v0.16.0

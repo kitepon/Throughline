@@ -174,6 +174,34 @@ test('PreCompact: session id が無い・pathを含む時は失敗し、期限�
   assert.deepEqual(readdirSync(join(dir, 'targets')), []);
 }));
 
+test('PreCompact: 後継の会話が残っている引き継ぎの記録は、期限を過ぎても消さない', () => withDir(dir => {
+  const now = Date.parse('2026-10-04T12:00:00Z');
+  const old = new Date(now - 25 * 3_600_000);
+  const projects = join(dir, 'claude', 'projects');
+  mkdirSync(join(projects, '-work-app'), { recursive: true }); mkdirSync(join(projects, '-moved-app'), { recursive: true });
+  const record = (id, fields) => {
+    writeFileSync(join(dir, `${id}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: `h-${id}`,
+      source_session_id: id, project_path: '/work/app', transcript_path: join(projects, '-work-app', `${id}.jsonl`),
+      state: 'sent', successor: { short_id: 'bbbbbbbb', session_id: `bbbbbbbb-${id.slice(9)}` }, ...fields }));
+    utimesSync(join(dir, `${id}.json`), old, old);
+    return fields?.successor?.session_id ?? `bbbbbbbb-${id.slice(9)}`;
+  };
+  const kept = 'aaaaaaaa-0000-4000-8000-000000000011', moved = 'aaaaaaaa-0000-4000-8000-000000000012';
+  const gone = 'aaaaaaaa-0000-4000-8000-000000000013', unconfirmed = 'aaaaaaaa-0000-4000-8000-000000000014';
+  const failed = 'aaaaaaaa-0000-4000-8000-000000000015';
+  // 後継の transcript が、旧い会話と同じフォルダにある。別の project のフォルダにある（会話を移していた時）。
+  writeFileSync(join(projects, '-work-app', `${record(kept)}.jsonl`), '');
+  writeFileSync(join(projects, '-moved-app', `${record(moved)}.jsonl`), '');
+  // 後継が消されている。受領を確かめられなかった（後継の session id が無い）。立ち上げに失敗した。
+  record(gone);
+  record(unconfirmed, { state: 'unknown', successor: { short_id: 'bbbbbbbb', session_id: null } });
+  writeFileSync(join(projects, '-work-app', `${record(failed, { state: 'failed' })}.jsonl`), '');
+  request(dir, { now });
+  assert.deepEqual(readdirSync(dir).filter(name => name.endsWith('.json')).sort(), [`${SESSION}.json`, `${kept}.json`, `${moved}.json`].sort());
+  // 残した記録の会話は、圧縮と道具を止め続ける。同じ会話から2つ目の後継は立たない。
+  assert.equal(request(dir, { now, payload: { session_id: kept } }).result.status, 'already_requested');
+}));
+
 test('PreToolUse: 記録のある会話の道具を実行させずに止め、止めた時点の依頼と設定を写して worker を1回だけ起動する', () => withDir(async dir => {
   const transcriptPath = join(dir, 'transcript.jsonl');
   writeFileSync(transcriptPath, jsonl([
