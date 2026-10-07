@@ -614,3 +614,20 @@ test('引き継ぎの最中に旧タスクへ来た入力は、凍結する記�
   assert.equal(freezeCodexMemory(db, operation, {}, { stoppedAt: 305, laterTurns: later }).bodies.length, 3);
   assert.equal(freezeCodexMemory(db, operation, {}, { stoppedAt: 200, laterTurns: [later[0]] }).bodies.length, 3);
 }));
+
+test('要約のbackendが使えない時、workerは固定の理由で止まり、後継を作らない', async () => withDb(async db => {
+  const backend = reason => Object.assign(new Error('Codex CLI summarizer failed: exit 1'), { source: 'codex-cli', reason });
+  const cases = [[backend('codex_cli_failed'), 'handoff_summarizer_backend_failed'], [backend('empty_output'), 'handoff_summarizer_backend_failed'],
+    [new Error('handoff_l1_unavailable'), 'handoff_summarizer_backend_failed'],
+    // 製品側の誤り（要約の呼び方の間違い）と、他の失敗は、今までどおり汎用の理由。
+    [backend('recursion_guard'), 'handoff_worker_failed'], [new Error('別の失敗'), 'handoff_worker_failed']];
+  for (const [index, [cause, expected]] of cases.entries()) {
+    const operation = request(db, `summarizer-${index}`, { now: 1 }).operation;
+    const counters = { created: 0, submitted: 0, notified: 0 };
+    const deps = workerDependencies(db, {}, async () => { counters.submitted++; }, counters);
+    deps.summaries = () => { throw cause; };
+    const result = await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps });
+    assert.equal(result.state, 'failed'); assert.equal(result.error_code, expected); assert.equal(result.resume_state, 'source_stopped');
+    assert.equal(counters.created, 0); assert.equal(counters.submitted, 0); assert.equal(counters.notified, 1);
+  }
+}));

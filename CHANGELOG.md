@@ -10,6 +10,25 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.4] — 2026-10-07
+
+### 変更
+
+- Codex StopのL1要約backend（Codex CLI）の失敗を、1回ごとにruntime errorとして数えるのをやめる（[ADR 0041](docs/adr/0041-l1-summarizer-backend-unrecovered.md)）。この失敗は、通信の断、利用上限、認証切れ、利用者の取り消しでも起きる。会話の取り込みは済んでいて、要約は次のStopがやり直し、recallはL2の本文を返すので、修理の対象として自動で登録しない。理由と外部CLIのstderrの末尾は、今までどおり端末の`hook-failures.log`に残る。hookの終了codeとstderrは変えない。
+- 最初の失敗から24時間を過ぎても成功を確認できない時だけ、`L1_SUMMARIZER_BACKEND_UNRECOVERED`（`warn`）で数える。要約が成功したら、その記録を`recovered`で解決にする。
+- Codexの自動継続のworkerは、要約のbackendの失敗を`handoff_summarizer_backend_failed`で止める（今までは汎用の`handoff_worker_failed`）。失敗の画面に、通信の断・利用上限・認証切れで起きる事、記録と入力が失われていない事、再開の仕方を書く。
+
+### 変わらない事
+
+- BugHubへ送る本文の形。項目は足していない。
+- hook処理の失敗（`HOOK_*_FAILED`）の数え方と重大度。これらの経路に通信は無い。
+- BugHubへの送信の失敗は、今までどおり送信の状態にだけ残し、runtime errorには数えない。
+
+### 確認していない範囲
+
+- 要約が失敗し続ける間のCodexの画面への影響。
+- 本物のCodex CLIが、通信の断・利用上限・認証切れのそれぞれで返す終了codeとstderr。
+
 ## [0.16.3] — 2026-10-07
 
 ### 修正
@@ -1940,7 +1959,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.3...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.4...HEAD
+[0.16.4]: https://github.com/kitepon/Throughline/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/kitepon/Throughline/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/kitepon/Throughline/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/kitepon/Throughline/compare/v0.16.0...v0.16.1

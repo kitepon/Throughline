@@ -144,7 +144,7 @@ function makeBin(dir, name, body) {
   return command;
 }
 
-test('Codex StopでL1要約backendが失敗した時、取り込みは残り、別のcodeで1回数える', () => {
+test('Codex StopのL1要約backendの失敗は1回ごとには数えず、24時間復帰を確認できない時だけ数え、成功で解決にする', () => {
   const { root, env } = createEnabledEnvironment('throughline-runtime-hook-summarizer-');
   const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
   const project = join(root, 'project');
@@ -168,20 +168,29 @@ test('Codex StopでL1要約backendが失敗した時、取り込みは残り、�
   mkdirSync(binDir, { recursive: true });
   const codex = makeBin(binDir, 'codex', "process.stderr.write('ERROR: usage limit reached\\n');\nprocess.exit(42);\n");
 
-  const result = spawnSync(process.execPath, [BIN, 'codex-hook', 'stop'], {
-    env: { ...env, CODEX_HOME: codexHome, THROUGHLINE_CODEX_CLI_BIN: codex },
+  const stop = (bin) => spawnSync(process.execPath, [BIN, 'codex-hook', 'stop'], {
+    env: { ...env, CODEX_HOME: codexHome, THROUGHLINE_CODEX_CLI_BIN: bin },
     input: JSON.stringify({ session_id: threadId, transcript_path: rolloutPath, cwd: project }),
     encoding: 'utf8',
   });
+  const records = () => {
+    const storePath = defaultRuntimeErrorStorePath(env);
+    if (!existsSync(storePath)) return [];
+    return JSON.parse(readFileSync(storePath, 'utf8')).records
+      .map((record) => [record.error_code, record.component, record.severity, record.count, record.status, record.reason_code]);
+  };
+  const recoveryPath = join(root, '.throughline', 'l1-backend-recovery.json');
+  const result = stop(codex);
 
   // hook は明示して失敗する（終了 code と stderr は変えない）。
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /\[codex-hook\] Codex CLI summarizer failed: exit 42/);
 
-  const store = JSON.parse(readFileSync(defaultRuntimeErrorStorePath(env), 'utf8'));
-  assert.deepEqual(store.records.map((record) => [record.error_code, record.component, record.severity, record.count]), [
-    ['L1_SUMMARIZER_BACKEND_FAILED', 'codex_l1_summarizer', 'warn', 1],
-  ]);
+  // 1回の失敗は、修理の対象として数えない。通信の断・利用上限・取り消しでも起き、次の Stop がやり直す。
+  assert.deepEqual(records(), []);
+  const first = JSON.parse(readFileSync(recoveryPath, 'utf8'));
+  assert.equal(first.schema, 'throughline.l1_backend_recovery.v1'); assert.equal(first.reported, false);
+  assert.deepEqual(Object.keys(first).sort(), ['first_failure_at', 'last_failure_at', 'reported', 'schema']);
 
   // 取り込みは要約の前に commit 済み。
   const db = new DatabaseSync(join(root, '.throughline', 'throughline.db'));
@@ -198,6 +207,31 @@ test('Codex StopでL1要約backendが失敗した時、取り込みは残り、�
   assert.equal(entry.code, 'L1_SUMMARIZER_BACKEND_FAILED');
   assert.equal(entry.reason, 'codex_cli_failed');
   assert.match(entry.stderr, /usage limit reached/);
+
+  // 続けて失敗しても、最初の失敗から24時間に届くまでは数えない。
+  assert.equal(stop(codex).status, 1);
+  assert.deepEqual(records(), []);
+  assert.equal(JSON.parse(readFileSync(recoveryPath, 'utf8')).first_failure_at, first.first_failure_at);
+
+  // 最初の失敗から24時間を過ぎても成功を確認できていない。warn で数える。
+  writeFileSync(recoveryPath, JSON.stringify({ ...first, first_failure_at: Date.now() - 25 * 3_600_000 }));
+  assert.equal(stop(codex).status, 1);
+  assert.deepEqual(records(), [['L1_SUMMARIZER_BACKEND_UNRECOVERED', 'codex_l1_summarizer', 'warn', 1, 'open', null]]);
+  assert.equal(JSON.parse(readFileSync(recoveryPath, 'utf8')).reported, true);
+  assert.equal(stop(codex).status, 1);
+  assert.deepEqual(records(), [['L1_SUMMARIZER_BACKEND_UNRECOVERED', 'codex_l1_summarizer', 'warn', 2, 'open', null]]);
+
+  // backend が要約を返した。失敗の記録を消し、数えていた記録を recovered で解決にする。
+  const working = makeBin(binDir, 'codex-ok', "process.stdout.write('要約\\n');\n");
+  const recovered = stop(working);
+  assert.equal(recovered.status, 0, recovered.stderr);
+  assert.equal(existsSync(recoveryPath), false);
+  assert.deepEqual(records(), [['L1_SUMMARIZER_BACKEND_UNRECOVERED', 'codex_l1_summarizer', 'warn', 2, 'resolved', 'recovered']]);
+
+  // 復帰した後の失敗は、また最初から数える（すぐには数えない）。
+  assert.equal(stop(codex).status, 1);
+  assert.deepEqual(records(), [['L1_SUMMARIZER_BACKEND_UNRECOVERED', 'codex_l1_summarizer', 'warn', 2, 'resolved', 'recovered']]);
+  assert.equal(JSON.parse(readFileSync(recoveryPath, 'utf8')).reported, false);
 });
 
 test('store failure preserves product failure and emits only fixed storage diagnostic', () => {

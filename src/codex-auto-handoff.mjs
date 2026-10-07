@@ -342,6 +342,7 @@ export function showAutoHandoffFailure(operation) {
 <h1>自動継続を完了できませんでした</h1><p>引き継ぎは下記の工程で止まっています。タスクと記録を確認してください。</p>
 <p><a href="codex://threads/${escape(operation.source_thread_id)}">旧タスクを開く</a>${operation.target_thread_id ? ` / <a href="codex://threads/${escape(operation.target_thread_id)}">後継タスクを開く</a>` : ''}</p>
 <p>理由: <code>${escape(operation.error_code)}</code></p><p>引き継ぎID: <code>${escape(operation.handoff_id)}</code></p>
+${operation.error_code === 'handoff_summarizer_backend_failed' ? '<p>記憶の要約に使うCodex CLIが失敗しました。通信の断、利用上限、認証切れなどで起きます。会話の記録と入力は失われていません。Codex CLIが使える様になった後、旧タスクへ入力すると、引き継ぎをもう一度始めます。</p>' : ''}
 <p>状態: ${escape(operation.state)} / 停止した工程: ${escape(operation.resume_state)}</p>
 <p>確認: <code>throughline auto-handoff status --operation ${escape(operation.handoff_id)}</code></p>
 <p>原因を解消した後の再開: <code>throughline auto-handoff resume --operation ${escape(operation.handoff_id)}</code></p>
@@ -408,7 +409,14 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         const state = deps.readSource(operation);
         update({ snapshot_json: freezeCodexMemory(db, operation, operation.settings, state) });
       }
-      deps.summaries(db, operation);
+      try { deps.summaries(db, operation); }
+      catch (cause) {
+        // 古いturnの要約を作るbackend（Codex CLI）が使えない。通信の断・利用上限・認証切れでも起きる。
+        // 汎用の理由にせず、固定の理由で止める。失敗の画面に、失われた物が無い事と再開の仕方を書く（ADR 0041）。
+        if ((cause?.source === 'codex-cli' && ['codex_cli_failed', 'empty_output'].includes(cause.reason)) ||
+            cause?.message === 'handoff_l1_unavailable') throw error('handoff_summarizer_backend_failed');
+        throw cause;
+      }
       update({ state: 'memory_ready' });
     }
     if (operation.state === 'memory_ready') {

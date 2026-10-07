@@ -1,4 +1,4 @@
-import { recordRuntimeErrorBestEffort } from '../runtime-error-store.mjs';
+import { recordRuntimeErrorBestEffort, resolveRecoveredRuntimeErrorBestEffort } from '../runtime-error-store.mjs';
 import { logHookFailure } from '../hook-failure-log.mjs';
 
 function parseArgs(argv) {
@@ -422,6 +422,13 @@ export async function run(argv = []) {
         payload,
         env: process.env,
       });
+      // backend が要約を返した。失敗の後なら、復帰を確認できた（ADR 0041）。失敗の記録が無い時は、ファイルの有無を見るだけ。
+      if (result.summarized?.summarized?.some((turn) => turn.source === 'codex-cli')) {
+        const { noteL1BackendSuccess } = await import('../l1-backend-recovery.mjs');
+        if (noteL1BackendSuccess().reported) {
+          resolveRecoveredRuntimeErrorBestEffort('L1_SUMMARIZER_BACKEND_UNRECOVERED', { env: process.env });
+        }
+      }
     }
     if (parsed.event === 'pre-compact' && result.continue === false) {
       process.stdout.write(JSON.stringify({ continue: false, stopReason: result.stopReason }) + '\n');
@@ -434,7 +441,16 @@ export async function run(argv = []) {
     process.exit(result.continue === false || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
     const code = codexHookFailureCode(err);
-    recordRuntimeErrorBestEffort(code, { env: process.env });
+    if (code === 'L1_SUMMARIZER_BACKEND_FAILED') {
+      // 取り込みは済み、要約は次の Stop がやり直す。1回ごとの失敗（通信の断・利用上限・取り消しを含む）は
+      // 端末の診断（hook-failures.log）にだけ残す。復帰を24時間確認できていない時だけ数える（ADR 0041）。
+      const { noteL1BackendFailure } = await import('../l1-backend-recovery.mjs');
+      if (noteL1BackendFailure().unrecovered) {
+        recordRuntimeErrorBestEffort('L1_SUMMARIZER_BACKEND_UNRECOVERED', { env: process.env });
+      }
+    } else {
+      recordRuntimeErrorBestEffort(code, { env: process.env });
+    }
     logHookFailure(code, err);
     const msg = err instanceof Error ? err.message : 'unknown';
     if (parsed.json) {

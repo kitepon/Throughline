@@ -64,13 +64,29 @@ const DEFINITIONS = Object.freeze({
     template: 'Throughline Codex hook processing failed',
   }),
   // Codex Stop の取り込みは済み、L1 要約の backend（Codex CLI）だけが失敗した（ADR 0028）。
+  // 0.16.4 からは数えない（ADR 0041）。1回ごとの失敗は、通信の断・利用上限・取り消しでも起き、次の Stop がやり直す。
+  // 前の版が記録した store を読める様に、定義は残す。
   L1_SUMMARIZER_BACKEND_FAILED: Object.freeze({
     component: 'codex_l1_summarizer',
     // BugHub が受ける severity は fatal・high・warn・info だけ。他の値は report 全体が 422 になる。
     severity: 'warn',
     template: 'Throughline L1 summarizer backend (Codex CLI) failed',
   }),
+  // L1 要約の backend が失敗し、最初の失敗から24時間を過ぎても成功を確認できていない（ADR 0041）。
+  // 記憶は失われていない（取り込みは済み、recall は L2 を返す）。要約が成功した時に、recovered で解決にする。
+  L1_SUMMARIZER_BACKEND_UNRECOVERED: Object.freeze({
+    component: 'codex_l1_summarizer',
+    severity: 'warn',
+    template: 'Throughline L1 summarizer backend (Codex CLI) has not recovered for over 24 hours',
+  }),
 });
+
+/** 定型 code の fingerprint。記録は code ごとに1つ。 */
+export function runtimeErrorFingerprint(code) {
+  const definition = DEFINITIONS[code];
+  if (!definition) throw new TypeError('未登録の runtime error code です');
+  return createHash('sha256').update(['throughline', definition.component, code, definition.template].join('\0')).digest('hex');
+}
 
 export function defaultRuntimeErrorConfigPath(env = process.env) {
   if (isWindows(env)) {
@@ -143,9 +159,7 @@ export function observeRuntimeError(input, options = {}) {
   return withStoreLock(options, (privateDirectory) => {
     const now = normalizeTimestamp(input.now);
     const version = normalizeVersion(options.version ?? PACKAGE_VERSION);
-    const fingerprint = createHash('sha256')
-      .update(['throughline', definition.component, input.code, definition.template].join('\0'))
-      .digest('hex');
+    const fingerprint = runtimeErrorFingerprint(input.code);
     const store = readStore(options, { privateDirectory });
     const existing = store.records.find((record) => record.fingerprint === fingerprint);
     const sequence = nextSequence(store);
@@ -307,10 +321,15 @@ export function getRuntimeErrorDiagnostics(options = {}) {
   }
 }
 
+/** 復帰を確認できた記録を、recovered で解決にする。記録が無い時と、解決済みの時は何もしない。 */
+export function resolveRecoveredRuntimeErrorBestEffort(code, options = {}) {
+  return recordRuntimeErrorBestEffort(code, { ...options, action: 'recovered' });
+}
+
 export function recordRuntimeErrorBestEffort(code, options = {}) {
-  const { stderr = process.stderr, ...storeOptions } = options;
+  const { stderr = process.stderr, action = null, ...storeOptions } = options;
   try {
-    const child = childProcess.spawnSync(process.execPath, [fileURLToPath(new URL('./runtime-error-observer.mjs', import.meta.url)), code], {
+    const child = childProcess.spawnSync(process.execPath, [fileURLToPath(new URL('./runtime-error-observer.mjs', import.meta.url)), code, ...(action ? [action] : [])], {
       env: storeOptions.env ?? process.env,
       encoding: 'utf8',
       stdio: 'ignore',
