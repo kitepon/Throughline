@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.6] — 2026-10-08
+
+### 修正
+
+- WindowsのCodex Desktopで、自動継続が1回も引き継げなかったのを直す。`PreCompact(auto)`のhookが、会話記録の場所を確かめる所で`EISDIR: illegal operation on a directory, lstat 'C:'`で落ち、旧ターンだけを止めて、引き継ぎを作らずに終わっていた。Desktopが起動したhookの中では、Node.jsのJS実装の`fs.realpathSync`がdriveの根を読めない。OSの`realpath`（`fs.realpathSync.native`）を使う。製品のほかの所は、すでにこちらを使っていた。
+  - Windowsの端末の実測（Codex Desktop 26.930、同梱CLI 0.160.1、Node.js 24.20.0）。同じhookの中で、JS実装は13回とも同じ理由で落ち、OSの`realpath`は13回とも通った。
+  - Windowsで自動継続を有効にしていた端末は、今まで無い（既定は無効。有効にする前の確認で見つけた）。
+- `throughline doctor --codex`が、Windowsで承認済みのhookを「0/3 trusted - accept hooks in Codex menu」と表示していたのを直す。Codexは、`\`を含むkey（Windowsのpath）を`config.toml`へTOMLのliteral string（`[hooks.state.'C:\Users\…']`）で書く。doctorは`"…"`の形しか読んでいなかった。hookの動きと、Codexの公式API（`hooks/list`）が返す承認状態は、今までも正しかった。
+
+### 確認した範囲
+
+- WindowsのCodex Desktopで、公式の`PreCompact(auto)`を実際に発火させ、A→B→Cの2回の引き継ぎを人の操作なしで通した（[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-08-windows-codex-auto-handoff.md)）。2回とも`continued`。3つの工程の値は元の指示と一致し、3つ目のタスクが最初のタスクのL3を取得して完了した。圧縮の記録は0件。後継の名前は`<project名>｜<作業の概要>（自動引き継ぎ）`で付いた。
+
+### 変わらない事
+
+- macOSの自動継続の動き。schema（v12）。Claude Code・Grok・Cursor。
+
+### 確認していない範囲
+
+- Windowsで、Desktopの画面から人が始めたタスクを最初の旧タスクにした引き継ぎ。実測の最初のタスクは、製品が後継を作るのと同じ道（Desktop同梱CLIのapp-server）で作り、Desktopで開いて実行させた。
+- Windowsで、容量の既定の上限まで進んだ長い会話の引き継ぎ（実測は、試験用フォルダだけ上限を60,000 tokensへ下げた）。
+- Windowsの、失敗した時の説明ページの表示と、`resume`。
+
 ## [0.16.5] — 2026-10-08
 
 ### 修正
@@ -1982,7 +2005,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.5...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.6...HEAD
+[0.16.6]: https://github.com/kitepon/Throughline/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/kitepon/Throughline/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/kitepon/Throughline/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/kitepon/Throughline/compare/v0.16.2...v0.16.3

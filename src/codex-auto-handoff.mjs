@@ -164,7 +164,8 @@ export async function requestCodexAutoHandoff({ payload, db = null,
       typeof payload.transcript_path !== 'string' || !isAbsolute(payload.transcript_path) || !isAbsolute(payload.cwd ?? '')) {
     throw error('handoff_hook_identity_invalid');
   }
-  const rolloutPath = realpathSync(payload.transcript_path);
+  // JS実装のrealpathは、WindowsのCodex Desktopが起動したhookの中で `EISDIR: lstat 'C:'` で落ちる。OSのrealpathを使う。
+  const rolloutPath = realpathSync.native(payload.transcript_path);
   const state = readCodexHandoffState(rolloutPath, { threadId, turnId });
   if (state.meta.originator !== 'Codex Desktop' || state.meta.source !== 'vscode') return { status: 'skipped', reason: 'handoff_host_unsupported' };
   if (!sameProjectPath(state.meta.cwd, payload.cwd) || state.latestTurnId !== turnId) throw error('handoff_hook_source_mismatch');

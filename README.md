@@ -26,7 +26,7 @@ throughline auto-handoff status --json
 throughline auto-handoff disable
 ```
 
-既定では無効です。`enable`は必要な`PreCompact(auto)`フックを登録し、そのフックの承認と有効状態を公式APIで確認します。`--project`を省略すると全projectを対象にします。macOSのCodex Desktopで実機確認済みです。VS Code・CLI・他OSの自動継続は未検証です。
+既定では無効です。`enable`は必要な`PreCompact(auto)`フックを登録し、そのフックの承認と有効状態を公式APIで確認します。`--project`を省略すると全projectを対象にします。macOSとWindowsのCodex Desktopで実機確認済みです（Windowsは0.16.6から）。VS Code・CLI・Linuxの自動継続は未検証です。
 
 自動圧縮の開始前に旧ターンを停止し、同じprojectの新しいタスクへ記憶を注入して表示します。新しいタスクには、前任のタスクの題から`<project名>｜<作業の概要>（自動引き継ぎ）`の名前を付けます。元のモデル・推論強度・権限・モードなどが表示後も一致することを確認してから、継続指示を一度だけ送ります。後継でその入力と作業の進捗を観測して完了とします。手動`/compact`は発火対象に含めません。
 
@@ -41,7 +41,7 @@ throughline auto-handoff resume --operation <handoff-id> --json
 
 原因を解消した後の`resume`は同じ引き継ぎと既知の後継を再利用します。配送後の結果不明は実際の入力・開始を観測した場合だけ回復し、作成結果が不明な後継は再作成しません。従来の手動`$throughline`とcurrent-thread実験の設定は独立しています。
 
-[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)を参照してください。
+[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)と、[Windowsの実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-08-windows-codex-auto-handoff.md)を参照してください。
 
 ## Claude Codeの自動継続
 

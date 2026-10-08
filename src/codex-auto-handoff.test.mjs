@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -214,6 +216,26 @@ test('PreCompactの重複ではworkerを増やさず、manualと別projectでは
   assert.equal(first.continue, false); assert.equal(second.operationId, first.operationId); assert.equal(launched, 1);
   assert.equal((await requestCodexAutoHandoff({ ...args, payload: { ...payload, trigger: 'manual' } })).status, 'skipped');
   assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
+}));
+
+test('PreCompactの入口は、JS実装のrealpathが使えない環境（WindowsのCodex Desktopのhook）でも引き継ぎを作る', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'rollout.jsonl');
+  writeFileSync(file, [{ type: 'session_meta', payload: { id: thread, originator: 'Codex Desktop', source: 'vscode', cwd: home } },
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: turn } }].map(JSON.stringify).join('\n') + '\n');
+  // foxの実測（2026-10-08）: Desktopが起動したhookの中では、JS実装が drive の根を lstat できずに落ちた。
+  const original = fs.realpathSync;
+  const broken = () => { throw Object.assign(new Error("EISDIR: illegal operation on a directory, lstat 'C:'"), { code: 'EISDIR' }); };
+  broken.native = original.native;
+  fs.realpathSync = broken; syncBuiltinESMExports();
+  try {
+    let launched = 0;
+    const result = await requestCodexAutoHandoff({ db, config: { enabled: true, projects: [home], openHost: 'desktop' },
+      payload: { trigger: 'auto', cwd: home, session_id: thread, turn_id: turn, transcript_path: file },
+      launchWorker: async () => { launched++; } });
+    assert.equal(result.status, 'ok'); assert.equal(result.inserted, true); assert.equal(launched, 1);
+  } finally { fs.realpathSync = original; syncBuiltinESMExports(); }
 }));
 
 function desktopSource(home, thread, turn) {

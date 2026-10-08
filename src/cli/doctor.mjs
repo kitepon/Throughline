@@ -405,14 +405,15 @@ function parseCodexTrustedHookState(configText) {
   let currentTrusted = false;
 
   function flush() {
-    if (currentKey && currentTrusted) trustedKeys.add(currentKey);
+    if (currentKey && currentTrusted) for (const key of currentKey) trustedKeys.add(key);
   }
 
   for (const line of configText.split(/\r?\n/)) {
-    const section = line.match(/^\s*\[hooks\.state\."([^"]+)"\]\s*$/);
+    // Codexは、`\` を含むkey（Windowsのpath）をTOMLのliteral string（'…'）で書く。basic string（"…"）の時は `\\` を戻す。
+    const section = line.match(/^\s*\[hooks\.state\.(?:"((?:[^"\\]|\\.)+)"|'([^']+)')\]\s*$/);
     if (section) {
       flush();
-      currentKey = section[1];
+      currentKey = section[2] != null ? [section[2]] : [section[1], section[1].replace(/\\(["\\])/g, '$1')];
       currentTrusted = false;
       continue;
     }

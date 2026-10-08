@@ -456,6 +456,30 @@ test('readCodexHookDiagnosis detects Codex prompt and Stop hooks', () => {
   }
 });
 
+test('readCodexHookDiagnosis: Windowsのpathのkey（TOMLのliteral string・escapeしたbasic string）の承認を読む', () => {
+  const codexHome = mkdtempSync(join(tmpdir(), 'throughline-doctor-codex-trust-'));
+  try {
+    const hook = (name, timeout) => [{ hooks: [{ type: 'command', command: `/usr/bin/node /pkg/bin/throughline.mjs codex-hook ${name}`, timeout, async: false }] }];
+    writeFileSync(join(codexHome, 'hooks.json'), JSON.stringify({ hooks: {
+      UserPromptSubmit: hook('user-prompt-submit', 30), PostToolUse: hook('post-tool-use', 30), Stop: hook('stop', 300) } }) + '\n');
+    // foxの実測（2026-10-08）: Codex 0.160 は `[hooks.state.'C:\Users\…\hooks.json:stop:0:0']` と書く。
+    const hooksPath = join(codexHome, 'hooks.json');
+    const hash = 'trusted_hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
+    writeFileSync(join(codexHome, 'config.toml'), ['[features]', 'hooks = true', '',
+      `[hooks.state.'${hooksPath}:user_prompt_submit:0:0']`, hash, '',
+      `[hooks.state.${JSON.stringify(`${hooksPath}:post_tool_use:0:0`)}]`, hash, '',
+      `[hooks.state.'${hooksPath}:stop:0:0']`, 'enabled = true', ''].join('\n'));
+    const diagnosis = readCodexHookDiagnosis(codexHome);
+    assert.equal(diagnosis.managedPromptHooks[0].throughlineDoctorTrusted, true);
+    assert.equal(diagnosis.managedPostToolUseHooks[0].throughlineDoctorTrusted, true);
+    // trusted_hash の無い項目は、承認済みに数えない。
+    assert.equal(diagnosis.managedStopHooks[0].throughlineDoctorTrusted, false);
+    assert.equal(diagnosis.managedHookTrust.trustedCount, 2);
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
 // ─── formatAgo ──────────────────────────────────────────────────────
 
 test('formatAgo: 60 秒未満は秒表示', () => {
