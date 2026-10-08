@@ -52,6 +52,50 @@ test('getDb configures a bounded SQLite busy timeout for concurrent hook process
   }
 });
 
+test('getDbは、膨らんだWALを次の書き込みで上限まで切り詰める', () => {
+  const home = mkdtempSync(join(tmpdir(), 'throughline-db-wal-limit-'));
+  try {
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    // 上限を持たない接続で、checkpoint を止めたまま WAL を膨らませ、そのまま閉じずに終わる。
+    const grow = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { statSync } from 'node:fs';
+      import { DatabaseSync } from 'node:sqlite';
+      import { getDb, DB_PATH, WAL_SIZE_LIMIT_BYTES } from ${JSON.stringify(DB_MODULE_URL)};
+      getDb().close();
+      const db = new DatabaseSync(DB_PATH);
+      db.exec('PRAGMA wal_autocheckpoint = 0');
+      db.exec('CREATE TABLE filler (id INTEGER PRIMARY KEY, body TEXT)');
+      const insert = db.prepare('INSERT INTO filler (body) VALUES (?)');
+      const body = 'x'.repeat(1024 * 1024);
+      while (statSync(DB_PATH + '-wal').size <= WAL_SIZE_LIMIT_BYTES + 8 * 1024 * 1024) insert.run(body);
+      db.exec('DELETE FROM filler');
+      console.log(JSON.stringify({ wal: statSync(DB_PATH + '-wal').size, limit: WAL_SIZE_LIMIT_BYTES }));
+      process.exit(0);
+    `], { env, encoding: 'utf8' });
+    assert.equal(grow.status, 0, grow.stderr);
+    const grown = JSON.parse(grow.stdout);
+    assert.ok(grown.wal > grown.limit, `WAL が膨らんでいない: ${grow.stdout}`);
+
+    // 製品の入口で開いた接続が、checkpoint の後の最初の書き込みで切り詰める。
+    const shrink = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { statSync } from 'node:fs';
+      import { getDb, DB_PATH } from ${JSON.stringify(DB_MODULE_URL)};
+      const db = getDb();
+      const limit = db.prepare('PRAGMA journal_size_limit').get().journal_size_limit;
+      db.exec('PRAGMA wal_checkpoint(PASSIVE)');
+      db.prepare("INSERT INTO sessions (session_id, project_path, status, created_at, updated_at) VALUES ('wal-limit', '/tmp', 'active', 1, 1)").run();
+      console.log(JSON.stringify({ limit, wal: statSync(DB_PATH + '-wal').size }));
+      process.exit(0);
+    `], { env, encoding: 'utf8' });
+    assert.equal(shrink.status, 0, shrink.stderr);
+    const shrunk = JSON.parse(shrink.stdout);
+    assert.equal(shrunk.limit, grown.limit);
+    assert.ok(shrunk.wal <= grown.limit, `WAL が上限を超えたまま: ${shrink.stdout}`);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('getDb reuses an existing WAL database while another process owns the writer lock', async () => {
   const home = mkdtempSync(join(tmpdir(), 'throughline-db-contention-'));
   const env = { ...process.env, HOME: home, USERPROFILE: home };

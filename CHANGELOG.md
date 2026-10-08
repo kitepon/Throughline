@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.5] — 2026-10-08
+
+### 修正
+
+- Codexのhookが、道具を1回使うたびに、その会話のL3（`details`）を全部消して入れ直していたのを直す（[ADR 0042](docs/adr/0042-codex-capture-writes-only-changed-tail.md)）。DBにある行とrolloutの行を先頭から本文まで比べ、最初に食い違った行から後ろだけを書く。取り込んだ後の中身と並びは、全部入れ直した時と同じ。
+  - Windowsの端末で、L3が3,552行・約1.47億字（rolloutは288MB）の会話のhookが、1回でWALへ152.9MBを書いていた。その端末の`throughline.db-wal`は12.8GBまで伸びていた（DB本体は230MB）。本物のDBの写しで測ると、変化の無いhookは0.3MB、89行が増えたhookは12.5MBになる。
+- `getDb()`が`PRAGMA journal_size_limit`を64MBに設定する。WALが使い直された後の最初のcommitで、ファイルを64MBまで切り詰める。今までは、一度伸びたWALは中身が空になっても縮まなかった。
+
+### 変更
+
+- rolloutに時刻の無いL3の行は、最初に取り込んだ時刻のまま残る。今までは、取り込むたびにその時の時刻へ変わっていた。
+- `codex-capture --json`の結果へ、`keptDetails`・`writtenDetails`・`removedDetails`を足す。
+
+### 変わらない事
+
+- schema（v12）。`bodies`（L2）と`skeletons`（L1）の扱い。
+- Claude Code・Grok・Cursorの取り込み。
+
+### 確認していない範囲
+
+- 複数のCodexの会話が同時に動く本物の端末で、WALが伸びなくなるか。公開の後に端末で読む。
+- hookは今までどおり毎回rolloutの全体を読む。上の会話では約1.1秒かかる。Codexの画面での待ちとして見えているかは調べていない。
+
 ## [0.16.4] — 2026-10-07
 
 ### 変更
@@ -1959,7 +1982,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.4...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.5...HEAD
+[0.16.5]: https://github.com/kitepon/Throughline/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/kitepon/Throughline/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/kitepon/Throughline/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/kitepon/Throughline/compare/v0.16.1...v0.16.2

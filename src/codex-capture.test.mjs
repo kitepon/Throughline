@@ -459,6 +459,158 @@ test('同じ会話の再captureはL1を保持し、ユーザー本文が変わ�
   }
 });
 
+// 本物の schema と同じく、同じ source_id の2件目を INSERT OR IGNORE が捨てる DB。
+function makeDbWithSourceIndex() {
+  const db = makeDb();
+  db.exec(`CREATE UNIQUE INDEX uq_details_source
+             ON details(session_id, origin_session_id, source_id) WHERE source_id IS NOT NULL`);
+  return db;
+}
+
+function detailSnapshot(db) {
+  return db
+    .prepare(
+      `SELECT origin_session_id, turn_number, tool_name, input_text, output_text, token_count,
+              created_at, kind, source_id
+         FROM details ORDER BY id`,
+    )
+    .all();
+}
+
+function toolCall(callId, input, output) {
+  return [
+    responseItem({ type: 'function_call', call_id: callId, name: 'shell', arguments: input }),
+    responseItem({ type: 'function_call_output', call_id: callId, output }),
+  ];
+}
+
+test('同じ会話の再captureは、変わっていないL3の行を書き直さず、増えた行だけを足す', () => {
+  const db = makeDbWithSourceIndex();
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-incr-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+  try {
+    const head = [
+      event('task_started'), event('user_message', { message: '作業を続ける' }),
+      ...toolCall('call-1', '{"cmd":"pwd"}', '/work'),
+      ...toolCall('call-2', '{"cmd":"ls"}', 'a\nb'),
+    ];
+    const rollout = writeRollout(home, { id: threadId, cwd: project, events: head });
+    const first = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 1 });
+    assert.deepEqual([first.keptDetails, first.writtenDetails, first.removedDetails], [0, 4, 0]);
+    const idsBefore = db.prepare('SELECT id FROM details ORDER BY id').all().map((row) => row.id);
+
+    // 道具をもう1回使った後の hook。前の4行はそのまま残り、2行だけ増える。
+    writeRolloutRows(rollout, [sessionMeta(threadId, project), ...head, ...toolCall('call-3', '{"cmd":"date"}', 'now')]);
+    const second = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 2 });
+    assert.deepEqual([second.keptDetails, second.writtenDetails, second.removedDetails], [4, 2, 0]);
+    const idsAfter = db.prepare('SELECT id FROM details ORDER BY id').all().map((row) => row.id);
+    assert.deepEqual(idsAfter.slice(0, 4), idsBefore);
+    assert.equal(idsAfter.length, 6);
+    assert.ok(idsAfter[4] > idsBefore[3]);
+
+    // 何も増えていない hook は、L3 を1行も書かない。
+    const third = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 3 });
+    assert.deepEqual([third.keptDetails, third.writtenDetails, third.removedDetails], [6, 0, 0]);
+    assert.deepEqual(db.prepare('SELECT id FROM details ORDER BY id').all().map((row) => row.id), idsAfter);
+  } finally {
+    db.close(); rmSync(home, { recursive: true, force: true }); rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test('L3の再captureは、どの変わり方でも、全部入れ直した時と同じ中身と並びになる', () => {
+  const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+  const turn = (message, ...items) => [
+    event('task_started'), event('user_message', { message }), ...items.flat(), event('task_complete'),
+  ];
+  const orphanOutput = (output) => responseItem({ type: 'function_call_output', output });
+  const base = [
+    ...turn('1つ目', toolCall('call-1', '{"cmd":"pwd"}', '/work'), [orphanOutput('aaaa')]),
+    ...turn('2つ目', toolCall('call-2', '{"cmd":"ls"}', 'file-a'), toolCall('call-3', '{"cmd":"date"}', 'now')),
+  ];
+  const cases = {
+    // 末尾へ足されただけ。前の6行は残る。
+    '末尾へ行が増えた': { next: [...base, ...turn('3つ目', toolCall('call-4', '{"cmd":"id"}', 'kite'))], kept: 7 },
+    // 同じ source_id・同じ長さで、本文だけが違う。その行から後ろを入れ直す。
+    '途中の行の本文が同じ長さで変わった': {
+      next: [
+        ...turn('1つ目', toolCall('call-1', '{"cmd":"pwd"}', '/WORK'), [orphanOutput('aaaa')]),
+        ...turn('2つ目', toolCall('call-2', '{"cmd":"ls"}', 'file-a'), toolCall('call-3', '{"cmd":"date"}', 'now')),
+      ],
+      kept: 1,
+    },
+    // source_id の無い行は、本文でしか区別できない。
+    'source_idの無い行の本文が変わった': {
+      next: [
+        ...turn('1つ目', toolCall('call-1', '{"cmd":"pwd"}', '/work'), [orphanOutput('bbbb')]),
+        ...turn('2つ目', toolCall('call-2', '{"cmd":"ls"}', 'file-a'), toolCall('call-3', '{"cmd":"date"}', 'now')),
+      ],
+      kept: 2,
+    },
+    // 出力が後から届いた（NULL だった所へ入る形ではなく、行が増える）。
+    '途中へ行が差し込まれた': {
+      next: [
+        ...turn('1つ目', toolCall('call-1', '{"cmd":"pwd"}', '/work'), toolCall('call-1b', '{"cmd":"x"}', 'y'), [orphanOutput('aaaa')]),
+        ...turn('2つ目', toolCall('call-2', '{"cmd":"ls"}', 'file-a'), toolCall('call-3', '{"cmd":"date"}', 'now')),
+      ],
+      kept: 2,
+    },
+    // rollback で最後のターンが消えた。
+    '最後のターンが巻き戻された': { next: [...base, event('thread_rolled_back', { num_turns: 1 })], kept: 3 },
+    // 同じ call_id がもう一度出た。2件目は捨てられるので、並びは変わらない。
+    '同じsource_idがもう一度出た': {
+      next: [
+        ...turn('1つ目', toolCall('call-1', '{"cmd":"pwd"}', '/work'), [orphanOutput('aaaa')]),
+        ...turn('2つ目', toolCall('call-2', '{"cmd":"ls"}', 'file-a'), toolCall('call-2', '{"cmd":"ls"}', 'file-a'),
+          toolCall('call-3', '{"cmd":"date"}', 'now')),
+      ],
+      kept: 7,
+    },
+    '全部無くなった': { next: [...turn('1つ目')], kept: 0 },
+  };
+
+  for (const [name, { next, kept }] of Object.entries(cases)) {
+    const home = mkdtempSync(join(tmpdir(), 'tl-codex-incr-'));
+    const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+    const db = makeDbWithSourceIndex();
+    const fresh = makeDbWithSourceIndex();
+    try {
+      const rollout = writeRollout(home, { id: threadId, cwd: project, events: base });
+      captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 1 });
+      assert.equal(detailSnapshot(db).length, 7, name);
+
+      writeRolloutRows(rollout, [sessionMeta(threadId, project), ...next]);
+      const again = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 2 });
+      captureCodexRolloutToDb(fresh, { threadId, codexHome: home, projectPath: project, now: 2 });
+
+      assert.deepEqual(detailSnapshot(db), detailSnapshot(fresh), name);
+      assert.equal(again.keptDetails, kept, name);
+    } finally {
+      db.close(); fresh.close();
+      rmSync(home, { recursive: true, force: true }); rmSync(project, { recursive: true, force: true });
+    }
+  }
+});
+
+test('rolloutに時刻の無いL3の行は、再captureしても最初に取り込んだ時刻のまま残る', () => {
+  const db = makeDbWithSourceIndex();
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-incr-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  const threadId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+  try {
+    const untimed = { type: 'response_item', payload: { type: 'function_call', call_id: 'call-1', name: 'shell', arguments: '{}' } };
+    writeRollout(home, { id: threadId, cwd: project, events: [
+      event('task_started'), event('user_message', { message: '作業を続ける' }), untimed,
+    ] });
+    captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 1000 });
+    const again = captureCodexRolloutToDb(db, { threadId, codexHome: home, projectPath: project, now: 2000 });
+    assert.equal(again.keptDetails, 1);
+    assert.equal(db.prepare('SELECT created_at FROM details').get().created_at, 1000);
+  } finally {
+    db.close(); rmSync(home, { recursive: true, force: true }); rmSync(project, { recursive: true, force: true });
+  }
+});
+
 function writeRollout(home, { id, cwd, events }) {
   const dir = join(home, 'sessions', '2026', '05', '06');
   mkdirSync(dir, { recursive: true });

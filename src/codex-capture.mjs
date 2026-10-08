@@ -58,6 +58,7 @@ export function captureCodexRolloutToDb(
     now,
   });
 
+  let detailSync = null;
   db.exec('BEGIN IMMEDIATE');
   try {
     db.prepare(
@@ -80,18 +81,11 @@ export function captureCodexRolloutToDb(
       }
     }
     db.prepare('DELETE FROM bodies WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM details WHERE session_id = ?').run(sessionId);
 
     const insertBody = db.prepare(
       `INSERT INTO bodies
          (session_id, origin_session_id, turn_number, role, text, token_count, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const insertDetail = db.prepare(
-      `INSERT OR IGNORE INTO details
-         (session_id, origin_session_id, turn_number, tool_name, input_text, output_text,
-          token_count, created_at, kind, source_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     for (const row of rows) {
@@ -105,20 +99,7 @@ export function captureCodexRolloutToDb(
         row.createdAt,
       );
     }
-    for (const row of detailRows) {
-      insertDetail.run(
-        row.sessionId,
-        row.originSessionId,
-        row.turnNumber,
-        row.toolName,
-        row.inputText,
-        row.outputText,
-        row.tokenCount,
-        row.createdAt,
-        row.kind,
-        row.sourceId,
-      );
-    }
+    detailSync = syncDetailRows(db, sessionId, detailRows, now);
 
     db.exec('COMMIT');
   } catch (err) {
@@ -137,8 +118,98 @@ export function captureCodexRolloutToDb(
     capturedTurns: parsed.activeTurnCount,
     capturedRows: rows.length,
     capturedDetails: detailRows.length,
+    keptDetails: detailSync.kept,
+    writtenDetails: detailSync.inserted,
+    removedDetails: detailSync.removed,
     stats: parsed.stats,
   };
+}
+
+/**
+ * L3 (details) を rollout の今の中身へ合わせる。変わっていない先頭の行はそのまま残し、
+ * 最初に食い違った行から後ろだけを消して入れ直す (ADR 0042)。
+ *
+ * hook は道具を1回使うたびに走る。会話の全行を消して入れ直すと、長い会話では1回の hook が
+ * 会話全体と同じ量を WAL へ書く。rollout は追記で伸びるので、普通は末尾の数行だけが変わる。
+ *
+ * 残った行の並び (id の順) は、全部入れ直した時と同じになる。食い違いは本文まで比べて決める。
+ */
+function syncDetailRows(db, sessionId, detailRows, now) {
+  const wanted = dropIgnoredDuplicates(detailRows);
+  const existing = db
+    .prepare(
+      `SELECT id, origin_session_id, turn_number, tool_name, kind, source_id, token_count, created_at
+         FROM details WHERE session_id = ? ORDER BY id`,
+    )
+    .all(sessionId);
+  const sameText = db.prepare(
+    'SELECT 1 AS same FROM details WHERE id = ? AND input_text IS ? AND output_text IS ?',
+  );
+
+  let kept = 0;
+  while (kept < existing.length && kept < wanted.length) {
+    const have = existing[kept];
+    const want = wanted[kept];
+    if (!sameDetailColumns(have, want, now)) break;
+    if (!sameText.get(have.id, want.inputText, want.outputText)) break;
+    kept++;
+  }
+
+  if (kept < existing.length) {
+    db.prepare('DELETE FROM details WHERE session_id = ? AND id >= ?').run(sessionId, existing[kept].id);
+  }
+
+  const insertDetail = db.prepare(
+    `INSERT OR IGNORE INTO details
+       (session_id, origin_session_id, turn_number, tool_name, input_text, output_text,
+        token_count, created_at, kind, source_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const row of wanted.slice(kept)) {
+    insertDetail.run(
+      row.sessionId,
+      row.originSessionId,
+      row.turnNumber,
+      row.toolName,
+      row.inputText,
+      row.outputText,
+      row.tokenCount,
+      row.createdAt,
+      row.kind,
+      row.sourceId,
+    );
+  }
+
+  return { kept, removed: existing.length - kept, inserted: wanted.length - kept };
+}
+
+// uq_details_source (session_id, origin_session_id, source_id) は、同じ source_id の2件目を
+// INSERT OR IGNORE で捨てる。DB に入る並びと比べるため、入れる前に同じ形へ揃える。
+function dropIgnoredDuplicates(detailRows) {
+  const seen = new Set();
+  const rows = [];
+  for (const row of detailRows) {
+    if (row.sourceId !== null) {
+      const key = `${row.originSessionId}\0${row.sourceId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function sameDetailColumns(have, want, now) {
+  return (
+    have.origin_session_id === want.originSessionId &&
+    have.turn_number === want.turnNumber &&
+    have.tool_name === want.toolName &&
+    have.kind === want.kind &&
+    have.source_id === want.sourceId &&
+    have.token_count === want.tokenCount &&
+    // rollout に時刻が無い行は取り込んだ時刻が入る。その行は最初に取り込んだ時刻のまま残す。
+    (have.created_at === want.createdAt || want.createdAt === now)
+  );
 }
 
 function bodyTurnTexts(rows) {

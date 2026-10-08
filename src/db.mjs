@@ -10,6 +10,9 @@ import { join } from 'path';
 const DB_DIR = join(homedir(), '.throughline');
 export const DB_PATH = join(DB_DIR, 'throughline.db');
 export const DB_BUSY_TIMEOUT_MS = 5_000;
+// WAL が checkpoint で巻き戻った後、次の書き込みでファイルをこの大きさまで切り詰める (ADR 0042)。
+// 既定 (-1) は切り詰めないので、一度膨らんだ WAL は中身が空でも元の大きさのまま残る。
+export const WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
 export const CURRENT_VERSION = 12;
 
 let _db = null;
@@ -485,6 +488,7 @@ export function getDb() {
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
     settleFirstRead(db);
     ensureWalJournalMode(db);
+    db.exec(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES}`);
     db.exec('PRAGMA foreign_keys = ON');
     initSchema(db);
     _db = db;

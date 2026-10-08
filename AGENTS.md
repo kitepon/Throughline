@@ -61,7 +61,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | 役割 |
 |---|---|
-| [src/db.mjs](src/db.mjs) | SQLite 接続、schema migration（現行値はCURRENT_VERSION）。`node:sqlite` 組み込み、依存ゼロ。移行は書き込み lock の中で版を読み直して1つの transaction で行い、WAL への切り替えは断られたら読み直して待つ（ADR 0031）。開いた直後の最初の読み取りは `settleFirstRead` で済ませ、`disk I/O error` の間だけ読み直す（Windows で、閉じずに終わった hook の片付けと重なった時。ADR 0036）。Throughline の DB を開く所は全部ここを通す |
+| [src/db.mjs](src/db.mjs) | SQLite 接続、schema migration（現行値はCURRENT_VERSION）。`node:sqlite` 組み込み、依存ゼロ。移行は書き込み lock の中で版を読み直して1つの transaction で行い、WAL への切り替えは断られたら読み直して待つ（ADR 0031）。開いた直後の最初の読み取りは `settleFirstRead` で済ませ、`disk I/O error` の間だけ読み直す（Windows で、閉じずに終わった hook の片付けと重なった時。ADR 0036）。`getDb()` は `journal_size_limit` を 64MB にし、伸びた WAL を使い直しの後に切り詰める（ADR 0042）。Throughline の DB を開く所は全部ここを通す |
 | [src/auditor-context.mjs](src/auditor-context.mjs) | Spotter 専用の read-only auditor projection。指定 session / project の completed L2 user/assistant pair だけを、最新 pair の origin / turn / SHA-256 freshness と現行schemaで検査し、bounded JSON context を返す。DB 作成・migration・書き込みはしない。Spotter 側の opt-in と送信判断は Throughline の責務外 |
 | [src/caveat-context.mjs](src/caveat-context.mjs) | Caveat向けのread-only projection。指定session/projectの完了済み直近3ターンについて、L2の会話と取得可能なL3 Thinkingだけを上限付きで返す。tool入出力は返さず、host transcript指定時は最新ペアの一致を検証する |
 | [src/room-context.mjs](src/room-context.mjs) | 外部ルーム発言を部屋ごとに記録し、指定発言までの直近3ターンを公開JSONとして返す |
@@ -69,7 +69,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/transcript-reader.mjs](src/transcript-reader.mjs) | transcript JSONL パーサー。圧縮の要約行（`isCompactSummary: true`）はターンの始まりにも本文にもしない。`turn_number` は要約行の分も進める（ADR 0032 決定5）。別の会話から届いた発言は、host が付ける定型の注意書きを落とす |
 | [src/turn-start.mjs](src/turn-start.mjs) | ターンの始まり方（`prompt` / `self` / `unknown`）を host が transcript に書いた印だけで判定する。Claude `origin.kind`、Grok `synthetic_reason`、Cursor の自己開始固定文 (ADR 0024) |
 | [src/transcript-usage.mjs](src/transcript-usage.mjs) | 最新 assistant の `message.usage` から実測トークン数を抽出、1M context 検出 |
-| [src/codex-capture.mjs](src/codex-capture.mjs) | Codex rollout JSONL の active turns を Throughline DB の `bodies` に保存する capture adapter。`thread_rolled_back` 適用後の active thread だけを `codex:<thread_id>` session として再構成する |
+| [src/codex-capture.mjs](src/codex-capture.mjs) | Codex rollout JSONL の active turns を Throughline DB の `bodies` に保存する capture adapter。`thread_rolled_back` 適用後の active thread だけを `codex:<thread_id>` session として再構成する。L3（`details`）は、DB の行と先頭から本文まで比べ、最初に食い違った行から後ろだけを書く（ADR 0042） |
 | [src/codex-rollout-memory.mjs](src/codex-rollout-memory.mjs) | Codex rollout JSONL から active turns / restore-safety diagnostics / trim source を構築する。trim source では現在進行中の in-flight turn と latest rollback 後の未完了 assistant continuation を rollback 候補から除外する。実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で rollback 数を補正する |
 | [src/codex-usage.mjs](src/codex-usage.mjs) | Codex rollout の `event_msg` / `token_count` verified shape から monitor 用 usage sample を抽出する。open turn 中は `input_tokens + output_tokens` を live footprint として返し、`task_complete` 後は verified `input_tokens` のみに戻す。`token_count` が無い rollout では active rollout text の `chars / 4` estimate を `estimated: true` として返す |
 | [src/codex-auto-handoff.mjs](src/codex-auto-handoff.mjs) | `PreCompact(auto)`から同turnの停止・記憶確定・後継作成/表示・設定確認・一度だけの配送・実際の進捗観測を行う。引き継ぎ済みの旧タスクの新しいturnは、後継を増やさずに止めて今の後継を示す（ADR 0039）。引き継ぎの最中の入力は進んでいる引き継ぎを返して止め、後継を作ったまま止まった引き継ぎは同じ引き継ぎをやり直す（ADR 0040）。要求とsnapshot/祖先はstore、記憶描画はmemory、vendor設定はhosts/codex-handoff-stateに置く |
@@ -188,7 +188,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 |---|---|
 | [src/baton.test.mjs](src/baton.test.mjs) | `writeBaton` / `consumeBaton` / TTL 動作 (v8 で memo_text 関連 test 削除) |
 | [src/prompt-submit.test.mjs](src/prompt-submit.test.mjs) | `isBatonCommand` / `isClearCommand` の slash command 判定 (`/tl`, `/clear` の単独・引数つき・前後空白・prefix 偽陽性拒否) |
-| [src/codex-capture.test.mjs](src/codex-capture.test.mjs) | Codex `codex:<thread_id>` session identity、rollout active turns の L2 capture、`function_call` / `function_call_output` の L3 details capture、rollback tail 再構成、Codex-origin handoff |
+| [src/codex-capture.test.mjs](src/codex-capture.test.mjs) | Codex `codex:<thread_id>` session identity、rollout active turns の L2 capture、`function_call` / `function_call_output` の L3 details capture、rollback tail 再構成、L3 を変わった所から後ろだけ書いた結果が全部入れ直した時と同じになること（ADR 0042）、Codex-origin handoff |
 | [src/codex-usage.test.mjs](src/codex-usage.test.mjs) | Codex rollout `token_count` usage 抽出、`token_count` 不在時の明示 estimate、空 rollout の null |
 | [src/codex-auto-refresh.test.mjs](src/codex-auto-refresh.test.mjs) | Dormant helper の default disabled、75% 閾値、estimate usage の非実行、明示 enabled 時に threshold reached で rollback/inject を呼ぶこと、DB memory が無い場合の skip |
 | [src/codex-handoff.test.mjs](src/codex-handoff.test.mjs) | `toThroughlineHandoffBlock` の `throughline_handoff` v1 JSON shape と Codex active-work context renderer |
