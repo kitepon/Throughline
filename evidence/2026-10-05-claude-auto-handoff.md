@@ -193,3 +193,20 @@ Desktopの画面で、題名「tl-tl-claude-probe-3eacc0af」、引き継ぎの�
 `FINISHED-5`、結果ファイルへのリンク、完了報告を確認した。同じsessionIdが`kind:interactive`で登録された。
 Desktopへの自動表示と、実行中の後継のDesktop表示は確認していない。
 公式仕様は[一次ソース抜粋](../rag/01-hooks/raw/claude-desktop-session-open-extract.md)を参照する。
+
+## macOSの端末、0.16.7（2026-10-08 21:43〜21:48）
+
+利用者の端末で全projectへ有効にする前に、入っている公開版（0.16.7）と本物のDB・設定のまま、試験用フォルダだけで有効にして流した。
+Claude Code 2.1.289（Homebrew）、Haiku 4.5、`CLAUDE_CODE_AUTO_COMPACT_WINDOW=141000`（試験用フォルダのproject設定）。
+端末の対話画面へ指示を1回送った後は、何も操作していない。
+
+| 回 | 権限 | 指示 | 引き継ぎ | 結果 |
+|---|---|---|---|---|
+| 1 | acceptEdits | part01〜14を順にRead | 1回（21:44:34、旧い会話は114,444 tokens） | 21:44:59 に結果ファイル |
+| 2 | bypassPermissions | part01〜14を2周（28回） | 2回続けて（21:46:23、21:46:54） | 21:47:12 に結果ファイル |
+
+- 引き継ぎの記録は3つとも`sent`、`error_code`なし。5つのtranscriptに圧縮の記録は無い。
+- 旧い会話は、次のReadで`PreToolUse:Read hook stopped continuation`になり、止めた理由と引き継ぎIDが画面に出た。
+- 後継の名前は`tl-claude-probe｜<前任の題>（自動引き継ぎ）`。2回目の後継でも、project名と印は重なっていない。
+- `hook-failures.log`は無く、実行時エラーのopenは0のまま。
+- 試験の後、後継3つを`claude stop`・`claude rm`で消した。
