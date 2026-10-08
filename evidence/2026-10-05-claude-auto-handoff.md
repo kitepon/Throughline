@@ -283,3 +283,12 @@ Linuxの端末の対話画面へ指示を1回送った。試験用フォルダ�
 
 - 続けて3回引き継ぎ（23:58:28、23:58:37、23:58:45）、記録は全部`sent`。4つのtranscriptに圧縮の記録は無い。23:58:53に結果ファイル。
 - `claude --desktop`は`--desktop isn't available on this platform. It works on macOS and Windows (x64).`で断るので、後継は裏の会話のまま（`desktop.wanted`は`false`）。
+
+### 公開版（0.16.9）での通し（Windows）
+
+[v0.16.9](https://github.com/kitepon/Throughline/releases/tag/v0.16.9)（commit `cf0607a`、registryの時刻 2026-10-08T15:12:16.920Z、shasum `e4d22ca01e837662beb058b3984cd97ea6847ea7`）を
+公開の`throughline self-update`で入れた（00:12:46。設定7つは更新の前後で同じ）。既定のhookだけで、権限がbypassPermissionsの会話を流した。
+
+- 引き継ぎは続けて4回（00:13:18、00:13:39、00:14:00、00:14:19）。記録は全部`sent`。
+- 最後の後継が00:14:37に結果ファイルを書き、00:14:51に記録の`desktop.state`が`opened`、00:14:52にClaude Desktopの会話の置き場へ入った。
+- `hook-failures.log`は増えていない。実行時エラーのopenは0。
