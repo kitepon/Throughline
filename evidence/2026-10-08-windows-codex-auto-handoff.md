@@ -2,7 +2,7 @@
 
 - 実測日: 2026-10-08（Asia/Tokyo）
 - 端末: Windows、Codex Desktop（`OpenAI.Codex` 26.930.7945.0）、同梱CLI `codex-cli 0.160.1`、Node.js 24.20.0、PowerShell 7.6.6
-- 状態: **0.16.5はWindowsで1回も引き継げなかった。入口を1か所直した版で、A→B→Cの2回の引き継ぎを人の操作なしで通した。**
+- 状態: **0.16.5はWindowsで1回も引き継げなかった。入口を1か所直した版と、公開した0.16.6で、A→B→Cの2回の引き継ぎを人の操作なしで1回ずつ通した。**
 - macOSの実測と試験の組み方: [Codex自動新規タスク継続の成立検証](2026-10-03-codex-auto-continuation.md)
 
 ## 0.16.5で起きた事
@@ -53,6 +53,23 @@ JS実装を使っていたhookの道は、自動継続の入口の1か所だけ�
 
 この間、既定のhook（入っている0.16.5）も同じ`PreCompact`で動き、同じ理由で2回失敗した。
 試験用フォルダの設定でそのhookを無効にする指定は効かなかった。失敗した側は圧縮を止める返答を返すだけなので、通しの結果には影響していない。
+
+## 公開版（0.16.6）での通し
+
+[v0.16.6](https://github.com/kitepon/Throughline/releases/tag/v0.16.6)（commit `6e03e49`、registryの時刻 2026-10-08T03:53:12.342Z、shasum `98343ce4f6951d68ac654b5953b58d7726e358b4`）を、
+公開の`throughline self-update`で端末へ入れた（12:54:46）。`config.toml`・`hooks.json`は更新の前後で同じ。
+試験用フォルダの`PreCompact`は外し、既定のhook（入っている0.16.6）だけで同じ通しを流した。
+
+| 引き継ぎ | 要求 | 結果 |
+|---|---|---|
+| A→B | 12:55:47 | `continued` |
+| B→C | 12:56:24 | `continued`（`previous_handoff_id`はA→B） |
+
+- 工程1・2・3のファイルは、最初の指示の値と一致した（12:55:45、12:56:23、12:57:12）。Cは最初のタスクのL3を取得して記録し、`task_complete`で終わった。
+- 3つのrolloutに圧縮の記録は無い。後継の名前は2つとも付いた。
+- `hook-failures.log`は、この通しの間に1行も増えていない（0.16.5の3行のまま）。
+- `throughline doctor --codex`は`Codex hook trust: trusted`（0.16.5は`0/3 trusted`）。
+- macOS（Node.js 26.10.0）の本物のrollout 2,832件で、`fs.realpathSync`と`fs.realpathSync.native`は同じ値を返した。macOSの動きは変わらない。
 
 ## 試験の組み方（macOSとの違い）
 
