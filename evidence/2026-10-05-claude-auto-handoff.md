@@ -244,3 +244,16 @@ Claude Code 2.1.289（Homebrew）、Haiku 4.5、`CLAUDE_CODE_AUTO_COMPACT_WINDOW
 - 記録の`desktop.state`は、開いた後継の引き継ぎだけ`opened`。2回目の途中の2つの後継は、自身が引き継ぎの途中だったので移っていない。
 - 引き継ぎの`state`は全部`sent`。結果ファイルは2回とも書かれた。
 - Claude Desktopの画面から始めた本物の会話では流していない。
+
+### 公開版（0.16.8）での通し
+
+[v0.16.8](https://github.com/kitepon/Throughline/releases/tag/v0.16.8)（commit `31eeed9`、registryの時刻 2026-10-08T13:14:58.084Z、shasum `24fdf0d93025432f4bab9e525c3c0eeb2d4b1489`）を
+公開の`throughline self-update`で入れた（22:15:29。設定7つは更新の前後で同じ）。既定のhookだけで、同じ通しを1回流した。
+
+| 引き継ぎ | 後継が作業を終えた時刻 | Desktopが取り込んだ時刻 | 記録 |
+|---|---|---|---|
+| 22:16:06 | 22:16:21 | 22:16:24 | `state: sent`、`desktop_state: opened` |
+
+- `hook-failures.log`は無く、実行時エラーのopenは0のまま。
+- 試験の後、Desktopへ移していない途中の後継2つを`claude stop`・`claude rm`で消した。Desktopへ移した試験の会話4つは、Desktopの一覧に残っている。
+- 続けて引き継いだ時の途中の引き継ぎは、`desktop_state`が`waiting`のまま残る（後継が次の引き継ぎへ進んだため）。表示だけの事で、動きには関わらない。
