@@ -10,6 +10,28 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.7] — 2026-10-08
+
+### 修正
+
+- Codex Desktopに同梱のCodexが0.162になると、自動継続が毎回`handoff_prepared_settings_mismatch`で止まっていたのを直す。旧ターンを止め、後継を作って記憶を入れた後、設定の照合で止まり、失敗の画面を出していた。Codex 0.162は、後継の設定を整えた時の記録（`thread_settings_applied`）へ、未指定のservice tierを`"default"`と書く。旧タスクの記録には項目が無いので、製品は「未指定」と「`default`」を別の設定として比べていた。同じ枠として扱う。`fast`などの別の枠は、今までどおり不一致で止める。
+  - Linuxの端末（Codex Desktop 26.1002、同梱CLI 0.162.0-alpha.2）の実測。0.16.6は、続けた2回の引き継ぎが2回ともこの理由で止まった。
+  - macOSとWindowsのCodex Desktopも、26.1002から同梱CLIが0.162になっている。
+
+### 確認した範囲
+
+- LinuxのCodex Desktopで、公式の`PreCompact(auto)`を実際に発火させた。0.16.6で止まった2つの引き継ぎを、この直しを当てた版の`auto-handoff resume`でやり直し、2つとも`continued`になった。3つの工程の値は元の指示と一致し、3つ目のタスクが最初のタスクのL3を取得した。圧縮の記録は0件。後継の名前も付いた（[実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-08-linux-codex-auto-handoff.md)）。
+- 止まった引き継ぎの`resume`が、出来ている後継を使って続きを届ける事（上の2回）。
+
+### 変わらない事
+
+- 同梱CLIが0.160.1までのCodex Desktopでの動き。schema（v12）。Claude Code・Grok・Cursor。
+
+### 確認していない範囲
+
+- この版そのものを入れた端末で、hookから始まって人の操作なしで終わる通し。公開の後に、Linux・Windows・macOSの端末で流す。
+- Linuxで、容量の既定の上限まで進んだ長い会話の引き継ぎ。
+
 ## [0.16.6] — 2026-10-08
 
 ### 修正
@@ -2005,7 +2027,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.6...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.7...HEAD
+[0.16.7]: https://github.com/kitepon/Throughline/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/kitepon/Throughline/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/kitepon/Throughline/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/kitepon/Throughline/compare/v0.16.3...v0.16.4

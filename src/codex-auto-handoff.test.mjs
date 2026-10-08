@@ -11,7 +11,7 @@ import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemor
   claimAutoHandoff, continuationInput } from './codex-auto-handoff-store.mjs';
 import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoffMemory,
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
-import { readCodexHandoffState, settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
+import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
@@ -406,6 +406,24 @@ test('元turnの停止だけを採用し、配送本文と開始・進捗を相�
   assert.equal(settingsMatch(state.settings, { ...state.settings, effort: 'low' }), false);
   assert.throws(() => readCodexHandoffState(file, { threadId: 'other' }), /handoff_thread_mismatch/);
 }));
+
+test('未指定のservice tierと"default"は同じ設定として扱い、別の枠は不一致にする', () => {
+  // rabbitの実測（2026-10-08、Codex 0.162.0-alpha.2）: 旧タスクのrolloutにservice_tierは無く、
+  // 後継の thread_settings_applied には service_tier:"default" が書かれた。0.160.1 までは後継にも書かれなかった。
+  const source = { cwd: '/p', model: 'm', effort: 'high', approvalPolicy: 'never', serviceTier: null,
+    collaborationMode: { mode: 'default', settings: { model: 'm', reasoning_effort: 'high', developer_instructions: null } } };
+  const expanded = { ...source.collaborationMode, settings: { ...source.collaborationMode.settings, developer_instructions: '# Collaboration Mode: Default' } };
+  const prepared = { ...source, serviceTier: 'default', collaborationMode: expanded };
+  assert.equal(settingsMatch(source, { ...source, serviceTier: 'default' }), true);
+  assert.equal(settingsMatch({ ...source, serviceTier: 'default' }, source), true);
+  assert.equal(settingsMatch(source, { ...source, serviceTier: 'fast' }), false);
+  assert.equal(settingsMatch({ ...source, serviceTier: 'fast' }, { ...source, serviceTier: 'default' }), false);
+  const expected = resolvePreparedSettings(source, prepared);
+  assert.deepEqual(expected.collaborationMode, expanded);
+  // 表示後のrolloutが "default" でも、準備値（旧タスクの未指定を持つ）と一致する。
+  assert.equal(settingsMatch(expected, prepared), true);
+  assert.throws(() => resolvePreparedSettings(source, { ...prepared, serviceTier: 'fast' }), /handoff_prepared_settings_mismatch/);
+});
 
 test('forkした子の先頭metadataを保持し、継承された親metadataでIDを上書きしない', async () => withDb((db, home) => {
   const file = join(home, 'child-rollout.jsonl');

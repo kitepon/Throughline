@@ -58,6 +58,8 @@ export function normalizeThreadSettings(native) {
 export function settingsMatch(source, target) {
   const a = { ...source }, b = { ...target };
   delete a.sandboxPolicy; delete b.sandboxPolicy;
+  // Codex 0.162 は、未指定の service tier を thread_settings_applied へ "default" と書く。未指定（null）と同じ枠。
+  a.serviceTier ??= 'default'; b.serviceTier ??= 'default';
   const aCwd = a.cwd, bCwd = b.cwd;
   delete a.cwd; delete b.cwd;
   return sameProjectPath(aCwd, bCwd) && isDeepStrictEqual(a, b);
