@@ -620,8 +620,10 @@ test('PreCompact: Claude Desktop から始まった会話と、その後継の�
   assert.equal(wanted({ platform: 'darwin', env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, true);
   assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, false, '端末から始めた会話の後継は、claude agents の一覧に出る');
   assert.equal(wanted({ platform: 'darwin' }).wanted, false);
-  assert.equal(wanted({ platform: 'linux', transcriptPath: desktopTranscript }).wanted, false, '開く命令を通せるのは macOS だけ');
-  assert.equal(wanted({ platform: 'win32', payload: { cwd: 'C:\\work\\app' }, env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, false);
+  assert.equal(wanted({ platform: 'linux', transcriptPath: desktopTranscript }).wanted, false, 'Linux の Claude Code に --desktop は無い');
+  assert.equal(wanted({ platform: 'linux', transcriptPath: desktopTranscript, env: { THROUGHLINE_AUTO_HANDOFF_OPEN: 'desktop' } }).wanted, false);
+  assert.equal(wanted({ platform: 'win32', payload: { cwd: 'C:\\work\\app' }, env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, true);
+  assert.equal(wanted({ platform: 'win32', payload: { cwd: 'C:\\work\\app' } }).wanted, false);
   assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript, env: { THROUGHLINE_AUTO_HANDOFF_OPEN: 'desktop' } }).wanted, true);
   assert.equal(wanted({ platform: 'darwin', transcriptPath: desktopTranscript, env: { THROUGHLINE_AUTO_HANDOFF_OPEN: 'off' } }).wanted, false);
 
@@ -720,6 +722,12 @@ test('Desktop で開く: 後継が手すきになるのを待って止め、擬�
   assert.equal(stopFailed.calls.some(call => call[0] === 'pty'), false);
   const refused = await run({ statuses: ['idle'], opened: { status: 1, stdout: `Session ${SUCCESSOR} is open in another terminal. Run /desktop there instead.\r\n`, stderr: '' } });
   assert.deepEqual([refused.record.desktop.state, refused.record.desktop.error_code], ['failed', 'desktop_open_failed']);
+
+  // Windows は新しい console の中で動かすので、出た文を読めない。終了 code だけで成否を決める
+  const windowsOk = await run({ statuses: ['idle'], opened: { status: 0, stdout: '', stderr: '', outputUnavailable: true } });
+  assert.equal(windowsOk.record.desktop.state, 'opened');
+  const windowsRefused = await run({ statuses: ['idle'], opened: { status: 1, stdout: '', stderr: '', outputUnavailable: true } });
+  assert.deepEqual([windowsRefused.record.desktop.state, windowsRefused.record.desktop.error_code], ['failed', 'desktop_open_failed']);
 
   // 対象でない記録には何もしない
   writeRecord(dir, SESSION, {});

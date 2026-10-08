@@ -10,6 +10,27 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.9] — 2026-10-09
+
+### 追加
+
+- Claude Desktopから始まった会話の後継を、作業を終えた時にClaude Desktopへ開く動き（0.16.8、[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）を、Windowsでも行う。`claude --desktop --resume`は出力が端末でないと動かないので、Windowsでは新しいconsole（最小化）の中のPowerShellに実行させ、その終了codeで成否を決める。
+  - Windowsの端末（Claude Code 2.1.293、Claude Desktop 2.16120）の実測。裏の会話は、作業中も手すきも`That session is running in the background`（終了code 1）で断られ、`claude stop`の後は`Opening session <id> in Claude Desktop`（終了code 0）で開いた。macOSと同じ。
+  - `cmd /c start /wait`は、中の命令が断られても0を返し、batchのshim（`claude.cmd`）を閉じないwindowで開くので使わない。
+
+### 変わらない事
+
+- macOSの動き。LinuxのClaude Codeには`--desktop`が無い（`--desktop isn't available on this platform. It works on macOS and Windows (x64).`）ので、Linuxでは今までどおり裏の会話のままにする。
+
+### 確認した範囲
+
+- Windowsで、端末から始めた会話に`THROUGHLINE_AUTO_HANDOFF_OPEN=desktop`を付けて流した。続けて4回引き継ぎ、最後の後継が作業を終えた16秒後に、Claude Desktopがその会話を取り込んだ。途中の後継は移っていない。
+- Linux（Claude Code 2.1.293）で、Claude Codeの自動継続が続けて3回引き継いで完了する事（後継は裏の会話のまま）。
+
+### 確認していない範囲
+
+- WindowsとmacOSの、Claude Desktopの画面から始めた本物の会話での通し。
+
 ## [0.16.8] — 2026-10-08
 
 ### 追加
@@ -2055,7 +2076,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.8...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.9...HEAD
+[0.16.9]: https://github.com/kitepon/Throughline/compare/v0.16.8...v0.16.9
 [0.16.8]: https://github.com/kitepon/Throughline/compare/v0.16.7...v0.16.8
 [0.16.7]: https://github.com/kitepon/Throughline/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/kitepon/Throughline/compare/v0.16.5...v0.16.6

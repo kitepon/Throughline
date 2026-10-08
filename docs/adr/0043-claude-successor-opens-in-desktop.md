@@ -35,7 +35,9 @@ macOS（Claude Code 2.1.289、Claude Desktop 2.26454.2）で確かめた事:
    擬似端末の中で `claude --desktop --resume <session id>` を呼ぶ。出力の `Opening session <id>` と終了 code で成否を決める。
 4. 後継が引き継ぎの途中（その後継自身の記録がある）なら移さない。作業は次の後継が続けるので、移すのは最後に作業を終えた
    後継だけ。手すきにならないまま時間切れになった時は、止めずに戻り、次の Stop でやり直す。
-5. 対応は macOS だけ（擬似端末に `/usr/bin/script` を使う）。ほかの OS では印を付けず、今までどおり裏の会話のままにする。
+5. 対応は macOS と Windows。macOS は擬似端末に `/usr/bin/script` を使う。Windows は PowerShell の
+   `Start-Process -Wait -PassThru` で新しい console（最小化）の中の pwsh に実行させ、その終了 code で成否を決める
+   （出た文は読めない）。Linux の Claude Code には `--desktop` が無いので、印を付けず、今までどおり裏の会話のままにする。
 6. 環境変数 `THROUGHLINE_AUTO_HANDOFF_OPEN` で上書きできる。`desktop` は出どころに関係なく開き、`off` は開かない。
 7. 旧い会話を止めた理由の文に、後継がターンを終えた時に Desktop へ開く事を書く。
 8. 結果は記録の `desktop`（`state`: `requested`・`opened`・`superseded`・`failed`、`error_code`、`opened_at`）に残し、
@@ -61,8 +63,21 @@ macOS、Claude Code 2.1.289、Haiku 4.5、試験用フォルダ。端末から�
 - 1回の引き継ぎ: 後継が 22:00:59 に作業を終え、22:01:03 に Desktop が取り込んだ。
 - 続けて3回の引き継ぎ: 最後の後継だけが移り（22:03:13）、途中の2つは移らなかった。
 
+## Windows（2026-10-08 23:45〜23:57、0.16.9）
+
+Claude Code 2.1.293、Claude Desktop 2.16120（MSIX）。画面のある session で確かめた（ssh は session 0 で、Desktop へ届かない）。
+
+- 裏の会話の3つの状態は macOS と同じ。作業中と手すきは `That session is running in the background`（終了 code 1）、
+  `claude stop` の後は `Opening session <id> in Claude Desktop`（終了 code 0）で、数秒後に Desktop の会話の置き場
+  （`%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude\claude-code-sessions`）へ入った。
+- `cmd /c start "" /min /wait claude …` は、batch の shim を `cmd /K` で開いて戻らない。内側に `cmd /c` を挟むと戻るが、
+  断られた時も終了 code は 0 だった。`Start-Process pwsh … -Wait -PassThru` の `ExitCode` は、断られた時 1、開けた時 0。
+- 通し: 端末から始めた会話に `THROUGHLINE_AUTO_HANDOFF_OPEN=desktop` を付けた。続けて4回引き継ぎ、最後の後継が
+  23:56:26 に作業を終え、23:56:42 に Desktop が取り込んだ。途中の3つは移っていない。
+
+Linux（Claude Code 2.1.293）は `--desktop isn't available on this platform. It works on macOS and Windows (x64).` で断る。
+
 ## 確かめていない範囲
 
 - Claude Desktop の画面から始めた本物の会話での通し（印の付き方は、実物の transcript の値と単体の試験で確かめた）。
-- Windows と Linux の Claude Desktop。
 - 長いターンの後継と、後継が質問で止まった時の見え方。

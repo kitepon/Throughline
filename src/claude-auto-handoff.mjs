@@ -13,7 +13,7 @@
  *                                  外から後継へ文を送らない。権限のバイパス中の会話は、外から届いた文を
  *                                  利用者の承認まで止めるため（0.15.3）。
  *   5. 後継の Stop               : Claude Desktop から始まった会話の後継は、そのターンの作業を終えた時に
- *                                  Desktop へ移して開く（`claude stop` → `claude --desktop --resume`）。
+ *                                  Desktop へ移して開く（`claude stop` → `claude --desktop --resume`。macOS と Windows）。
  *                                  Claude Code は、裏で動いている会話を Desktop へ移さない。
  *
  * 旧い会話は止めるだけで、空にしない。手動の /compact と subagent の中の圧縮は対象にしない。
@@ -210,10 +210,11 @@ function readLatestEntrypoint(transcriptPath) {
 /**
  * この会話の後継を、Claude Desktop で開くか。
  * Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ開く。端末から始めた会話の後継は
- * `claude agents` の一覧に出るので、Desktop へは移さない。開く命令を通せるのは macOS だけ。
+ * `claude agents` の一覧に出るので、Desktop へは移さない。Claude Code の `--desktop` があるのは macOS と Windows だけ
+ * （Linux は `--desktop isn't available on this platform` で断る）。
  */
 function openInDesktopWanted({ sessionId, transcriptPath, env, dir, platform }) {
-  if (platform !== 'darwin' || env[OPEN_OVERRIDE_ENV] === 'off') return false;
+  if (!['darwin', 'win32'].includes(platform) || env[OPEN_OVERRIDE_ENV] === 'off') return false;
   if (env[OPEN_OVERRIDE_ENV] === 'desktop') return true;
   if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
   return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.desktop?.wanted);
@@ -732,7 +733,7 @@ export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHand
  *
  * Claude Code は、裏で動いている会話（作業中も、手すきも）を Desktop へ移さない。手すきになるのを待って
  * `claude stop` で止め、`claude --desktop --resume <session id>` で開く。この命令は出力が端末でないと動かないので、
- * 擬似端末の中で呼ぶ。後継がまた動き出した時は止めずに戻り、次の Stop でやり直す。
+ * 擬似端末（macOS）か新しい console（Windows）の中で呼ぶ。後継がまた動き出した時は止めずに戻り、次の Stop でやり直す。
  */
 export async function runClaudeDesktopOpen(sourceSessionId, {
   dir = claudeAutoHandoffDir(),
@@ -765,7 +766,9 @@ export async function runClaudeDesktopOpen(sourceSessionId, {
   if (stopped.error || stopped.status !== 0) return set({ state: 'failed', error_code: 'desktop_open_stop_failed' });
   const opened = pty('claude', ['--desktop', '--resume', successorId], { cwd: record.project_path, env: childEnv, timeout: 60_000 });
   const output = normalizeTerminalText(`${opened?.stdout ?? ''}${opened?.stderr ?? ''}`);
-  if (!opened || opened.error || opened.status !== 0 || !output.includes(`Opening session ${successorId}`)) {
+  // Windows は新しい console の中で動かすので、出た文を読めない。終了 code で成否を見る。
+  const announced = opened?.outputUnavailable || output.includes(`Opening session ${successorId}`);
+  if (!opened || opened.error || opened.status !== 0 || !announced) {
     // 理由を端末内のログに残す（命令の出力だけ。会話の中身は含まれない）。
     process.stderr.write(`[auto-handoff] claude --desktop --resume exit=${opened?.status ?? 'unsupported'} output=${JSON.stringify(output.slice(-400))}\n`);
     return set({ state: 'failed', error_code: opened ? 'desktop_open_failed' : 'desktop_open_platform_unsupported' });

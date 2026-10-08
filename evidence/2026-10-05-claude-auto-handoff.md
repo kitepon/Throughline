@@ -257,3 +257,29 @@ Claude Code 2.1.289（Homebrew）、Haiku 4.5、`CLAUDE_CODE_AUTO_COMPACT_WINDOW
 - `hook-failures.log`は無く、実行時エラーのopenは0のまま。
 - 試験の後、Desktopへ移していない途中の後継2つを`claude stop`・`claude rm`で消した。Desktopへ移した試験の会話4つは、Desktopの一覧に残っている。
 - 続けて引き継いだ時の途中の引き継ぎは、`desktop_state`が`waiting`のまま残る（後継が次の引き継ぎへ進んだため）。表示だけの事で、動きには関わらない。
+
+## Windowsで後継をClaude Desktopへ開く、Linuxの端末（2026-10-08 23:45〜23:59）
+
+### Windows（Claude Code 2.1.293、Claude Desktop 2.16120、Haiku）
+
+画面のあるsession（1回きりのタスク スケジューラ）で動かした。sshはsession 0で、Desktopへ届かない。
+
+| 状態（`claude agents`） | `claude --desktop --resume <session-id>`（新しいconsoleのpwsh、`Start-Process -Wait -PassThru`） |
+|---|---|
+| 作業中（`status: busy`） | 終了code 1、`That session is running in the background` |
+| 手すき（`status: waiting`） | 終了code 1、同じ文 |
+| `claude stop <id>`の後 | 終了code 0、`Opening session <id> in Claude Desktop`。2秒後にDesktopの会話の置き場へ入った |
+
+通し: 入っている0.16.8の写しへWindows対応を当て、試験用フォルダの会話のhookだけをその写しへ向けた。
+端末から始めた会話（acceptEdits）に`THROUGHLINE_AUTO_HANDOFF_OPEN=desktop`を付け、最初の指示は起動の引数で渡した。
+
+- 引き継ぎは続けて4回（23:55:14、23:55:30、23:55:49、23:56:08）。記録は全部`sent`。
+- 最後の後継が23:56:26に結果ファイルを書き、23:56:41に記録の`desktop.state`が`opened`、23:56:42にDesktopの会話の置き場へ入った。
+- 途中の3つの後継は移っていない。`hook-failures.log`は増えていない。
+
+### Linux（Claude Code 2.1.293、Haiku、0.16.8）
+
+Linuxの端末の対話画面へ指示を1回送った。試験用フォルダだけで有効にした。
+
+- 続けて3回引き継ぎ（23:58:28、23:58:37、23:58:45）、記録は全部`sent`。4つのtranscriptに圧縮の記録は無い。23:58:53に結果ファイル。
+- `claude --desktop`は`--desktop isn't available on this platform. It works on macOS and Windows (x64).`で断るので、後継は裏の会話のまま（`desktop.wanted`は`false`）。
