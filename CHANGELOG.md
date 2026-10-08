@@ -10,6 +10,34 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.8] — 2026-10-08
+
+### 追加
+
+- Claude Codeの自動継続で、Claude Desktopの画面から始まった会話の後継を、そのターンの作業を終えた時にClaude Desktopへ移して開く（macOS。[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。今までは、後継は裏の会話（`claude agents`の一覧）にだけ出て、Desktopの一覧には出なかった。Desktopで作業している時、旧い会話が止まり、続きが見えないまま裏で進んでいた。
+  - 後継がターンを終えると、手すきになるのを待って`claude stop`で止め、`claude --desktop --resume <session id>`で開く。Claude Codeは、裏で動いている会話（作業中も手すきも）をDesktopへ移さない。作業の間は、今までどおり裏で動く。
+  - 続けて引き継いだ時は、最後に作業を終えた後継だけを開く。
+  - 端末から始めた会話の後継は、今までどおり裏の会話のままにする。環境変数`THROUGHLINE_AUTO_HANDOFF_OPEN`で上書きできる（`desktop`は必ず開く、`off`は開かない）。
+- `auto-handoff status --host claude --json`の各引き継ぎへ、`desktop_state`（`waiting`・`requested`・`opened`・`superseded`・`failed`。対象外は`null`）と`desktop_error_code`を足す。
+
+### 変更
+
+- Desktopで開く引き継ぎでは、旧い会話を止めた理由の文に、後継がターンを終えた時にClaude Desktopへ開く事を書く。
+
+### 変わらない事
+
+- 後継の立て方（`claude --bg`）、記憶の渡し方、モデル・推論強度・権限の引き継ぎ。Codexの自動継続。schema（v12）。
+
+### 確認した範囲
+
+- macOS（Claude Code 2.1.289、Claude Desktop 2.26454.2、Haiku 4.5）の試験用フォルダで、端末から始めた会話に`THROUGHLINE_AUTO_HANDOFF_OPEN=desktop`を付けて流した。1回の引き継ぎでは、後継が作業を終えた4秒後にDesktopがその会話を取り込んだ。続けて3回の引き継ぎでは、最後の後継だけが取り込まれた。
+
+### 確認していない範囲
+
+- Claude Desktopの画面から始めた本物の会話での通し。印の付き方は、実物の会話記録の値（`"entrypoint":"claude-desktop"`）と単体の試験で確かめた。
+- WindowsとLinuxのClaude Desktop（この版は開かない）。
+- 長いターンの後継と、後継が質問で止まった時の見え方。
+
 ## [0.16.7] — 2026-10-08
 
 ### 修正
@@ -2027,7 +2055,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.7...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.8...HEAD
+[0.16.8]: https://github.com/kitepon/Throughline/compare/v0.16.7...v0.16.8
 [0.16.7]: https://github.com/kitepon/Throughline/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/kitepon/Throughline/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/kitepon/Throughline/compare/v0.16.4...v0.16.5

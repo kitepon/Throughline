@@ -210,3 +210,37 @@ Claude Code 2.1.289（Homebrew）、Haiku 4.5、`CLAUDE_CODE_AUTO_COMPACT_WINDOW
 - 後継の名前は`tl-claude-probe｜<前任の題>（自動引き継ぎ）`。2回目の後継でも、project名と印は重なっていない。
 - `hook-failures.log`は無く、実行時エラーのopenは0のまま。
 - 試験の後、後継3つを`claude stop`・`claude rm`で消した。
+
+## 後継をClaude Desktopへ開く（macOS、2026-10-08 21:53〜22:03）
+
+設計は[ADR 0043](../docs/adr/0043-claude-successor-opens-in-desktop.md)。Claude Code 2.1.289、Claude Desktop 2.26454.2、Haiku 4.5。
+
+### 裏の会話をDesktopへ移せる状態
+
+`claude --bg`で立てた会話1つを、3つの状態で`claude --desktop --resume <session-id>`へ渡した。
+
+| 状態（`claude agents`） | 結果 |
+|---|---|
+| 作業中（`status: busy`） | 断られた（`That session is running in the background`、終了code 1） |
+| ターンを終えた手すき（`status: idle`） | 同じ理由で断られた |
+| `claude stop <id>`の後 | 開いた（`Opening session <id> in Claude Desktop`、終了code 0） |
+
+- 開いた時、Desktopのログに`Resume deep link: importing CLI session <id>`、`Imported CLI session <id> as Desktop session local_<id>`が出た。
+  Desktopの会話の置き場に`local_<id>.json`（`adoptedFromOtherSurface: true`）が出来た。
+- 出力を端末以外へ向けると`--desktop … can't run non-interactively (… or redirected output)`で動かない。
+  `script -q /dev/null claude --desktop --resume <id>`は、端末の無いprocess（`nohup`、標準入力は`/dev/null`、出力はファイル）からも通った。
+- sshの中からは`--desktop requires signing in with a Claude account`で断られる（利用者のログインの中で動かす必要がある）。
+
+### 引き継ぎからDesktopで開くまでの通し
+
+入っている0.16.7の写しへこの直しを当て、試験用フォルダの会話のhookだけをその写しへ向けた。本物のDBと設定のまま。
+端末から始めた会話に`THROUGHLINE_AUTO_HANDOFF_OPEN=desktop`を付け、指示を1回送った後は何も操作していない。
+
+| 回 | 引き継ぎ | 後継が作業を終えた時刻 | Desktopが取り込んだ時刻 |
+|---|---|---|---|
+| 1（acceptEdits、14個を順にRead） | 1回（22:00:39） | 22:00:59 | 22:01:03 |
+| 2（bypassPermissions、2周） | 続けて3回（22:01:57、22:02:26、22:02:51） | 22:03:04（最後の後継） | 22:03:13 |
+
+- 記録の`desktop.state`は、開いた後継の引き継ぎだけ`opened`。2回目の途中の2つの後継は、自身が引き継ぎの途中だったので移っていない。
+- 引き継ぎの`state`は全部`sent`。結果ファイルは2回とも書かれた。
+- Claude Desktopの画面から始めた本物の会話では流していない。

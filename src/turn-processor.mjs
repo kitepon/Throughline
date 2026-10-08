@@ -52,7 +52,7 @@ import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 import { readClaudeRelocatedCwd } from './hosts/claude.mjs';
 import { CLAUDE_HOST } from './hosts/identity.mjs';
-import { completeClaudeTurnWithoutHandoff } from './claude-auto-handoff.mjs';
+import { completeClaudeTurnWithoutHandoff, requestClaudeDesktopOpen } from './claude-auto-handoff.mjs';
 
 /** 直近 N ターンは bodies を生で残し、それより古いものだけ L1 要約する。 */
 export const L2_WINDOW = 20;
@@ -271,6 +271,10 @@ async function processStop() {
 
   // 自動圧縮を止めた後、道具を呼ばずにターンが終わった。続ける作業が無いので、引き継ぎの記録を取り下げる (ADR 0033)。
   completeClaudeTurnWithoutHandoff({ sessionId: session_id });
+  // Claude Desktop から始まった会話の後継が、ターンを終えた。Desktop へ移して開く process を起動する。
+  // 失敗しても、会話の保存は続ける。
+  try { await requestClaudeDesktopOpen({ sessionId: session_id }); }
+  catch (err) { process.stderr.write(`[auto-handoff] desktop open: ${err instanceof Error ? err.message : 'unknown'}\n`); }
 
   // VSCode で開かれたプロジェクトに .vscode/tasks.json を自動プロビジョニングする。
   // 2 回目以降は冪等性チェックで即 return するので毎ターン走っても安全。

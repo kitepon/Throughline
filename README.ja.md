@@ -61,7 +61,7 @@ throughline auto-handoff disable --host claude
 3. 同じprojectに、継続の指示を最初の指示として付けた新しいClaudeの会話を裏で立てます（`claude --bg`）。会話の名前は、前任の会話の題から`<project名>｜<作業の概要>（自動引き継ぎ）`にします。モデル・推論強度・権限は旧い会話から引き継ぎます。
 4. 最初の指示を受け取った時に、止めた時点の依頼、そのターンでここまでにしたこと（発言と道具の呼び出し）、実行されなかった道具、直近の会話の原文を注入します（上限9,500字）。止めたターンの道具の入出力は、後継が`throughline detail`で取り出せます。
 
-続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Desktopへ自動で表示はしません。Desktopで開く時は、作業完了を確認して`claude stop <id>`で裏の実行を停止し、`claude --desktop --resume <session-id>`を実行します。`session-id`は`claude agents --json --all`の`sessionId`です。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は対象に含めません。
+続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopの画面から始まった会話の後継は、そのターンの作業を終えた時に、Claude Desktopへ移して開きます（macOS、0.16.8から。[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。Claude Codeは裏で動いている会話をDesktopへ移さないので、作業の間はDesktopには出ません。続けて引き継いだ時は、最後に作業を終えた後継だけを開きます。端末から始めた会話の後継は開きません。手で開く時は、`claude stop <id>`で裏の実行を停止し、`claude --desktop --resume <session-id>`を実行します。`session-id`は`claude agents --json --all`の`sessionId`です。環境変数`THROUGHLINE_AUTO_HANDOFF_OPEN`を`desktop`にすると出どころに関係なく開き、`off`にすると開きません。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は対象に含めません。
 
 ```bash
 throughline auto-handoff status --host claude --operation <handoff-id> --json

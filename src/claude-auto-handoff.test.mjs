@@ -16,6 +16,8 @@ import {
   listClaudeAutoHandoffs,
   publicClaudeAutoHandoff,
   claudeContinuationInput,
+  requestClaudeDesktopOpen,
+  runClaudeDesktopOpen,
 } from './claude-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
@@ -57,7 +59,7 @@ function request(dir, overrides = {}) {
       ...overrides.payload },
     env: overrides.env ?? {}, config: overrides.config ?? ENABLED, openDb: () => db, dir, now: overrides.now ?? 1_000,
     // 試験の project は POSIX の書き方（/work/app）。Windows の CI でも同じ値で比べる
-    platform: 'linux',
+    platform: overrides.platform ?? 'linux',
   });
   return { result, db };
 }
@@ -593,6 +595,138 @@ test('最初の指示: 後継だけが止めた時点の依頼を受け取り、
   assert.equal(acceptance().accepted_at, 9_500);
 }));
 
+// ---- 後継を Claude Desktop で開く ----
+
+function writeRecord(dir, sourceId, fields) {
+  writeFileSync(join(dir, `${sourceId}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: `h-${sourceId}`,
+    source_session_id: sourceId, project_path: '/work/app', transcript_path: null, state: 'sent', requested_at: 1_000, updated_at: 1_000,
+    settings: null, in_flight: null, successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR }, error_code: null, accepted_at: 2_000,
+    desktop: { wanted: true, state: null, error_code: null, opened_at: null }, ...fields }));
+}
+
+test('PreCompact: Claude Desktop から始まった会話と、その後継の引き継ぎだけ、後継を Desktop で開く印を付ける（macOS）', () => withDir(dir => {
+  const wanted = overrides => {
+    rmSync(join(dir, `${SESSION}.json`), { force: true });
+    request(dir, overrides);
+    return readClaudeAutoHandoff(SESSION, dir).desktop;
+  };
+  const desktopTranscript = join(dir, 'desktop.jsonl');
+  writeFileSync(desktopTranscript, jsonl([{ ...user('読んで', '2026-10-08T12:00:00.000Z'), entrypoint: 'claude-desktop' },
+    { ...assistant('読みました', '2026-10-08T12:00:05.000Z'), entrypoint: 'claude-desktop' }]));
+  const cliTranscript = join(dir, 'cli.jsonl');
+  writeFileSync(cliTranscript, jsonl([{ ...user('読んで', '2026-10-08T12:00:00.000Z'), entrypoint: 'cli' }]));
+
+  assert.deepEqual(wanted({ platform: 'darwin', transcriptPath: desktopTranscript }), { wanted: true, state: null, error_code: null, opened_at: null });
+  assert.equal(wanted({ platform: 'darwin', env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, true);
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, false, '端末から始めた会話の後継は、claude agents の一覧に出る');
+  assert.equal(wanted({ platform: 'darwin' }).wanted, false);
+  assert.equal(wanted({ platform: 'linux', transcriptPath: desktopTranscript }).wanted, false, '開く命令を通せるのは macOS だけ');
+  assert.equal(wanted({ platform: 'win32', payload: { cwd: 'C:\\work\\app' }, env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, false);
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript, env: { THROUGHLINE_AUTO_HANDOFF_OPEN: 'desktop' } }).wanted, true);
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: desktopTranscript, env: { THROUGHLINE_AUTO_HANDOFF_OPEN: 'off' } }).wanted, false);
+
+  // 裏で作業している後継がさらに引き継ぐ時は、元の会話の出どころを引き継ぐ（後継の transcript は cli）。
+  writeRecord(dir, 'origin-desktop', { successor: { short_id: SESSION.slice(0, 8), session_id: SESSION } });
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, true);
+  writeRecord(dir, 'origin-desktop', { successor: { short_id: SESSION.slice(0, 8), session_id: SESSION }, desktop: { wanted: false, state: null } });
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, false);
+}));
+
+test('PreToolUse: Desktop で開く引き継ぎは、止めた理由に、後継がターンを終えた時に Desktop へ開く事を書く', () => withDir(async dir => {
+  const desktopTranscript = join(dir, 'desktop.jsonl');
+  writeFileSync(desktopTranscript, jsonl([{ ...user('読んで', '2026-10-08T12:00:00.000Z'), entrypoint: 'claude-desktop' }]));
+  request(dir, { platform: 'darwin', transcriptPath: desktopTranscript });
+  const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', tool_use_id: 't1' }, dir, launchWorker: async () => 1 });
+  assert.match(output.stopReason, /そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。$/);
+}));
+
+test('Stop: Desktop で開く引き継ぎの後継がターンを終えたら、移す process を1回だけ起動する', () => withDir(async dir => {
+  const launched = [];
+  const launch = async (id) => { launched.push(id); };
+  // 対象でない会話
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null);
+  writeRecord(dir, SESSION, { desktop: { wanted: false, state: null } });
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '端末から始めた会話の後継は移さない');
+  writeRecord(dir, SESSION, { state: 'unknown' });
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '受領を確かめられていない後継は移さない');
+  // 対象の後継
+  writeRecord(dir, SESSION, {});
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SESSION, dir, launch }), null, '旧い会話自身の Stop では動かない');
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), `h-${SESSION}`);
+  assert.deepEqual(launched, [SESSION]);
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).desktop.state, 'requested');
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '2回目の Stop では起動しない');
+  assert.deepEqual(launched, [SESSION]);
+
+  // 後継自身が引き継ぎの途中（作業は次の後継が続ける）なら、移さない
+  writeRecord(dir, SESSION, {});
+  writeRecord(dir, SUCCESSOR, { state: 'stopped', successor: null });
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null);
+  assert.deepEqual(launched, [SESSION]);
+
+  // 起動に失敗した時は理由を残す
+  rmSync(join(dir, `${SUCCESSOR}.json`));
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch: async () => { throw new Error('spawn'); } }), null);
+  assert.deepEqual([readClaudeAutoHandoff(SESSION, dir).desktop.state, readClaudeAutoHandoff(SESSION, dir).desktop.error_code], ['failed', 'desktop_open_start_failed']);
+}));
+
+test('Desktop で開く: 後継が手すきになるのを待って止め、擬似端末の中で claude --desktop --resume を呼ぶ', () => withDir(async dir => {
+  const shortId = SUCCESSOR.slice(0, 8);
+  const run = async ({ statuses, stopStatus = 0, opened, beforePoll = () => {} }) => {
+    writeRecord(dir, SESSION, { desktop: { wanted: true, state: 'requested', error_code: null, opened_at: null } });
+    const calls = [];
+    const spawn = (command, args, options) => {
+      calls.push([command, ...args]);
+      if (args[0] === 'agents') {
+        beforePoll();
+        const status = statuses.length > 1 ? statuses.shift() : statuses[0];
+        return { status: 0, stdout: JSON.stringify([{ id: shortId, kind: 'interactive', status: 'idle' }, { id: 'ffffffff', kind: 'background', status: 'idle' },
+          ...(status === null ? [] : [{ id: shortId, kind: 'background', status, sessionId: SUCCESSOR }])]) };
+      }
+      assert.deepEqual(options.env, { PATH: '/bin' }, '会話ごとの環境変数は渡さない');
+      return { status: stopStatus, stdout: `stopped ${shortId}\n` };
+    };
+    const pty = (command, args, options) => { calls.push(['pty', command, ...args, options.cwd]); return opened; };
+    const record = await runClaudeDesktopOpen(SESSION, { dir, env: { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, spawn, pty, idleTimeoutMs: 60, pollMs: 5 });
+    return { record, calls };
+  };
+  const ok = { status: 0, stdout: `\u0004\b\bOpening session ${SUCCESSOR} in Claude Desktop\r\n`, stderr: '' };
+
+  // macOS の実測（2026-10-08）: 作業中は busy、ターンを終えると idle。どちらも `--desktop --resume` は断られ、stop の後だけ通る。
+  const done = await run({ statuses: ['busy', 'busy', 'idle'], opened: ok });
+  assert.deepEqual(done.calls.slice(-2), [['claude', 'stop', shortId], ['pty', 'claude', '--desktop', '--resume', SUCCESSOR, '/work/app']]);
+  assert.equal(done.calls.filter(call => call[1] === 'agents').length, 3);
+  assert.deepEqual([done.record.desktop.state, done.record.desktop.error_code, typeof done.record.desktop.opened_at], ['opened', null, 'number']);
+  assert.equal(done.record.state, 'sent', '引き継ぎの状態は変えない');
+  assert.deepEqual([publicClaudeAutoHandoff(done.record).desktop_state, publicClaudeAutoHandoff(done.record).desktop_error_code], ['opened', null]);
+
+  // 手すきにならない（次のターンが始まった）: 止めずに戻り、次の Stop でやり直せる状態にする
+  const busy = await run({ statuses: ['busy'], opened: ok });
+  assert.equal(busy.calls.some(call => call[1] === 'stop' || call[0] === 'pty'), false);
+  assert.equal(busy.record.desktop.state, null);
+  const missing = await run({ statuses: [null], opened: ok });
+  assert.equal(missing.calls.some(call => call[1] === 'stop'), false, '一覧に無い会話は止めない');
+
+  // 待つ間に、後継がさらに引き継ぎを始めた
+  const superseded = await run({ statuses: ['busy'], opened: ok,
+    beforePoll: () => writeRecord(dir, SUCCESSOR, { state: 'requested', successor: null }) });
+  assert.equal(superseded.record.desktop.state, 'superseded');
+  assert.equal(superseded.calls.some(call => call[1] === 'stop'), false);
+  rmSync(join(dir, `${SUCCESSOR}.json`));
+
+  // 止められない・開けない時は、固定の理由を残す
+  const stopFailed = await run({ statuses: ['idle'], stopStatus: 1, opened: ok });
+  assert.deepEqual([stopFailed.record.desktop.state, stopFailed.record.desktop.error_code], ['failed', 'desktop_open_stop_failed']);
+  assert.equal(stopFailed.calls.some(call => call[0] === 'pty'), false);
+  const refused = await run({ statuses: ['idle'], opened: { status: 1, stdout: `Session ${SUCCESSOR} is open in another terminal. Run /desktop there instead.\r\n`, stderr: '' } });
+  assert.deepEqual([refused.record.desktop.state, refused.record.desktop.error_code], ['failed', 'desktop_open_failed']);
+
+  // 対象でない記録には何もしない
+  writeRecord(dir, SESSION, {});
+  const untouched = await runClaudeDesktopOpen(SESSION, { dir, spawn: () => { throw new Error('must not run'); }, pty: () => { throw new Error('must not run'); } });
+  assert.equal(untouched.desktop.state, null);
+}));
+
 test('公開CLI: --host claude は enable・disable・status・worker を受け取る', () => {
   assert.equal(parseAutoHandoffArgs(['status', '--json']).host, 'codex');
   assert.deepEqual(
@@ -601,8 +735,10 @@ test('公開CLI: --host claude は enable・disable・status・worker を受け�
   );
   assert.equal(parseAutoHandoffArgs(['status', '--host', 'claude', '--operation', 'id']).operation, 'id');
   assert.equal(parseAutoHandoffArgs(['worker', '--host', 'claude', '--operation', SESSION]).action, 'worker');
+  assert.equal(parseAutoHandoffArgs(['desktop-open', '--host', 'claude', '--operation', SESSION]).action, 'desktop-open');
   for (const args of [['resume', '--host', 'claude', '--operation', 'id'], ['detail', '--host', 'claude', '--operation', 'id', '--origin', 'A', '--turn', '1'],
-    ['worker', '--host', 'claude'], ['status', '--host', 'grok'], ['status', '--host'], ['disable', '--host', 'claude', '--project', REPO_ROOT]]) {
+    ['worker', '--host', 'claude'], ['status', '--host', 'grok'], ['status', '--host'], ['disable', '--host', 'claude', '--project', REPO_ROOT],
+    ['desktop-open', '--host', 'claude'], ['desktop-open', '--operation', SESSION]]) {
     assert.throws(() => parseAutoHandoffArgs(args), JSON.stringify(args));
   }
 });

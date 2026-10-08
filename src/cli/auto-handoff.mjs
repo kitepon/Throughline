@@ -10,17 +10,17 @@ import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaud
   claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
 import { readClaudeAutoHandoffConfig, writeClaudeAutoHandoffConfig } from '../claude-auto-handoff-config.mjs';
-import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWorker } from '../claude-auto-handoff.mjs';
+import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWorker, runClaudeDesktopOpen } from '../claude-auto-handoff.mjs';
 
 // Claude の自動継続 (ADR 0033)。引き継ぎの記録は旧い会話の session id で持つ。結果が不明な配送は
 // 再送しないので、resume は持たない。記憶の取得は通常の recall / detail を使うので、detail も持たない。
-const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker'];
+const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open'];
 
 export function parseAutoHandoffArgs(args) {
   const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false };
-  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker'].includes(out.action)) throw Error('auto_handoff_action_invalid');
+  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open'].includes(out.action)) throw Error('auto_handoff_action_invalid');
   const allowed = ['host', ...{ enable: ['project'], disable: [], status: ['project', 'operation'],
-    resume: ['operation'], worker: ['operation'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
+    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
   const seen = new Set();
   for (let i = 1; i < args.length; i++) {
     if (seen.has(args[i])) throw Error('auto_handoff_argument_invalid');
@@ -31,10 +31,10 @@ export function parseAutoHandoffArgs(args) {
     out[key] = args[++i];
   }
   if (!['codex', 'claude'].includes(out.host)) throw Error('auto_handoff_host_invalid');
-  if (out.host === 'claude' && !CLAUDE_ACTIONS.includes(out.action)) throw Error('auto_handoff_action_unsupported');
+  if (out.host === 'claude' ? !CLAUDE_ACTIONS.includes(out.action) : out.action === 'desktop-open') throw Error('auto_handoff_action_unsupported');
   if (out.project && !isAbsolute(out.project)) out.project = resolve(out.project);
   if (out.project && out.operation) throw Error('auto_handoff_argument_invalid');
-  if (['worker', 'resume', 'detail'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
+  if (['worker', 'resume', 'detail', 'desktop-open'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
   if (out.action === 'detail') {
     out.turn = Number(out.turn);
     if (!out.origin || !Number.isSafeInteger(out.turn) || out.turn < 1) throw Error('auto_handoff_detail_identity_required');
@@ -85,6 +85,7 @@ async function runClaude(parsed) {
     return { status: 'disabled', host: 'claude', config };
   }
   if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation, { openDb: getDb }));
+  if (parsed.action === 'desktop-open') return publicClaudeAutoHandoff(await runClaudeDesktopOpen(parsed.operation));
   const handoffs = listClaudeAutoHandoffs()
     .filter(record => !parsed.project || sameProjectPath(record.project_path, parsed.project))
     .filter(record => !parsed.operation || record.handoff_id === parsed.operation || record.source_session_id === parsed.operation)

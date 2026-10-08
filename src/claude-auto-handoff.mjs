@@ -12,6 +12,9 @@
  *   4. 後継の UserPromptSubmit   : その指示が baton を消費し、記憶を注入して、受領を残す。worker は受領を待つ。
  *                                  外から後継へ文を送らない。権限のバイパス中の会話は、外から届いた文を
  *                                  利用者の承認まで止めるため（0.15.3）。
+ *   5. 後継の Stop               : Claude Desktop から始まった会話の後継は、そのターンの作業を終えた時に
+ *                                  Desktop へ移して開く（`claude stop` → `claude --desktop --resume`）。
+ *                                  Claude Code は、裏で動いている会話を Desktop へ移さない。
  *
  * 旧い会話は止めるだけで、空にしない。手動の /compact と subagent の中の圧縮は対象にしない。
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
@@ -37,6 +40,7 @@ import { captureInFlightTurn } from './turn-backfill.mjs';
 import { resolveMergeTarget } from './session-merger.mjs';
 import { writeBaton } from './baton.mjs';
 import { sameProjectPath } from './project-path.mjs';
+import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
 
@@ -52,6 +56,11 @@ const BACKGROUNDED_PATTERN = /backgrounded\s+\S+\s+([0-9a-f]{8})\b/;
 // 後継へ渡さない、会話ごとの環境変数。後継は自分の値を持つ。
 const PER_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_MESSAGING_SOCKET',
   'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_PROJECT_DIR', 'CLAUDE_ENV_FILE'];
+
+// Claude Desktop の画面から始まった会話が transcript に持つ印。
+const DESKTOP_ENTRYPOINT = 'claude-desktop';
+// 後継を Desktop で開くかを、会話の出どころに関係なく決める（`desktop` で必ず開く、`off` で開かない）。
+const OPEN_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_OPEN';
 
 // requested と failed は、次の道具の hook が後継の立ち上げを始められる。
 const RETRYABLE_STATES = new Set(['requested', 'failed']);
@@ -133,6 +142,9 @@ export function publicClaudeAutoHandoff(record) {
     successor_session_id: successor?.session_id ?? null, successor_short_id: successor?.short_id ?? null,
     // 止めたターンを DB へ取り込めたか。false の時、後継は `throughline detail` でそのターンの入出力を取れない。
     in_flight_captured: Boolean(record.in_flight?.turn),
+    // 後継を Claude Desktop で開く引き継ぎか、開けたか（null は対象外）。
+    desktop_state: record.desktop?.wanted ? (record.desktop.state ?? 'waiting') : null,
+    desktop_error_code: record.desktop?.error_code ?? null,
     requested_at, updated_at };
 }
 
@@ -185,6 +197,26 @@ function removeStale(dir, now) {
 /** script から起動した Claude（`claude -p`、Agent SDK）は、呼び出し元がその process の結果を待っている。止めない。 */
 function unsupportedEntrypoint(env) {
   return typeof env.CLAUDE_CODE_ENTRYPOINT === 'string' && env.CLAUDE_CODE_ENTRYPOINT.startsWith('sdk-');
+}
+
+/** transcript の最後の行が持つ出どころ（`cli`、`claude-desktop` など）。読めなければ null。 */
+function readLatestEntrypoint(transcriptPath) {
+  if (typeof transcriptPath !== 'string') return null;
+  let entries;
+  try { entries = readRawEntries(transcriptPath); } catch { return null; }
+  return entries.findLast(entry => typeof entry?.entrypoint === 'string')?.entrypoint ?? null;
+}
+
+/**
+ * この会話の後継を、Claude Desktop で開くか。
+ * Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ開く。端末から始めた会話の後継は
+ * `claude agents` の一覧に出るので、Desktop へは移さない。開く命令を通せるのは macOS だけ。
+ */
+function openInDesktopWanted({ sessionId, transcriptPath, env, dir, platform }) {
+  if (platform !== 'darwin' || env[OPEN_OVERRIDE_ENV] === 'off') return false;
+  if (env[OPEN_OVERRIDE_ENV] === 'desktop') return true;
+  if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
+  return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.desktop?.wanted);
 }
 
 /**
@@ -273,6 +305,8 @@ export function requestClaudeAutoHandoff({
     successor: null,
     error_code: null,
     accepted_at: null,
+    desktop: { wanted: openInDesktopWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir, platform }),
+      state: null, error_code: null, opened_at: null },
   });
   return { status: 'requested', block: true, sessionId, projectPath, handoffId };
 }
@@ -452,7 +486,10 @@ export async function launchClaudeAutoHandoffWorker(sessionId, { dir = claudeAut
 function stopOutput(record) {
   const reason = record.successor?.short_id
     ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
-    : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。後継の会話は \`claude agents\` の一覧に出ます。`;
+    : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
+      (record.desktop?.wanted
+        ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。'
+        : '後継の会話は `claude agents` の一覧に出ます。');
   return {
     continue: false,
     stopReason: reason,
@@ -644,4 +681,94 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     await delay(pollMs);
   }
   return update({ state: 'unknown', error_code: 'handoff_delivery_unconfirmed' });
+}
+
+/** `claude agents --json --all` から、その後継（裏の会話）の行を読む。読めない時は null。 */
+function readBackgroundAgent(shortId, { spawn, env }) {
+  const listed = spawn('claude', ['agents', '--json', '--all'], { env, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (listed.error || listed.status !== 0) return null;
+  try { return JSON.parse(listed.stdout).find(agent => agent?.id === shortId && agent.kind === 'background') ?? null; }
+  catch { return null; }
+}
+
+export async function launchClaudeDesktopOpen(sessionId, { dir = claudeAutoHandoffDir() } = {}) {
+  if (!validSessionId(sessionId)) throw new ClaudeHandoffError('auto_handoff_session_id_invalid');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const log = openSync(join(dir, `${sessionId}.desktop.log`), 'a', 0o600);
+  try {
+    const child = spawnPortable(process.execPath,
+      [CLI_PATH, 'auto-handoff', 'desktop-open', '--host', 'claude', '--operation', sessionId, '--json'],
+      { detached: true, stdio: ['ignore', log, log], windowsHide: true });
+    await new Promise((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); });
+    child.unref();
+    return child.pid;
+  } finally { closeSync(log); }
+}
+
+/**
+ * 後継の Stop hook から呼ぶ。Claude Desktop で開く引き継ぎの後継が、ターンを終えた。
+ * その会話を Desktop へ移す process を起動する。対象でない会話には何もしない（null）。
+ *
+ * @returns {Promise<string|null>} 起動した時は、その引き継ぎ ID
+ */
+export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHandoffDir(), launch = launchClaudeDesktopOpen }) {
+  if (!validSessionId(sessionId)) return null;
+  // この会話自身が引き継ぎの途中なら、作業は次の後継が続ける。移すのは、最後に作業を終えた後継だけ。
+  if (readJson(recordPath(sessionId, dir))) return null;
+  const record = listClaudeAutoHandoffs({ dir }).find(item => item.successor?.session_id === sessionId &&
+    item.state === 'sent' && item.desktop?.wanted && !item.desktop.state);
+  if (!record) return null;
+  updateRecord(record.source_session_id, { desktop: { ...record.desktop, state: 'requested', error_code: null } }, { dir });
+  try { await launch(record.source_session_id, { dir }); }
+  catch {
+    updateRecord(record.source_session_id, { desktop: { ...record.desktop, state: 'failed', error_code: 'desktop_open_start_failed' } }, { dir });
+    return null;
+  }
+  return record.handoff_id;
+}
+
+/**
+ * 作業を終えた後継を、Claude Desktop へ移して開く。
+ *
+ * Claude Code は、裏で動いている会話（作業中も、手すきも）を Desktop へ移さない。手すきになるのを待って
+ * `claude stop` で止め、`claude --desktop --resume <session id>` で開く。この命令は出力が端末でないと動かないので、
+ * 擬似端末の中で呼ぶ。後継がまた動き出した時は止めずに戻り、次の Stop でやり直す。
+ */
+export async function runClaudeDesktopOpen(sourceSessionId, {
+  dir = claudeAutoHandoffDir(),
+  env = process.env,
+  spawn = spawnPortableSync,
+  pty = runWithPty,
+  idleTimeoutMs = 120_000,
+  pollMs = 1_000,
+} = {}) {
+  let record = readClaudeAutoHandoff(sourceSessionId, dir);
+  if (!record) throw new ClaudeHandoffError('handoff_not_found');
+  if (record.desktop?.state !== 'requested') return record;
+  const set = fields => { record = updateRecord(sourceSessionId, { desktop: { ...record.desktop, ...fields } }, { dir }); return record; };
+  const { short_id: shortId, session_id: successorId } = record.successor ?? {};
+  if (!shortId || !validSessionId(successorId)) return set({ state: 'failed', error_code: 'desktop_open_successor_unknown' });
+  const childEnv = successorEnv(env);
+
+  let idle = false;
+  for (const deadline = Date.now() + idleTimeoutMs; Date.now() < deadline;) {
+    // 後継がさらに引き継ぎを始めた。作業は次の後継が続けるので、この会話は移さない。
+    if (readJson(recordPath(successorId, dir))) return set({ state: 'superseded' });
+    const agent = readBackgroundAgent(shortId, { spawn, env: childEnv });
+    if (agent?.status === 'idle') { idle = true; break; }
+    await delay(pollMs);
+  }
+  // 手すきにならない（次のターンが始まった、一覧を読めない）。止めずに戻り、次の Stop でやり直す。
+  if (!idle) return set({ state: null });
+
+  const stopped = spawn('claude', ['stop', shortId], { env: childEnv, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (stopped.error || stopped.status !== 0) return set({ state: 'failed', error_code: 'desktop_open_stop_failed' });
+  const opened = pty('claude', ['--desktop', '--resume', successorId], { cwd: record.project_path, env: childEnv, timeout: 60_000 });
+  const output = normalizeTerminalText(`${opened?.stdout ?? ''}${opened?.stderr ?? ''}`);
+  if (!opened || opened.error || opened.status !== 0 || !output.includes(`Opening session ${successorId}`)) {
+    // 理由を端末内のログに残す（命令の出力だけ。会話の中身は含まれない）。
+    process.stderr.write(`[auto-handoff] claude --desktop --resume exit=${opened?.status ?? 'unsupported'} output=${JSON.stringify(output.slice(-400))}\n`);
+    return set({ state: 'failed', error_code: opened ? 'desktop_open_failed' : 'desktop_open_platform_unsupported' });
+  }
+  return set({ state: 'opened', error_code: null, opened_at: Date.now() });
 }
