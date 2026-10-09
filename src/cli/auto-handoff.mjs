@@ -17,7 +17,7 @@ import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWo
 const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open'];
 
 export function parseAutoHandoffArgs(args) {
-  const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false };
+  const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false, dryRun: false };
   if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources'].includes(out.action)) throw Error('auto_handoff_action_invalid');
   const allowed = ['host', ...{ enable: ['project'], disable: [], status: ['project', 'operation'],
     resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
@@ -26,6 +26,7 @@ export function parseAutoHandoffArgs(args) {
     if (seen.has(args[i])) throw Error('auto_handoff_argument_invalid');
     seen.add(args[i]);
     if (args[i] === '--json') { out.json = true; continue; }
+    if (args[i] === '--dry-run' && out.action === 'mark-sources') { out.dryRun = true; continue; }
     const key = { '--host': 'host', '--operation': 'operation', '--project': 'project', '--origin': 'origin', '--turn': 'turn', '--database': 'database' }[args[i]];
     if (!key || !allowed.includes(key) || !args[i + 1] || args[i + 1].startsWith('--')) throw Error('auto_handoff_argument_invalid');
     out[key] = args[++i];
@@ -128,9 +129,9 @@ export async function run(args = []) {
       process.stdout.write(parsed.json ? JSON.stringify({ status: 'ok', text }) + '\n' : text + '\n');
       return 0;
     } else if (parsed.action === 'mark-sources') {
-      // 印を付けない版（0.16.9 まで）が引き継いだ旧タスクへ、引き継ぎ済みの印を付け直す。何度流しても同じ結果になる。
+      // 0.16.9 までの版が引き継いだ分の名前を付け直す（名前の無い後継へ名前、旧タスクへ引き継ぎ済みの印）。何度流しても同じ結果になる。
       const db = getDb();
-      result = { status: 'ok', ...await markAutoHandoffSources(db) };
+      result = { status: 'ok', dry_run: parsed.dryRun, ...await markAutoHandoffSources(db, { dryRun: parsed.dryRun }) };
     } else if (parsed.action === 'worker') {
       result = publicOperation(await runAutoHandoffWorker(parsed.operation));
     } else if (parsed.action === 'resume') {

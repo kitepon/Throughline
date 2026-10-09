@@ -60,6 +60,15 @@ test('引き継ぎ済みの印は名前の頭に付け、元の名前を残す�
   }
 });
 
+test('名前にならない題（空・継続の指示）の旧タスクは、渡された名前へ印を付ける', () => {
+  const instruction = 'Throughline自動継続 39cdb98e-9e68-4dff-8a53-38d1fd861a8b';
+  assert.equal(markHandedOffTitle(instruction, 'BellTeam｜ベルチーム（自動引き継ぎ）'), '【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）');
+  assert.equal(markHandedOffTitle(null, 'BellTeam（自動引き継ぎ）'), '【引き継ぎ済み】BellTeam（自動引き継ぎ）');
+  assert.equal(markHandedOffTitle('利用者の題', 'BellTeam（自動引き継ぎ）'), '【引き継ぎ済み】利用者の題', '名前がある時は、今の名前を使う');
+  assert.equal(markHandedOffTitle('【引き継ぎ済み】x', 'y'), null);
+  assert.equal(markHandedOffTitle(instruction, instruction), null);
+});
+
 test('印の付いた旧タスクの名前から概要を取る時は、印を外す', () => {
   assert.equal(autoHandoffSummaryOf('【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）'), 'ベルチーム');
   assert.equal(autoHandoffSummaryOf('【引き継ぎ済み】ベルチーム'), 'ベルチーム');

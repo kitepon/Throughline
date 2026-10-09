@@ -10,6 +10,27 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.11] — 2026-10-09
+
+### 修正
+
+- `throughline auto-handoff mark-sources`が、名前の無いタスクを残していた。後継へ名前を付けない版（0.15より前）が作った後継は、継続の指示（`Throughline自動継続 <ID>…`）が題として見える。0.16.10は、この題のタスクへ印を付けず、名前も付けなかった。macOSの実機では、一覧に名前の無いタスクが12本（今の続き6本、旧タスク6本）残った。
+  - 古い引き継ぎから順に、名前の無い後継へ`<project名>｜<作業の概要>（自動引き継ぎ）`の名前を付けてから、旧タスクへ印を付ける。利用者が名前を付けたタスクは、名前を変えない。
+  - アーカイブ済みのタスクは触らない（Codexが名前の変更を断る）。0.16.10は失敗として数えていた。
+- 名前の無い後継がさらに引き継いだ時、旧タスクへ印が付かなかった。その後継を作った引き継ぎから名前を作り直し、印を付ける。
+
+### 追加
+
+- `throughline auto-handoff mark-sources --dry-run`。名前を書かず、付ける名前の一覧（`changes`）だけを返す。
+
+### 確認した範囲
+
+- macOS（Codex Desktop同梱のCodex 0.162.0-alpha.2）の実機の引き継ぎ29件（14系列）へ流した。`--dry-run`で付ける名前を確かめてから実行し、名前の無い後継12本へ名前、旧タスク6本へ印が付いた（0.16.10で付けた19本と合わせて、一覧に在る旧タスクは全部印あり）。失敗は0、もう一度流すと変更は0。Codexの`thread/list`で、系列ごとに印の無いタスクが今の続きの1本だけになった事を確かめた。
+
+### 確認していない範囲
+
+- 付け直した名前が、Codex Desktopの一覧の表示へいつ出るか（画面は見ていない）。
+
 ## [0.16.10] — 2026-10-09
 
 ### 修正
@@ -2103,7 +2124,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.10...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.11...HEAD
+[0.16.11]: https://github.com/kitepon/Throughline/compare/v0.16.10...v0.16.11
 [0.16.10]: https://github.com/kitepon/Throughline/compare/v0.16.9...v0.16.10
 [0.16.9]: https://github.com/kitepon/Throughline/compare/v0.16.8...v0.16.9
 [0.16.8]: https://github.com/kitepon/Throughline/compare/v0.16.7...v0.16.8

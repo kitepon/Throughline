@@ -14,7 +14,7 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
-  markAutoHandoffSource, markAutoHandoffSources } from './codex-auto-handoff.mjs';
+  markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -116,7 +116,11 @@ function workerDependencies(db, settings, submit, counters) {
     readTarget: operation => ({ settings, latestTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null,
       correlatedTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null, progress: true }),
     openTarget: () => {}, verify: async () => {}, submit,
-    markSource: async operation => { (counters.marked ??= []).push(`${operation.source_thread_id}:${operation.state}`); return 'marked'; },
+    markSource: async (operation, runtime, options) => {
+      (counters.marked ??= []).push(`${operation.source_thread_id}:${operation.state}`);
+      assert.ok('fallbackTitle' in options);
+      return 'marked';
+    },
     notify: () => { counters.notified++; },
     wait: async check => { const result = await check(); if (!result) throw Error('観測できません'); return result; },
   };
@@ -513,19 +517,71 @@ test('印を付けた旧タスクから作る後継の名前には、印を持�
   assert.equal(autoHandoffTargetName(db, operation), 'BellTeam｜ベルチーム（自動引き継ぎ）');
 }));
 
-test('今までの引き継ぎの旧タスクへまとめて印を付け、後継が消えた引き継ぎと途中で止まった引き継ぎには付けない', async () => withDb(async db => {
-  const done = (source, target, fields = {}) => updateAutoHandoff(db, request(db, source).operation.handoff_id,
+test('今までの引き継ぎへまとめて名前を付け直す。名前の無い後継へ名前を付け、生きている後継がある旧タスクへ印を付ける', async () => withDb(async db => {
+  const done = (source, target, fields = {}) => updateAutoHandoff(db, request(db, source, { projectPath: '/Users/kite/Developer/BellTeam' }).operation.handoff_id,
     { state: 'continued', target_thread_id: target, queued_submission_id: `receipt-${target}`, ...fields }).operation;
-  done('A', 'B');
-  done('B', 'C');
-  done('X', 'gone');
+  // A（利用者の題）→ B（名前を付けない版が作った。継続の指示が題に見える）→ C（同じ）。X の後継は消えた。Y は旧タスクがアーカイブ済み。
+  const ab = done('A', 'B'); const bc = done('B', 'C');
+  done('X', 'gone'); done('Y', 'Y2');
   updateAutoHandoff(db, request(db, 'F').operation.handoff_id, { state: 'failed', target_thread_id: 'F2', error_code: 'handoff_target_not_loaded' });
-  const marked = [];
-  const result = await markAutoHandoffSources(db, { executable: 'fixture',
-    findThread: ({ threadId }) => threadId === 'gone' ? null : { rolloutPath: `/r/${threadId}`, mtimeMs: 1 },
-    mark: async operation => { marked.push(operation.source_thread_id); return operation.source_thread_id === 'B' ? 'kept' : 'marked'; } });
-  assert.deepEqual(marked, ['A', 'B']);
-  assert.deepEqual(result, { marked: 1, kept: 1, failed: 0, skipped: 1 });
+  const threads = new Map([
+    ['A', { name: 'ベルチームの改良', preview: '最初の依頼' }],
+    ['B', { name: null, preview: continuationInput(ab) }],
+    ['C', { name: null, preview: continuationInput(bc) }],
+    ['X', { name: 'Xの題', preview: 'x' }],
+    ['Y', { name: 'Yの題', preview: 'y' }], ['Y2', { name: '利用者が付けた名前', preview: 'y2' }],
+  ]);
+  const calls = [];
+  const connect = async (profile, parent, action) => action(async (method, params) => {
+    if (method === 'thread/list') { assert.equal(params.archived, true); return { data: [{ id: 'Y' }], nextCursor: null }; }
+    if (method === 'thread/read') {
+      if (!threads.has(params.threadId)) throw Object.assign(new Error('no rollout'), { delivery_code: 'CODEX_RECEIVER_REJECTED' });
+      return { thread: { id: params.threadId, ...threads.get(params.threadId) } };
+    }
+    assert.equal(method, 'thread/name/set');
+    assert.notEqual(params.threadId, 'Y', 'アーカイブ済みのタスクは触らない');
+    calls.push(`${params.threadId}=${params.name}`);
+    threads.set(params.threadId, { ...threads.get(params.threadId), name: params.name });
+    return {};
+  });
+  const options = { executable: 'fixture', connect,
+    findThread: ({ threadId }) => threadId === 'gone' ? null : { rolloutPath: `/r/${threadId}`, mtimeMs: 1 } };
+  // dryRun は名前を書かず、付ける名前だけを返す
+  const preview = await markAutoHandoffSources(db, { ...options, dryRun: true });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(preview.changes.map(change => `${change.thread_id}=${change.name}`), [
+    'B=BellTeam｜ベルチームの改良（自動引き継ぎ）', 'A=【引き継ぎ済み】ベルチームの改良',
+    'C=BellTeam｜ベルチームの改良（自動引き継ぎ）', 'B=【引き継ぎ済み】BellTeam｜ベルチームの改良（自動引き継ぎ）']);
+  const { changes, ...result } = await markAutoHandoffSources(db, options);
+  assert.equal(changes.length, 4);
+  assert.deepEqual(calls, [
+    'B=BellTeam｜ベルチームの改良（自動引き継ぎ）', 'A=【引き継ぎ済み】ベルチームの改良',
+    'C=BellTeam｜ベルチームの改良（自動引き継ぎ）', 'B=【引き継ぎ済み】BellTeam｜ベルチームの改良（自動引き継ぎ）']);
+  // X は後継が消えているので付けない。Y はアーカイブ済みなので付けない。
+  assert.deepEqual(result, { marked: 2, named: 2, kept: 0, failed: 0, skipped: 2 });
+  assert.equal(threads.get('C').name, 'BellTeam｜ベルチームの改良（自動引き継ぎ）', '印の無い1本が今の続き');
+  assert.equal(threads.get('Y2').name, '利用者が付けた名前');
+
+  // もう一度流しても、何も付け直さない
+  calls.length = 0;
+  assert.deepEqual(await markAutoHandoffSources(db, options), { marked: 0, named: 0, kept: 2, failed: 0, skipped: 2, changes: [] });
+  assert.deepEqual(calls, []);
+}));
+
+test('名前の無い旧タスク（名前を付けない版が作った後継）がさらに引き継いだ時は、作り直した後継の名前へ印を付ける', async () => withDb(async db => {
+  const first = updateAutoHandoff(db, request(db, 'A', { projectPath: '/Users/kite/Developer/BellTeam' }).operation.handoff_id,
+    { state: 'continued', target_thread_id: 'B', queued_submission_id: 'receipt-B', runtime_json: { projectId: null, title: 'ベルチームの改良' } }).operation;
+  const second = request(db, 'B', { projectPath: '/Users/kite/Developer/BellTeam' }).operation;
+  assert.equal(autoHandoffSourceFallbackTitle(db, first), null, '最初の旧タスクは、どの引き継ぎの後継でもない');
+  const fallbackTitle = autoHandoffSourceFallbackTitle(db, second);
+  assert.equal(fallbackTitle, 'BellTeam｜ベルチームの改良（自動引き継ぎ）');
+  const sent = [];
+  const connect = async (profile, parent, action) => action(async (method, params) => {
+    sent.push([method, params]);
+    return method === 'thread/read' ? { thread: { name: null, preview: continuationInput(first) } } : {};
+  });
+  assert.equal(await markAutoHandoffSource(second, {}, { connect, fallbackTitle }), 'marked');
+  assert.deepEqual(sent.at(-1), ['thread/name/set', { threadId: 'B', name: '【引き継ぎ済み】BellTeam｜ベルチームの改良（自動引き継ぎ）' }]);
 }));
 
 // 元turn（止めた）の後に、旧タスクへ来た入力のturnが続くrollout。laterは後続turnの行。

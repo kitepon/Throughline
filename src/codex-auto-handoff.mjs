@@ -12,7 +12,7 @@ import { getDb, DB_PATH } from './db.mjs';
 import { findCodexThreadCandidate } from './codex-thread-index.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
 import { readAutoHandoffConfig, autoHandoffEnabledFor } from './codex-auto-handoff-config.mjs';
-import { getAutoHandoff, requestAutoHandoff, updateAutoHandoff, failAutoHandoff, listContinuedAutoHandoffs,
+import { getAutoHandoff, requestAutoHandoff, updateAutoHandoff, failAutoHandoff, listContinuedAutoHandoffs, findAutoHandoffForTarget,
   claimAutoHandoff, releaseAutoHandoff, freezeCodexMemory, continuationInput,
   findAutoHandoffForTurn, listDeliveredAutoHandoffsForSource, listUndeliveredAutoHandoffsForSource,
   HANDOFF_TERMINAL_STATES } from './codex-auto-handoff-store.mjs';
@@ -20,7 +20,7 @@ import { ensureAutoHandoffSummaries, renderAutoHandoffMemory } from './codex-aut
 import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
   settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
 import { resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
-import { composeAutoHandoffTitle, markHandedOffTitle } from './auto-handoff-title.mjs';
+import { composeAutoHandoffTitle, markHandedOffTitle, usableAutoHandoffTitle } from './auto-handoff-title.mjs';
 
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
 const stateRoot = () => join(homedir(), '.throughline', 'codex-auto-handoff');
@@ -287,14 +287,15 @@ export async function nameAutoHandoffTarget(request, targetId, name) {
  * 引き継ぎが済んだ旧タスクの名前の頭へ、引き継ぎ済みの印を付ける。同じ名前の後継が一覧に並んでも、
  * 印の無い1本が今の続きだと分かるようにする。今の名前を読んでから付けるので、利用者が付け直した名前も残る。
  * 名前は表示だけに使うので、付けられなくても引き継ぎは止めない（理由は worker のログに残す）。
+ * @param {{fallbackTitle?: string|null}} [options] 旧タスクに名前が無い時に使う名前（名前を付けない版が作った後継）
  * @returns {Promise<'marked'|'kept'|'failed'>} kept はもう印がある・名前にできる値が無い
  */
-export async function markAutoHandoffSource(operation, runtime, { connect = withCodexReceiver } = {}) {
+export async function markAutoHandoffSource(operation, runtime, { connect = withCodexReceiver, fallbackTitle = null } = {}) {
   try {
     return await connect(autoHandoffDeliveryProfile, { thread_id: operation.source_thread_id, codex_home: operation.codex_home },
       async request => {
         const read = await request('thread/read', { threadId: operation.source_thread_id, includeTurns: false });
-        const name = markHandedOffTitle(read.thread?.name ?? read.thread?.preview ?? null);
+        const name = markHandedOffTitle(read.thread?.name ?? read.thread?.preview ?? null, fallbackTitle);
         if (!name) return 'kept';
         await request('thread/name/set', { threadId: operation.source_thread_id, name });
         return 'marked';
@@ -305,20 +306,90 @@ export async function markAutoHandoffSource(operation, runtime, { connect = with
   }
 }
 
+/** 旧タスクが、名前を付けない版の作った後継だった時の名前。その後継を作った引き継ぎから、後継の名前を作り直す。 */
+export function autoHandoffSourceFallbackTitle(db, operation) {
+  const creator = findAutoHandoffForTarget(db, operation.source_thread_id);
+  return creator ? autoHandoffTargetName(db, creator) : null;
+}
+
+async function listArchivedThreadIds(request) {
+  const ids = new Set();
+  for (let cursor = null, page = 0; page < 200; page++) {
+    const listed = await request('thread/list', { archived: true, limit: 100, cursor });
+    for (const thread of listed.data ?? []) ids.add(thread.id);
+    cursor = listed.nextCursor ?? null;
+    if (!cursor) break;
+  }
+  return ids;
+}
+
 /**
- * 今までに済んだ引き継ぎの旧タスクへ、まとめて印を付ける（印を付けない版が作った分の付け直し）。
- * 後継が消されている引き継ぎは、旧タスクが今の続きなので付けない。
+ * 今までに済んだ引き継ぎへ、まとめて名前を付け直す（0.16.9 までの版が引き継いだ分）。古い引き継ぎから順に、
+ * (1) 名前の無い後継（名前を付けない版が作った物。継続の指示が題として見える）へ、後継の名前を付ける。
+ * (2) 生きている後継がある旧タスクの名前の頭へ、引き継ぎ済みの印を付ける。
+ * アーカイブ済みのタスクは触らない（Codex が名前の変更を断る。一覧にも出ない）。後継が消されている旧タスクは、
+ * 今の続きなので印を付けない。何度流しても同じ結果になる。dryRun は名前を書かず、付ける名前だけを返す。
+ * @returns {Promise<{marked: number, named: number, kept: number, failed: number, skipped: number, changes: Array<{thread_id: string, name: string}>}>}
  */
-export async function markAutoHandoffSources(db, { executable = platformDesktopFinder()(), mark = markAutoHandoffSource,
-  findThread = findCodexThreadCandidate } = {}) {
+export async function markAutoHandoffSources(db, { executable = platformDesktopFinder()(), connect = withCodexReceiver,
+  findThread = findCodexThreadCandidate, dryRun = false } = {}) {
   const runtime = { executable, timeout_ms: 30_000 };
-  const result = { marked: 0, kept: 0, failed: 0, skipped: 0 };
-  const seen = new Set();
+  const result = { marked: 0, named: 0, kept: 0, failed: 0, skipped: 0, changes: [] };
+  const byHome = new Map();
   for (const operation of listContinuedAutoHandoffs(db)) {
-    if (seen.has(operation.source_thread_id)) continue;
-    seen.add(operation.source_thread_id);
-    if (!findLiveAutoHandoffSuccessor(db, operation.source_thread_id, { findThread })) { result.skipped++; continue; }
-    result[await mark(operation, runtime)]++;
+    if (!byHome.has(operation.codex_home)) byHome.set(operation.codex_home, []);
+    byHome.get(operation.codex_home).push(operation);
+  }
+  for (const [codexHome, operations] of byHome) {
+    await connect(autoHandoffDeliveryProfile, { codex_home: codexHome }, async request => {
+      const archived = await listArchivedThreadIds(request);
+      // この回で読んだ名前と、付けた名前。後ろの引き継ぎは、前の引き継ぎで付けた名前から作る。
+      const titles = new Map();
+      const read = async threadId => {
+        if (!titles.has(threadId)) {
+          const thread = (await request('thread/read', { threadId, includeTurns: false })).thread;
+          titles.set(threadId, { name: usableAutoHandoffTitle(thread?.name), preview: usableAutoHandoffTitle(thread?.preview) });
+        }
+        return titles.get(threadId);
+      };
+      const rename = async (threadId, name) => {
+        if (!dryRun) await request('thread/name/set', { threadId, name });
+        titles.set(threadId, { ...titles.get(threadId), name });
+        result.changes.push({ thread_id: threadId, name });
+      };
+      const failed = cause => {
+        result.failed++;
+        process.stderr.write(`[auto-handoff] mark-sources failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
+      };
+      const marked = new Set();
+      for (const operation of operations) {
+        const { source_thread_id: sourceId, target_thread_id: targetId } = operation;
+        let source = null;
+        if (!archived.has(sourceId)) {
+          try { source = await read(sourceId); } catch { /* 消された旧タスク。名前は読めない */ }
+        }
+        let target = null;
+        if (!archived.has(targetId)) {
+          try { target = await read(targetId); } catch { /* 消された後継。付ける相手が無い */ }
+        }
+        if (target && !target.name) {
+          try {
+            await rename(targetId, composeAutoHandoffTitle({ projectPath: operation.project_path,
+              titles: [source?.name, source?.preview] }));
+            result.named++;
+          } catch (cause) { failed(cause); }
+        }
+        if (marked.has(sourceId)) continue;
+        marked.add(sourceId);
+        if (!source || !findLiveAutoHandoffSuccessor(db, sourceId, { findThread })) { result.skipped++; continue; }
+        try {
+          const name = markHandedOffTitle(source.name ?? source.preview);
+          if (!name) { result.kept++; continue; }
+          await rename(sourceId, name);
+          result.marked++;
+        } catch (cause) { failed(cause); }
+      }
+    }, runtime);
   }
   return result;
 }
@@ -511,7 +582,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       }, { timeoutMs: 180_000, timeoutCode: 'handoff_target_progress_unconfirmed' });
       update({ state: 'continued', started_turn_id: target.correlatedTurnId, resume_state: null, error_code: null });
       // 後継が作業を続けたのを確かめてから付ける。途中で止まった引き継ぎの旧タスクには付けない。
-      await deps.markSource(operation, runtime);
+      await deps.markSource(operation, runtime, { fallbackTitle: autoHandoffSourceFallbackTitle(db, operation) });
     }
     return operation;
   } catch (cause) {

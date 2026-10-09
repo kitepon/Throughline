@@ -54,18 +54,25 @@ function withoutDonePrefix(text) {
   return rest;
 }
 
-/**
- * 引き継ぎが済んだ旧タスクの名前を作る。元の名前の頭に印を付けるだけで、元の名前は残す。
- * 一覧で、印の無い1本が今の続きだと読めるようにする。もう印が付いている名前と、名前にできない値は null（付け直さない）。
- * @param {string|null|undefined} title 旧タスクの今の名前。名前が無いタスクでは、最初の依頼の文
- */
-export function markHandedOffTitle(title) {
+/** 名前として使える1行を取る。空の値と、題として見えている継続の指示は null。 */
+export function usableAutoHandoffTitle(title) {
   if (typeof title !== 'string') return null;
   const firstLine = title.split(/\r?\n/).map(oneLine).find(Boolean) ?? '';
-  if (!firstLine || firstLine.startsWith(AUTO_HANDOFF_DONE_PREFIX)) return null;
-  // 継続の指示が題として見えている後継（名前を付けない版が作った物）は、指示の文を名前にしない。
-  if (CONTINUATION_INPUT_PATTERN.test(firstLine)) return null;
-  return AUTO_HANDOFF_DONE_PREFIX + clip(firstLine, SUMMARY_MAX_CHARS + 20);
+  return !firstLine || CONTINUATION_INPUT_PATTERN.test(firstLine) ? null : firstLine;
+}
+
+/**
+ * 引き継ぎが済んだ旧タスクの名前を作る。元の名前の頭に印を付けるだけで、元の名前は残す。
+ * 一覧で、印の無い1本が今の続きだと読めるようにする。もう印が付いている名前は null（付け直さない）。
+ * @param {string|null|undefined} title 旧タスクの今の名前。名前が無いタスクでは、最初の依頼の文
+ * @param {string|null} [fallback] title が名前にならない時（名前を付けない版が作った後継。継続の指示が題として見える）に使う名前
+ */
+export function markHandedOffTitle(title, fallback = null) {
+  const firstLine = typeof title === 'string' ? title.split(/\r?\n/).map(oneLine).find(Boolean) ?? '' : '';
+  if (firstLine.startsWith(AUTO_HANDOFF_DONE_PREFIX)) return null;
+  const name = usableAutoHandoffTitle(title) ?? usableAutoHandoffTitle(fallback);
+  if (!name || name.startsWith(AUTO_HANDOFF_DONE_PREFIX)) return null;
+  return AUTO_HANDOFF_DONE_PREFIX + clip(name, SUMMARY_MAX_CHARS + 20);
 }
 
 /**
