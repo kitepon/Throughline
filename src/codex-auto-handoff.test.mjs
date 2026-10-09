@@ -14,7 +14,7 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
-  markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle } from './codex-auto-handoff.mjs';
+  markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -116,6 +116,7 @@ function workerDependencies(db, settings, submit, counters) {
     readTarget: operation => ({ settings, latestTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null,
       correlatedTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null, progress: true }),
     openTarget: () => {}, verify: async () => {}, submit,
+    carryQueue: async (db, operation) => { (counters.carried ??= []).push(`${operation.source_thread_id}:${operation.state}`); return { moved: 0, unknown: 0, left: 0 }; },
     markSource: async (operation, runtime, options) => {
       (counters.marked ??= []).push(`${operation.source_thread_id}:${operation.state}`);
       assert.ok('fallbackTitle' in options);
@@ -135,6 +136,7 @@ test('停止→記憶→作成→配送→進捗を確認し、重複workerは�
   await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps });
   assert.equal(counters.created, 1); assert.equal(counters.submitted, 1); assert.equal(counters.notified, 0);
   assert.deepEqual(counters.marked, ['worker-source:continued'], '後継が作業を続けたのを確かめた後に、旧タスクへ印を1回だけ付ける');
+  assert.deepEqual(counters.carried, ['worker-source:continued'], '後継が作業を続けたのを確かめた後に、順番待ちを1回だけ運ぶ');
 }));
 
 test('配送結果不明は再送せず、実際の入力・開始を観測して同じ後継から回復する', async () => withDb(async db => {
@@ -177,8 +179,8 @@ test('作成応答を失った時は結果不明を保存し、再開でも後�
   assert.equal(counters.created, 1); assert.equal(counters.submitted, 0);
 }));
 
-test('未処理入力・実行中の子・出所不明の継承記憶では後継を作らない', async () => withDb(async db => {
-  for (const code of ['handoff_source_input_pending', 'handoff_native_child_pending', 'handoff_memory_lineage_untracked']) {
+test('実行中の子・出所不明の継承記憶では後継を作らない', async () => withDb(async db => {
+  for (const code of ['handoff_native_child_pending', 'handoff_memory_lineage_untracked']) {
     const op = request(db, code, { now: 1 }).operation;
     const counters = { created: 0, submitted: 0, notified: 0 };
     const deps = workerDependencies(db, {}, async () => { counters.submitted++; }, counters);
@@ -584,6 +586,65 @@ test('名前の無い旧タスク（名前を付けない版が作った後継�
   assert.deepEqual(sent.at(-1), ['thread/name/set', { threadId: 'B', name: '【引き継ぎ済み】BellTeam｜ベルチームの改良（自動引き継ぎ）' }]);
 }));
 
+test('旧タスクの順番待ちに残った入力を、順番を保って後継へ運び、旧タスクから消す', async () => withDb(async db => {
+  const operation = updateAutoHandoff(db, request(db, 'S').operation.handoff_id, { state: 'continued', target_thread_id: 'T' }).operation;
+  const queues = { S: [{ id: 'q1', input: [{ type: 'text', text: '1つ目' }], clientUserMessageId: 'c1' },
+    { id: 'q2', input: [{ type: 'text', text: '2つ目' }], clientUserMessageId: 'c2' }], T: [{ id: 't0', input: [], clientUserMessageId: 'continuation' }] };
+  const calls = [];
+  const receiver = (fail = () => null) => async (profile, parent, action) => action(async (method, params) => {
+    calls.push(`${method}:${params.threadId}:${params.queuedSubmissionId ?? params.clientUserMessageId ?? ''}`);
+    const failure = fail(method, params);
+    if (failure) throw failure;
+    if (method === 'thread/queue/list') return { data: queues[params.threadId], nextCursor: null };
+    if (method === 'thread/queue/add') { queues[params.threadId].push({ id: `t-${params.clientUserMessageId}`, input: params.input, clientUserMessageId: params.clientUserMessageId }); return { queuedSubmission: {} }; }
+    if (method === 'thread/queue/delete') { queues[params.threadId] = queues[params.threadId].filter(item => item.id !== params.queuedSubmissionId); return {}; }
+    throw Error(method);
+  });
+  assert.deepEqual(await carryAutoHandoffQueue(db, operation, {}, { connect: receiver() }), { moved: 2, unknown: 0, left: 0 });
+  assert.deepEqual(calls, ['thread/queue/list:S:', 'thread/queue/add:T:c1', 'thread/queue/delete:S:q1', 'thread/queue/add:T:c2', 'thread/queue/delete:S:q2']);
+  assert.deepEqual(queues.T.map(item => item.clientUserMessageId), ['continuation', 'c1', 'c2'], '継続の指示の後ろへ、元の順番で並ぶ');
+  assert.deepEqual(queues.S, []);
+  assert.deepEqual(getAutoHandoff(db, operation.handoff_id).runtime.queueCarry, { moved: ['q1', 'q2'], unknown: [], moving: null });
+  assert.equal(getAutoHandoff(db, operation.handoff_id).state, 'continued');
+
+  // もう一度呼んでも、運んだ入力を入れ直さない
+  calls.length = 0;
+  assert.deepEqual(await carryAutoHandoffQueue(db, operation, {}, { connect: receiver() }), { moved: 2, unknown: 0, left: 0 });
+  assert.deepEqual(calls, ['thread/queue/list:S:']);
+}));
+
+test('後継へ入れた結果が分からない入力は入れ直さず、断られた入力は旧タスクに残す。どちらも引き継ぎは止めない', async () => withDb(async db => {
+  const make = name => updateAutoHandoff(db, request(db, name).operation.handoff_id, { state: 'continued', target_thread_id: `${name}-T` }).operation;
+  const queue = () => [{ id: 'q1', input: [], clientUserMessageId: 'c1' }, { id: 'q2', input: [], clientUserMessageId: 'c2' }];
+  const receiver = (items, added, fail) => async (profile, parent, action) => action(async (method, params) => {
+    if (method === 'thread/queue/list') return { data: items, nextCursor: null };
+    if (method === 'thread/queue/add') { const failure = fail(params); if (failure) throw failure; added.push(params.clientUserMessageId); return {}; }
+    if (method === 'thread/queue/delete') { items.splice(items.findIndex(item => item.id === params.queuedSubmissionId), 1); return {}; }
+    throw Error(method);
+  });
+  // 応答が途中で切れた（入ったかどうかが分からない）。そこで止め、次に呼ばれても入れ直さない
+  const lost = make('lost'); let items = queue(); let added = [];
+  const timeout = () => Object.assign(new Error('timeout'), { delivery_code: 'CODEX_RECEIVER_TIMEOUT' });
+  assert.deepEqual(await carryAutoHandoffQueue(db, lost, {}, { connect: receiver(items, added, params => params.clientUserMessageId === 'c1' ? timeout() : null) }),
+    { moved: 0, unknown: 1, left: 0 });
+  assert.deepEqual(await carryAutoHandoffQueue(db, lost, {}, { connect: receiver(items, added, () => null) }), { moved: 1, unknown: 1, left: 0 });
+  assert.deepEqual(added, ['c2']); assert.deepEqual(items.map(item => item.id), ['q1'], '結果不明の入力は旧タスクに残る');
+  assert.equal(getAutoHandoff(db, lost.handoff_id).state, 'continued');
+
+  // 前の worker が、入れる途中で終わっていた
+  const crashed = make('crashed'); items = queue(); added = [];
+  updateAutoHandoff(db, crashed.handoff_id, { runtime_json: { ...(crashed.runtime ?? {}), queueCarry: { moved: [], unknown: [], moving: 'q1' } } });
+  assert.deepEqual(await carryAutoHandoffQueue(db, crashed, {}, { connect: receiver(items, added, () => null) }), { moved: 1, unknown: 1, left: 0 });
+  assert.deepEqual(added, ['c2']);
+
+  // はっきり断られた入力は後継に入っていない。旧タスクに残し、次の入力は運ぶ
+  const rejected = make('rejected'); items = queue(); added = [];
+  const reject = () => Object.assign(new Error('rejected'), { delivery_code: 'CODEX_RECEIVER_REJECTED' });
+  assert.deepEqual(await carryAutoHandoffQueue(db, rejected, {}, { connect: receiver(items, added, params => params.clientUserMessageId === 'c1' ? reject() : null) }),
+    { moved: 1, unknown: 0, left: 1 });
+  assert.deepEqual(added, ['c2']); assert.deepEqual(items.map(item => item.id), ['q1']);
+}));
+
 // 元turn（止めた）の後に、旧タスクへ来た入力のturnが続くrollout。laterは後続turnの行。
 function sourceRollout(home, thread, turn, later = [], stoppedAt = '2026-10-07T00:49:01.000Z') {
   const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
@@ -784,5 +845,6 @@ test('要約のbackendが使えない時、workerは固定の理由で止まり�
     assert.equal(result.state, 'failed'); assert.equal(result.error_code, expected); assert.equal(result.resume_state, 'source_stopped');
     assert.equal(counters.created, 0); assert.equal(counters.submitted, 0); assert.equal(counters.notified, 1);
     assert.equal(counters.marked, undefined, '途中で止まった引き継ぎの旧タスクには印を付けない');
+    assert.equal(counters.carried, undefined, '途中で止まった引き継ぎでは、順番待ちを動かさない');
   }
 }));

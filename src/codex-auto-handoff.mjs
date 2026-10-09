@@ -241,9 +241,11 @@ async function sourceNativeState(operation, runtime) {
       if (thread?.id !== operation.source_thread_id || thread.parentThreadId || thread.canAcceptDirectInput === false ||
           thread.source?.subAgent) throw error('handoff_source_not_primary');
       if (!sameProjectPath(thread.cwd, operation.project_path)) throw error('handoff_source_project_mismatch');
+      // 順番待ちに残っている入力は、まだ送られていない（Codex は、ターンを始めた時に順番待ちから消す）。
+      // 止めた旧タスクでは順番待ちが動かないので、ここで断ると何度入力しても同じ理由で止まり続ける。
+      // 断らずに進み、後継が作業を続けた後で後継の順番待ちへ運ぶ（carryAutoHandoffQueue）。
       const queue = await request('thread/queue/list', { threadId: operation.source_thread_id, limit: 1 });
       if (!Array.isArray(queue.data)) throw error('handoff_queue_shape_invalid');
-      if (queue.data.length) throw error('handoff_source_input_pending');
       const children = await request('thread/list', { ancestorThreadId: operation.source_thread_id,
         sourceKinds: ['subAgent'], limit: 100, archived: false });
       if (!Array.isArray(children.data) || children.nextCursor) throw error('handoff_children_unavailable');
@@ -304,6 +306,59 @@ export async function markAutoHandoffSource(operation, runtime, { connect = with
     process.stderr.write(`[auto-handoff] source mark failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
     return 'failed';
   }
+}
+
+/**
+ * 止めた時に旧タスクの順番待ちに残っていた入力（まだ送られていない）を、順番を保って後継の順番待ちへ運ぶ。
+ * 後継へ入れてから旧タスクの順番待ちから消す。後継へ入れた結果が分からない入力は、二重に送らないために
+ * 入れ直さず、旧タスクの順番待ちに残す。運べなくても引き継ぎは止めない（後継はもう作業を続けている）。
+ * @returns {Promise<{moved: number, unknown: number, left: number}>} left は、断られて旧タスクに残った数
+ */
+export async function carryAutoHandoffQueue(db, operation, runtime, { connect = withCodexReceiver } = {}) {
+  const sourceId = operation.source_thread_id; const targetId = operation.target_thread_id;
+  const stored = getAutoHandoff(db, operation.handoff_id).runtime?.queueCarry ?? {};
+  const carry = { moved: [...(stored.moved ?? [])], unknown: [...(stored.unknown ?? [])], left: 0 };
+  // 前の worker が、後継へ入れる途中で終わった。入ったかどうかが分からない。
+  if (stored.moving && !carry.moved.includes(stored.moving)) carry.unknown.push(stored.moving);
+  const save = moving => updateAutoHandoff(db, operation.handoff_id, { runtime_json: {
+    ...(getAutoHandoff(db, operation.handoff_id).runtime ?? {}), queueCarry: { moved: carry.moved, unknown: carry.unknown, moving } } });
+  const summary = () => ({ moved: carry.moved.length, unknown: carry.unknown.length, left: carry.left });
+  try {
+    if (stored.moving) save(null);
+    await connect(autoHandoffDeliveryProfile, { thread_id: sourceId, codex_home: operation.codex_home }, async request => {
+      const items = [];
+      for (let cursor = null, page = 0; page < 50; page++) {
+        const listed = await request('thread/queue/list', { threadId: sourceId, cursor, limit: 100 });
+        if (!Array.isArray(listed.data)) throw error('handoff_queue_shape_invalid');
+        items.push(...listed.data);
+        cursor = listed.nextCursor ?? null;
+        if (!cursor) break;
+      }
+      for (const item of items) {
+        if (carry.unknown.includes(item.id)) continue;
+        if (!carry.moved.includes(item.id)) {
+          save(item.id);
+          try {
+            await request('thread/queue/add', { threadId: targetId, input: item.input, clientUserMessageId: item.clientUserMessageId });
+          } catch (cause) {
+            // はっきり断られた入力は後継に入っていない。旧タスクに残す。それ以外は結果不明として扱う。
+            if (cause?.delivery_code === 'CODEX_RECEIVER_REJECTED') { carry.left++; save(null); continue; }
+            carry.unknown.push(item.id); save(null);
+            throw cause;
+          }
+          carry.moved.push(item.id);
+          save(null);
+        }
+        await request('thread/queue/delete', { threadId: sourceId, queuedSubmissionId: item.id });
+      }
+    }, runtime);
+  } catch (cause) {
+    process.stderr.write(`[auto-handoff] queue carry failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
+  }
+  if (carry.moved.length || carry.unknown.length || carry.left) {
+    process.stderr.write(`[auto-handoff] queue carried: ${JSON.stringify(summary())}\n`);
+  }
+  return summary();
 }
 
 /** 旧タスクが、名前を付けない版の作った後継だった時の名前。その後継を作った引き継ぎから、後継の名前を作り直す。 */
@@ -467,6 +522,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
   const deps = { processes: readRuntimeProcesses, readSource: sourceState,
     nativeState: sourceNativeState, capture: captureCodexRolloutToDb, summaries: ensureAutoHandoffSummaries,
     createTarget, readTarget: targetState, openTarget, verify: verifyCodexParent, markSource: markAutoHandoffSource,
+    carryQueue: carryAutoHandoffQueue,
     submit: submitCodexParentAnswer, notify: showAutoHandoffFailure, wait: waitForHandoff,
     executable: () => platformDesktopFinder()(), liveSuccessor: findLiveAutoHandoffSuccessor, ...dependencies };
   let operation = getAutoHandoff(db, id);
@@ -581,6 +637,8 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         return target.correlatedTurnId && target.progress ? target : null;
       }, { timeoutMs: 180_000, timeoutCode: 'handoff_target_progress_unconfirmed' });
       update({ state: 'continued', started_turn_id: target.correlatedTurnId, resume_state: null, error_code: null });
+      // 旧タスクの順番待ちに残った入力を後継へ運ぶ。後継の最初のターン（継続の指示）が始まった後なので、順番は変わらない。
+      await deps.carryQueue(db, operation, runtime);
       // 後継が作業を続けたのを確かめてから付ける。途中で止まった引き継ぎの旧タスクには付けない。
       await deps.markSource(operation, runtime, { fallbackTitle: autoHandoffSourceFallbackTitle(db, operation) });
     }

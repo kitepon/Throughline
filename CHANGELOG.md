@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.12] — 2026-10-10
+
+### 修正
+
+- Codex Desktopの自動継続が、旧タスクの順番待ちに入力が残っていると`handoff_source_input_pending`で止まり、そのタスクでは何度入力しても同じ理由で止まり続けた。Windowsの実機で、2つのタスクに7回続き、どちらもそのまま使われなくなった。止めたタスクではCodexが順番待ちを動かさないので、順番待ちは空にならない。
+  - 引き継ぎを断らない。後継が作業を続けたのを確かめた後に、旧タスクの順番待ちの入力を、順番を保って後継の順番待ちへ運ぶ（[ADR 0045](docs/adr/0045-codex-handoff-carries-pending-queue.md)）。
+  - 二重に送らない。後継へ入れた結果が分からない入力は入れ直さず、旧タスクの順番待ちに残す。運べなくても引き継ぎは止めない。
+  - 0.16.11までで止まっていたタスクは、次の入力でやり直しが動き、引き継がれる。その時点で順番待ちに残っている入力は、全部後継へ運ばれる。
+
+### 変わらない事
+
+- 実行中の子agent、設定の不一致、追跡されていない旧handoff記憶で止まる扱い。引き継ぎ済みの旧タスクへ後から届く入力の扱い。Claude Codeの自動継続。
+
+### 確認した範囲
+
+- Linux（Codex Desktop同梱のCodex 0.162.0-alpha.2）の試験用フォルダで、本物のCodex Desktopに自動継続を2回続けて流した。最初のターンが動いている間に、順番待ちへ入力を1つ入れた。2回とも引き継ぎは`continued`になり、入力は後継から次の後継へ運ばれ、最後の後継で継続の指示のターンの後に1回だけ実行された。旧い2本のrolloutには出ていない。順番待ちは3本とも空になった。
+- macOS（同梱のCodex 0.162.0-alpha.2）とWindowsの同梱のCodexで、試験タスク2本の間で順番待ちを運んだ。入力2つが、先に入っていた1つの後ろへ元の順番で並び、旧い方は空になった。もう一度呼んでも入れ直さなかった。この2つの端末では、引き継ぎの通しは流していない。
+
+### 確認していない範囲
+
+- 0.16.11までで止まっていた実機のタスクが、次の入力で引き継がれる所（利用者の入力が要る）。
+- 後継へ入れる応答が本当に切れた時の動き（試験では作り物の応答で確かめた）。
+
 ## [0.16.11] — 2026-10-09
 
 ### 修正
@@ -2124,7 +2147,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.11...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.12...HEAD
+[0.16.12]: https://github.com/kitepon/Throughline/compare/v0.16.11...v0.16.12
 [0.16.11]: https://github.com/kitepon/Throughline/compare/v0.16.10...v0.16.11
 [0.16.10]: https://github.com/kitepon/Throughline/compare/v0.16.9...v0.16.10
 [0.16.9]: https://github.com/kitepon/Throughline/compare/v0.16.8...v0.16.9
