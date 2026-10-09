@@ -13,7 +13,8 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
-  autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor } from './codex-auto-handoff.mjs';
+  autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
+  markAutoHandoffSource, markAutoHandoffSources } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -115,6 +116,7 @@ function workerDependencies(db, settings, submit, counters) {
     readTarget: operation => ({ settings, latestTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null,
       correlatedTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null, progress: true }),
     openTarget: () => {}, verify: async () => {}, submit,
+    markSource: async operation => { (counters.marked ??= []).push(`${operation.source_thread_id}:${operation.state}`); return 'marked'; },
     notify: () => { counters.notified++; },
     wait: async check => { const result = await check(); if (!result) throw Error('観測できません'); return result; },
   };
@@ -128,6 +130,7 @@ test('停止→記憶→作成→配送→進捗を確認し、重複workerは�
   assert.equal(result.state, 'continued'); assert.equal(result.started_turn_id, 'new-turn');
   await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps });
   assert.equal(counters.created, 1); assert.equal(counters.submitted, 1); assert.equal(counters.notified, 0);
+  assert.deepEqual(counters.marked, ['worker-source:continued'], '後継が作業を続けたのを確かめた後に、旧タスクへ印を1回だけ付ける');
 }));
 
 test('配送結果不明は再送せず、実際の入力・開始を観測して同じ後継から回復する', async () => withDb(async db => {
@@ -470,6 +473,61 @@ test('後継タスクの名前は project 名・前任の題・自動引き継�
   assert.equal(await nameAutoHandoffTarget(rejected, 'T', 'x'), false, '名前を付けられなくても、引き継ぎは止めない');
 }));
 
+test('引き継ぎが済んだ旧タスクの名前の頭へ印を付け、付けられなくても引き継ぎは止めない', async () => {
+  const operation = { source_thread_id: 'S', codex_home: '/home' };
+  const receiver = (thread, sent, fail = null) => async (profile, parent, action) => action(async (method, params) => {
+    sent.push([method, params]);
+    if (method === fail) throw Object.assign(new Error('rejected'), { delivery_code: 'CODEX_RECEIVER_REJECTED' });
+    return method === 'thread/read' ? { thread } : {};
+  });
+  let sent = [];
+  assert.equal(await markAutoHandoffSource(operation, {}, { connect: receiver({ name: 'ベルチーム' }, sent) }), 'marked');
+  assert.deepEqual(sent, [['thread/read', { threadId: 'S', includeTurns: false }],
+    ['thread/name/set', { threadId: 'S', name: '【引き継ぎ済み】ベルチーム' }]]);
+
+  // 後継がさらに引き継いだ時は、後継の名前をそのまま残して印だけ足す
+  sent = [];
+  await markAutoHandoffSource(operation, {}, { connect: receiver({ name: 'BellTeam｜ベルチーム（自動引き継ぎ）' }, sent) });
+  assert.equal(sent[1][1].name, '【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）');
+
+  // 名前の無いタスクは、最初の依頼の1行目を使う
+  sent = [];
+  await markAutoHandoffSource(operation, {}, { connect: receiver({ name: null, preview: 'ASCの状況を確認して\n2行目' }, sent) });
+  assert.equal(sent[1][1].name, '【引き継ぎ済み】ASCの状況を確認して');
+
+  // もう印がある・名前にできる値が無い時は、付け直さない
+  for (const thread of [{ name: '【引き継ぎ済み】ベルチーム' }, { name: null, preview: '' },
+    { name: null, preview: 'Throughline自動継続 39cdb98e-9e68-4dff-8a53-38d1fd861a8b' }]) {
+    sent = [];
+    assert.equal(await markAutoHandoffSource(operation, {}, { connect: receiver(thread, sent) }), 'kept');
+    assert.equal(sent.length, 1, '名前は書かない');
+  }
+
+  assert.equal(await markAutoHandoffSource(operation, {}, { connect: receiver({ name: 'x' }, [], 'thread/name/set') }), 'failed');
+  assert.equal(await markAutoHandoffSource(operation, {}, { connect: receiver({ name: 'x' }, [], 'thread/read') }), 'failed');
+});
+
+test('印を付けた旧タスクから作る後継の名前には、印を持ち込まない', async () => withDb(async db => {
+  const operation = updateAutoHandoff(db, request(db, 'A', { projectPath: '/Users/kite/Developer/BellTeam' }).operation.handoff_id,
+    { runtime_json: { projectId: null, title: '【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）' } }).operation;
+  assert.equal(autoHandoffTargetName(db, operation), 'BellTeam｜ベルチーム（自動引き継ぎ）');
+}));
+
+test('今までの引き継ぎの旧タスクへまとめて印を付け、後継が消えた引き継ぎと途中で止まった引き継ぎには付けない', async () => withDb(async db => {
+  const done = (source, target, fields = {}) => updateAutoHandoff(db, request(db, source).operation.handoff_id,
+    { state: 'continued', target_thread_id: target, queued_submission_id: `receipt-${target}`, ...fields }).operation;
+  done('A', 'B');
+  done('B', 'C');
+  done('X', 'gone');
+  updateAutoHandoff(db, request(db, 'F').operation.handoff_id, { state: 'failed', target_thread_id: 'F2', error_code: 'handoff_target_not_loaded' });
+  const marked = [];
+  const result = await markAutoHandoffSources(db, { executable: 'fixture',
+    findThread: ({ threadId }) => threadId === 'gone' ? null : { rolloutPath: `/r/${threadId}`, mtimeMs: 1 },
+    mark: async operation => { marked.push(operation.source_thread_id); return operation.source_thread_id === 'B' ? 'kept' : 'marked'; } });
+  assert.deepEqual(marked, ['A', 'B']);
+  assert.deepEqual(result, { marked: 1, kept: 1, failed: 0, skipped: 1 });
+}));
+
 // 元turn（止めた）の後に、旧タスクへ来た入力のturnが続くrollout。laterは後続turnの行。
 function sourceRollout(home, thread, turn, later = [], stoppedAt = '2026-10-07T00:49:01.000Z') {
   const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
@@ -669,5 +727,6 @@ test('要約のbackendが使えない時、workerは固定の理由で止まり�
     const result = await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps });
     assert.equal(result.state, 'failed'); assert.equal(result.error_code, expected); assert.equal(result.resume_state, 'source_stopped');
     assert.equal(counters.created, 0); assert.equal(counters.submitted, 0); assert.equal(counters.notified, 1);
+    assert.equal(counters.marked, undefined, '途中で止まった引き継ぎの旧タスクには印を付けない');
   }
 }));

@@ -47,6 +47,12 @@ export function listUndeliveredAutoHandoffsForSource(db, threadId) {
     ORDER BY created_at DESC, rowid DESC`).all(threadId).map(decode);
 }
 
+/** 後継が作業を続けた引き継ぎの全部（古い順）。旧タスクへ引き継ぎ済みの印を付け直す時に使う。 */
+export function listContinuedAutoHandoffs(db) {
+  return db.prepare(`SELECT * FROM codex_handoffs WHERE state = 'continued' AND target_thread_id IS NOT NULL
+    ORDER BY created_at ASC, rowid ASC`).all().map(decode);
+}
+
 export function listAutoHandoffs(db, { projectPath = null, limit = 20 } = {}) {
   const rows = projectPath == null
     ? db.prepare('SELECT * FROM codex_handoffs ORDER BY created_at DESC LIMIT ?').all(limit)

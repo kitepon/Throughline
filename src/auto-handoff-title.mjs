@@ -8,6 +8,8 @@
 export const AUTO_HANDOFF_TITLE_MARK = '自動引き継ぎ';
 const SEPARATOR = '｜';
 const SUFFIX = `（${AUTO_HANDOFF_TITLE_MARK}）`;
+// 引き継ぎが済んだ旧タスクの名前の頭に付ける印。一覧は名前の後ろを切るので、頭に置く。
+export const AUTO_HANDOFF_DONE_PREFIX = '【引き継ぎ済み】';
 // 一覧の幅で末尾の印が切れにくい長さに、概要を抑える。
 const SUMMARY_MAX_CHARS = 40;
 // 継続の指示（Claude・Codex とも、この語と引き継ぎ ID で始まる）。名前の付いていない後継は、これが題として見える。
@@ -35,7 +37,7 @@ function clip(text, maxChars) {
  */
 export function autoHandoffSummaryOf(title) {
   if (typeof title !== 'string') return null;
-  const firstLine = title.split(/\r?\n/).map(oneLine).find(Boolean) ?? '';
+  const firstLine = withoutDonePrefix(title.split(/\r?\n/).map(oneLine).find(Boolean) ?? '');
   if (!firstLine || CONTINUATION_INPUT_PATTERN.test(firstLine)) return null;
   if (firstLine.endsWith(SUFFIX)) {
     const body = firstLine.slice(0, -SUFFIX.length);
@@ -44,6 +46,26 @@ export function autoHandoffSummaryOf(title) {
     return inner ? clip(inner, SUMMARY_MAX_CHARS) : null;
   }
   return clip(firstLine, SUMMARY_MAX_CHARS);
+}
+
+function withoutDonePrefix(text) {
+  let rest = text;
+  while (rest.startsWith(AUTO_HANDOFF_DONE_PREFIX)) rest = rest.slice(AUTO_HANDOFF_DONE_PREFIX.length).trimStart();
+  return rest;
+}
+
+/**
+ * 引き継ぎが済んだ旧タスクの名前を作る。元の名前の頭に印を付けるだけで、元の名前は残す。
+ * 一覧で、印の無い1本が今の続きだと読めるようにする。もう印が付いている名前と、名前にできない値は null（付け直さない）。
+ * @param {string|null|undefined} title 旧タスクの今の名前。名前が無いタスクでは、最初の依頼の文
+ */
+export function markHandedOffTitle(title) {
+  if (typeof title !== 'string') return null;
+  const firstLine = title.split(/\r?\n/).map(oneLine).find(Boolean) ?? '';
+  if (!firstLine || firstLine.startsWith(AUTO_HANDOFF_DONE_PREFIX)) return null;
+  // 継続の指示が題として見えている後継（名前を付けない版が作った物）は、指示の文を名前にしない。
+  if (CONTINUATION_INPUT_PATTERN.test(firstLine)) return null;
+  return AUTO_HANDOFF_DONE_PREFIX + clip(firstLine, SUMMARY_MAX_CHARS + 20);
 }
 
 /**

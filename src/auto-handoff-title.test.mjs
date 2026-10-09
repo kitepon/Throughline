@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoHandoffProjectName, autoHandoffSummaryOf, composeAutoHandoffTitle } from './auto-handoff-title.mjs';
+import { autoHandoffProjectName, autoHandoffSummaryOf, composeAutoHandoffTitle, markHandedOffTitle } from './auto-handoff-title.mjs';
 
 test('名前は「project 名｜作業の概要（自動引き継ぎ）」の形にする', () => {
   assert.equal(composeAutoHandoffTitle({ projectPath: '/Users/kite/Developer/BellTeam', titles: ['ASCからの連絡を確認'] }),
@@ -47,4 +47,22 @@ test('概要は最初の行を1行にして、長さを抑える', () => {
   assert.equal(autoHandoffSummaryOf(long), long, '切った概要は、もう一度通しても変わらない');
   assert.equal(Array.from(autoHandoffSummaryOf(`${'😀'.repeat(50)}`)).length, 40, '絵文字を途中で割らない');
   assert.equal(autoHandoffSummaryOf(undefined), null);
+});
+
+test('引き継ぎ済みの印は名前の頭に付け、元の名前を残す。印を重ねない', () => {
+  assert.equal(markHandedOffTitle('kitepon.devのメールアドレス作成方法'), '【引き継ぎ済み】kitepon.devのメールアドレス作成方法');
+  assert.equal(markHandedOffTitle('BellTeam｜ベルチーム（自動引き継ぎ）'), '【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）');
+  assert.equal(markHandedOffTitle('【引き継ぎ済み】ベルチーム'), null, 'もう印がある名前は付け直さない');
+  assert.equal(markHandedOffTitle('1行目\n2行目'), '【引き継ぎ済み】1行目', '名前の無いタスクの依頼文は1行目だけ使う');
+  assert.equal(Array.from(markHandedOffTitle('あ'.repeat(200))).length, '【引き継ぎ済み】'.length + 60, '長い依頼文は切る');
+  for (const value of [null, undefined, '', '  ', 'Throughline自動継続 39cdb98e-9e68-4dff-8a53-38d1fd861a8b']) {
+    assert.equal(markHandedOffTitle(value), null);
+  }
+});
+
+test('印の付いた旧タスクの名前から概要を取る時は、印を外す', () => {
+  assert.equal(autoHandoffSummaryOf('【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）'), 'ベルチーム');
+  assert.equal(autoHandoffSummaryOf('【引き継ぎ済み】ベルチーム'), 'ベルチーム');
+  assert.equal(composeAutoHandoffTitle({ projectPath: '/work/BellTeam', titles: ['【引き継ぎ済み】BellTeam｜ベルチーム（自動引き継ぎ）'] }),
+    'BellTeam｜ベルチーム（自動引き継ぎ）');
 });

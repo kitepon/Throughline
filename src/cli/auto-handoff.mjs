@@ -5,7 +5,7 @@ import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from '../db.mjs';
 import { listAutoHandoffs, getAutoHandoff } from '../codex-auto-handoff-store.mjs';
 import { renderFrozenDetail } from '../codex-auto-handoff-memory.mjs';
 import { readAutoHandoffConfig, writeAutoHandoffConfig } from '../codex-auto-handoff-config.mjs';
-import { autoHandoffDeliveryProfile, runAutoHandoffWorker } from '../codex-auto-handoff.mjs';
+import { autoHandoffDeliveryProfile, runAutoHandoffWorker, markAutoHandoffSources } from '../codex-auto-handoff.mjs';
 import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaudeAutoHandoffHooks,
   claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
@@ -18,9 +18,9 @@ const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open']
 
 export function parseAutoHandoffArgs(args) {
   const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false };
-  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open'].includes(out.action)) throw Error('auto_handoff_action_invalid');
+  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources'].includes(out.action)) throw Error('auto_handoff_action_invalid');
   const allowed = ['host', ...{ enable: ['project'], disable: [], status: ['project', 'operation'],
-    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
+    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
   const seen = new Set();
   for (let i = 1; i < args.length; i++) {
     if (seen.has(args[i])) throw Error('auto_handoff_argument_invalid');
@@ -127,6 +127,10 @@ export async function run(args = []) {
       finally { db.close(); }
       process.stdout.write(parsed.json ? JSON.stringify({ status: 'ok', text }) + '\n' : text + '\n');
       return 0;
+    } else if (parsed.action === 'mark-sources') {
+      // 印を付けない版（0.16.9 まで）が引き継いだ旧タスクへ、引き継ぎ済みの印を付け直す。何度流しても同じ結果になる。
+      const db = getDb();
+      result = { status: 'ok', ...await markAutoHandoffSources(db) };
     } else if (parsed.action === 'worker') {
       result = publicOperation(await runAutoHandoffWorker(parsed.operation));
     } else if (parsed.action === 'resume') {
