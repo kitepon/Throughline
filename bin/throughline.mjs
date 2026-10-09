@@ -412,6 +412,8 @@ Usage:
                               引き継ぎの状態と固定理由を確認
   throughline auto-handoff resume --operation <id> --json
                               同じ引き継ぎを再開（結果不明は再送しない）
+  throughline auto-handoff mark-sources [--json]
+                              引き継ぎ済みの旧タスクの名前へ印を付け直す
   throughline auto-handoff detail --operation <id> --origin <session> --turn <n>
                               凍結したL2/L3を取得
   throughline auto-handoff enable|disable|status --host claude [--project <path>] [--json]

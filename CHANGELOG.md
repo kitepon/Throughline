@@ -10,6 +10,33 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.10] — 2026-10-09
+
+### 修正
+
+- Codex Desktopの自動継続で、引き継ぎを重ねると後継のタスクが全部同じ名前になり、一覧でどれが今の続きかを見分けられなかった。元のタスクも、引き継いだ後に名前が変わらなかった。後継が作業を続けたのを確かめた後に、旧タスクの名前の頭へ`【引き継ぎ済み】`を付ける。同じ作業の系列で、印の無い1本が今の続きになる（[ADR 0044](docs/adr/0044-codex-handed-off-source-is-marked.md)）。
+  - 名前は、その時の旧タスクの名前を読んでから作る。利用者が付け直した名前も、印の後ろに残る。付けられなくても引き継ぎは止めない。
+  - 途中で止まった引き継ぎの旧タスクには付けない。
+
+### 追加
+
+- `throughline auto-handoff mark-sources`。0.16.9までの版が引き継いだ旧タスクへ、印を付け直す。生きている後継がある旧タスクだけに付ける。何度流しても同じ結果になる。
+
+### 変わらない事
+
+- 後継の名前（`<project名>｜<作業の概要>（自動引き継ぎ）`）。引き継ぎ済みの旧タスクへ入力した時の扱い（止めて後継を開く）。Claude Codeの自動継続。
+
+### 確認した範囲
+
+- Linux（Codex Desktop同梱のCodex 0.162.0-alpha.2）の試験用フォルダで、本物のCodex Desktopに自動継続を2回続けて流した。2回とも、後継が作業を続けた後に旧タスクが`【引き継ぎ済み】`の名前になり、印の無いタスクは最後の後継の1本だけになった。
+- macOS（同梱のCodex 0.162.0-alpha.2）とWindowsの同梱のCodexで、試験タスクへ印を付けた。1回目は付き、2回目は付け直さなかった。`thread/list`の`updatedAt`は変わらなかった。この2つの端末では、引き継ぎの通しは流していない。
+- Desktopが開いたままのタスクへ、別のprocessから名前を付けられる事（Linux。`thread/archive`は`already has an active writer`で断られ、`thread/name/set`は通った）。
+
+### 確認していない範囲
+
+- 付け直した名前が、Codex Desktopの一覧の表示へいつ出るか（画面は見ていない。Codexの`thread/list`と`session_index.jsonl`では、付けた直後に新しい名前が返る）。
+- Claude Codeの後継も同じ名前の付け方だが、旧い会話の名前を外から変える公式の入口を確かめていない。
+
 ## [0.16.9] — 2026-10-09
 
 ### 追加
@@ -2076,7 +2103,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.9...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.10...HEAD
+[0.16.10]: https://github.com/kitepon/Throughline/compare/v0.16.9...v0.16.10
 [0.16.9]: https://github.com/kitepon/Throughline/compare/v0.16.8...v0.16.9
 [0.16.8]: https://github.com/kitepon/Throughline/compare/v0.16.7...v0.16.8
 [0.16.7]: https://github.com/kitepon/Throughline/compare/v0.16.6...v0.16.7
