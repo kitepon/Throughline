@@ -1014,7 +1014,7 @@ export async function run(argv = []) {
   await check('throughline コマンドが PATH で見つかるか', () => {
     try {
       const which = process.platform === 'win32' ? 'where throughline' : 'which throughline';
-      const result = execSync(which, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      const result = execSync(which, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }).trim();
       return result.split(/\r?\n/)[0];
     } catch {
       throw new Error('見つからない — npm install -g throughline を実行してください');

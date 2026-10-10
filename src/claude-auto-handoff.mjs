@@ -778,7 +778,8 @@ export async function runClaudeDesktopOpen(sourceSessionId, {
   spawn = spawnPortableSync,
   pty = runWithPty,
   idleTimeoutMs = 120_000,
-  pollMs = 1_000,
+  // 一覧を読むたびに `claude agents` を起こす（Windows では pwsh 経由）。手すきは急いで知る必要が無いので、間を空ける。
+  pollMs = 3_000,
 } = {}) {
   let record = readClaudeAutoHandoff(sourceSessionId, dir);
   if (!record) throw new ClaudeHandoffError('handoff_not_found');

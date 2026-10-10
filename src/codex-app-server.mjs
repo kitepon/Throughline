@@ -1649,6 +1649,7 @@ function startAppServerClient({ command, args, cwd, timeoutMs, requestTimeoutMs 
   const child = spawn(command, args, {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   let stdoutBuffer = '';
   let stderr = '';

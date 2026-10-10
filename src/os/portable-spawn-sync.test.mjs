@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnPortable, spawnPortableSync } from './portable-spawn-sync.mjs';
+import { portableInvocation, spawnPortable, spawnPortableSync } from './portable-spawn-sync.mjs';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 
@@ -87,4 +87,25 @@ exit $LASTEXITCODE
     child?.kill();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('portableInvocation: 窓を隠す指定を既定で付ける。呼び出し側が false を渡した時だけ外す', () => {
+  for (const platform of ['win32', 'linux', 'darwin']) {
+    const [, , hidden] = portableInvocation('claude', ['agents', '--json', '--all'], { platform, env: { PATH: '' }, encoding: 'utf8' });
+    assert.equal(hidden.windowsHide, true, platform);
+    assert.equal(hidden.shell, false); assert.equal(hidden.encoding, 'utf8'); assert.equal('platform' in hidden, false);
+    const [, , shown] = portableInvocation('claude', ['agents'], { platform, env: { PATH: '' }, windowsHide: false });
+    assert.equal(shown.windowsHide, false, platform);
+  }
+});
+
+test('portableInvocation: Windows の .ps1 shim は pwsh.exe 経由で、窓を隠して起こす', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-portable-hide-'));
+  try {
+    writeFileSync(join(dir, 'claude.ps1'), 'exit 0\n');
+    const [command, args, options] = portableInvocation('claude', ['stop', 'abcd1234'], { platform: 'win32', env: { PATH: dir } });
+    assert.equal(command, 'pwsh.exe');
+    assert.ok(args.at(-1).includes(join(dir, 'claude.ps1')) && args.at(-1).includes("'stop' 'abcd1234'"));
+    assert.equal(options.windowsHide, true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

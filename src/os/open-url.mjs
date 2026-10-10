@@ -11,6 +11,7 @@ export function openUrlWithOsHandler(url, {
   spawnImpl = spawnSync,
 } = {}) {
   if (platform === 'darwin') return spawnImpl('open', [url], { encoding: 'utf8' });
-  if (platform === 'win32') return spawnImpl('cmd.exe', ['/c', 'start', '', url], { encoding: 'utf8' });
+  // cmd.exe 自身の窓は隠す（console を持たない worker から呼ぶと、窓が一瞬出る）。start が開く先の窓は、これでは隠れない。
+  if (platform === 'win32') return spawnImpl('cmd.exe', ['/c', 'start', '', url], { encoding: 'utf8', windowsHide: true });
   return spawnImpl('xdg-open', [url], { encoding: 'utf8' });
 }

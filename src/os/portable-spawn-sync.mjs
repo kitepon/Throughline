@@ -28,11 +28,15 @@ function resolveWindowsCommand(command, env) {
   return command;
 }
 
-function portableInvocation(command, args, options = {}) {
+export function portableInvocation(command, args, options = {}) {
   const platform = options.platform ?? process.platform;
   const spawnOptions = { ...options };
   delete spawnOptions.platform;
   spawnOptions.shell = false;
+  // Windows では、console を持たない process（切り離した worker など）が console の子を起こすと、新しい console が作られ、
+  // 既定のターミナル（Windows Terminal）の窓が一瞬出る。出力は pipe で受けるので、窓は要らない。
+  // 窓が要る呼び出し（端末が要る命令）は os/pty-run.mjs が別に持つ。ほかの OS では無視される。
+  spawnOptions.windowsHide ??= true;
 
   if (platform !== 'win32') return [command, args, spawnOptions];
 

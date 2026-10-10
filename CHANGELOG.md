@@ -10,6 +10,30 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.17] — 2026-10-10
+
+### 修正
+
+- Windowsで、Claude Codeの自動継続の後、Windows Terminalの窓が約2秒おきに開いては消えた。後継をClaude Desktopへ移す処理は、後継が手すきになるまで`claude agents --json --all`を繰り返し呼ぶ。この処理はconsoleを持たない切り離したprocessで動き、子の`pwsh.exe`を窓を隠さずに起こしていたので、呼ぶたびに新しいconsole（既定のターミナルの窓）が出ていた。後継が手すきにならない間、最長2分、ターンが終わるたびに続いた。
+  - 子processを起こす共通の部品（`src/os/portable-spawn-sync.mjs`）が、窓を隠す指定（`windowsHide`）を既定で付ける。`claude agents`・`claude stop`・後継の起動・L1の要約（`claude -p`・`codex exec`）・更新の処理が対象。
+  - URLを開く`cmd.exe /c start`と、手動の引き継ぎのapp-serverの起動にも付けた。開く先のアプリの窓は隠れない。
+  - 端末が要る`claude --desktop --resume`は、今までどおり最小化した新しいconsoleの中で呼ぶ（1回だけ）。
+  - 手すきを待つ間隔を1秒から3秒へ広げた。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 窓の指定は効かないOS。手すきを待つ間隔だけ変わる（3秒）。単体試験とCI | 窓の指定は効かないOS。単体試験とCI。Desktopへ移す処理はLinuxでは動かない | 直した。実機の画面のあるsessionで、consoleを持たない切り離したprocessから`claude agents`を呼び、現れた窓を30msおきに数えた。0.16.16は3回の呼び出しでWindows Terminalの窓が3回、直した版は5回の呼び出しで0回。呼び出しの結果（一覧）は同じに読めた |
+| Codex | 同じ（効かないOS） | 同じ | 直した。URLを開く所は、実機で窓を隠した`cmd.exe`からアプリが開く事を確かめた（電卓のURLで代用）。自動継続のworkerが起こすL1の要約（`codex exec`）は同じ部品を通るが、個別には確かめていない |
+| Grok | 同じ（効かないOS） | 同じ | 直した。Stopのhookが起こすL1の要約が同じ部品を通る。個別には確かめていない |
+| Cursor | 同じ（効かないOS） | 同じ | 直した。Grokと同じ |
+
+### 確認していない範囲
+
+- 本物の引き継ぎの後に窓が出ない事（公開して端末へ入れた後に確かめる）。
+- 後継が手すきにならない理由（裏で動き続ける処理を持つ会話など）。その間、後継はClaude Desktopへ移らない。
+
 ## [0.16.16] — 2026-10-10
 
 ### 追加
@@ -2246,7 +2270,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.16...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.17...HEAD
+[0.16.17]: https://github.com/kitepon/Throughline/compare/v0.16.16...v0.16.17
 [0.16.16]: https://github.com/kitepon/Throughline/compare/v0.16.15...v0.16.16
 [0.16.15]: https://github.com/kitepon/Throughline/compare/v0.16.14...v0.16.15
 [0.16.14]: https://github.com/kitepon/Throughline/compare/v0.16.13...v0.16.14
