@@ -10,6 +10,28 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.14] — 2026-10-10
+
+### 修正
+
+- Codex Desktop（同梱のCodex 0.162.0-alpha.17.2）が、内部の文脈（ターンのIDが`auto-compact-N`）から`PreCompact(auto)`のhookを呼ぶ時、Throughlineが`handoff_hook_identity_invalid`の失敗として記録していた。macOSの実機で3回。圧縮は止まっていて、タスクにも影響は無かったが、起きていない失敗がhighで記録された。この形の呼び出しは、失敗にせず圧縮だけを止め、`~/.throughline/codex-auto-handoff/internal-compactions.jsonl`に1行残す（[ADR 0047](docs/adr/0047-codex-internal-compaction-is-stopped-without-error.md)）。
+  - 圧縮を止める動きは今までと同じ。引き継ぎは、文脈が上限に近づいた利用者のターンで今までどおり起きる。
+  - それ以外の不正なID（会話のIDがUUIDでない、記録の場所が無い、知らない形のターンのID）は、今までどおり失敗として記録する。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex（Desktop） | 直した。単体試験と、切り離した置き場での本物のhookの命令で確認（内部のIDは失敗0件・記録1行、不正なIDは失敗1件）。CIのmacOSも成功。**本物のCodex Desktopが内部の文脈からhookを呼ぶ場面は、狙って起こせないので未確認** | 直した。単体試験とCI。実機（同梱0.162.0-alpha.2）では、この呼び出しが起きていない | 直した。単体試験とCI。実機では、この失敗の記録が無い |
+| Claude Code | 対象外。Claude Codeの`PreCompact`は別の実装で、ターンのIDを検査しない | 同じ | 同じ |
+| Grok | 対象外。自動継続の機能が無く、`PreCompact`のhookを登録していない | 同じ | 同じ |
+| Cursor | 対象外。自動継続の機能が無く、`PreCompact`のhookを登録していない | 同じ | 同じ |
+
+### 確認していない範囲
+
+- 本物のCodex Desktopが内部の文脈からhookを呼ぶ場面での、新しい版の動き（次に起きた時に、失敗の記録が増えず、`internal-compactions.jsonl`に行が出る事で確かめる）。
+- 内部の文脈からの圧縮が、Codexのどの処理から始まるか（公開ソースでIDの形と渡り方だけを確かめた）。
+
 ## [0.16.13] — 2026-10-10
 
 ### 修正
@@ -2173,7 +2195,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.13...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.14...HEAD
+[0.16.14]: https://github.com/kitepon/Throughline/compare/v0.16.13...v0.16.14
 [0.16.13]: https://github.com/kitepon/Throughline/compare/v0.16.12...v0.16.13
 [0.16.12]: https://github.com/kitepon/Throughline/compare/v0.16.11...v0.16.12
 [0.16.11]: https://github.com/kitepon/Throughline/compare/v0.16.10...v0.16.11

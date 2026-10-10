@@ -103,6 +103,15 @@ function openSuccessor(operation) {
   return !result.error && result.status === 0;
 }
 
+// Codex が内部の文脈へ付けるターンの ID（`codex-rs/core/src/session/mod.rs` の `next_internal_sub_id`）。
+const INTERNAL_COMPACTION_TURN_ID_PATTERN = /^auto-compact-\d+$/;
+
+/** ターンの外の自動圧縮を止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
+function recordInternalCompactionStop(entry) {
+  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  appendFileSync(join(stateRoot(), 'internal-compactions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
+
 /** 引き継ぎ済みの旧タスクを止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordAutoHandoffRedirect(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
@@ -157,13 +166,20 @@ function settleUndeliveredAutoHandoff(db, threadId, { rolloutPath, processes, re
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
   findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
+  recordInternalCompaction = recordInternalCompactionStop,
   processes = readRuntimeProcesses, readTarget = targetState, now = Date.now() } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
-  if (!CODEX_NATIVE_ID_PATTERN.test(threadId ?? '') || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '') ||
-      typeof payload.transcript_path !== 'string' || !isAbsolute(payload.transcript_path) || !isAbsolute(payload.cwd ?? '')) {
-    throw error('handoff_hook_identity_invalid');
+  const located = CODEX_NATIVE_ID_PATTERN.test(threadId ?? '') &&
+    typeof payload.transcript_path === 'string' && isAbsolute(payload.transcript_path) && isAbsolute(payload.cwd ?? '');
+  // Codex が自分で作った内部の文脈（ターンの ID が `auto-compact-N`）からの圧縮。利用者のターンではないので、
+  // 引き継ぎの起点にできない。例外にせず圧縮だけを止める（文脈を残せば、次の利用者のターンの圧縮の合図で引き継げる）。
+  if (located && INTERNAL_COMPACTION_TURN_ID_PATTERN.test(turnId ?? '')) {
+    recordInternalCompaction({ at: new Date(now).toISOString(), thread_id: threadId, turn_id: turnId });
+    return { status: 'ok', inserted: false, internalCompaction: true, continue: false,
+      stopReason: 'Throughlineが、ターンの外の自動圧縮を止めました。文脈が上限に近づいたターンで、新しいタスクへ引き継ぎます。' };
   }
+  if (!located || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '')) throw error('handoff_hook_identity_invalid');
   // JS実装のrealpathは、WindowsのCodex Desktopが起動したhookの中で `EISDIR: lstat 'C:'` で落ちる。OSのrealpathを使う。
   const rolloutPath = realpathSync.native(payload.transcript_path);
   const state = readCodexHandoffState(rolloutPath, { threadId, turnId });

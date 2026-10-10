@@ -287,6 +287,33 @@ test('PreCompactの重複ではworkerを増やさず、manualと別projectでは
   assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
 }));
 
+test('Codexの内部の文脈（auto-compact-N）からの圧縮は、例外にせず止めて記録する。引き継ぎは作らない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const file = join(home, 'rollout.jsonl'); writeFileSync(file, '');
+  const payload = { trigger: 'auto', cwd: home, session_id: thread, turn_id: 'auto-compact-3', transcript_path: file };
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  let launched = 0; const recorded = [];
+  const args = { db, config, payload, launchWorker: async () => { launched++; }, recordInternalCompaction: entry => recorded.push(entry), now: Date.parse('2026-10-10T04:24:01.175Z') };
+  const result = await requestCodexAutoHandoff(args);
+  assert.equal(result.status, 'ok'); assert.equal(result.continue, false); assert.equal(result.internalCompaction, true);
+  assert.match(result.stopReason, /ターンの外の自動圧縮を止めました/);
+  assert.equal(launched, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM codex_handoffs').get().n, 0, '引き継ぎの行は作らない');
+  assert.deepEqual(recorded, [{ at: '2026-10-10T04:24:01.175Z', thread_id: thread, turn_id: 'auto-compact-3' }]);
+
+  // 無効な project と手動の圧縮は、今までどおり何もしない
+  assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
+  assert.equal((await requestCodexAutoHandoff({ ...args, payload: { ...payload, trigger: 'manual' } })).status, 'skipped');
+  assert.equal(recorded.length, 1);
+
+  // 形の決まっていない ID と、場所の分からない呼び出しは、今までどおり失敗として扱う
+  for (const broken of [{ turn_id: 'something-else' }, { turn_id: undefined }, { turn_id: 'auto-compact-' }, { session_id: 'not-a-uuid' },
+    { transcript_path: null }, { transcript_path: 'relative/rollout.jsonl' }]) {
+    await assert.rejects(requestCodexAutoHandoff({ ...args, payload: { ...payload, ...broken } }), /handoff_hook_identity_invalid/);
+  }
+  assert.equal(recorded.length, 1);
+}));
+
 test('PreCompactの入口は、JS実装のrealpathが使えない環境（WindowsのCodex Desktopのhook）でも引き継ぎを作る', async () => withDb(async (db, home) => {
   const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
   const dir = join(home, 'codex', 'sessions'); mkdirSync(dir, { recursive: true });
