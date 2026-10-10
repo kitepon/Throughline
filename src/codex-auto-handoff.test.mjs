@@ -14,7 +14,8 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
-  markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue } from './codex-auto-handoff.mjs';
+  markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
+  untrackedInheritedMemory } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -179,19 +180,78 @@ test('作成応答を失った時は結果不明を保存し、再開でも後�
   assert.equal(counters.created, 1); assert.equal(counters.submitted, 0);
 }));
 
-test('実行中の子・出所不明の継承記憶では後継を作らない', async () => withDb(async db => {
-  for (const code of ['handoff_native_child_pending', 'handoff_memory_lineage_untracked']) {
+test('実行中の子がある時は後継を作らない', async () => withDb(async db => {
+  for (const code of ['handoff_native_child_pending']) {
     const op = request(db, code, { now: 1 }).operation;
     const counters = { created: 0, submitted: 0, notified: 0 };
     const deps = workerDependencies(db, {}, async () => { counters.submitted++; }, counters);
-    if (code === 'handoff_memory_lineage_untracked') {
-      const read = deps.readSource;
-      deps.readSource = item => ({ ...read(item), inheritedThroughlineMemory: true });
-    } else deps.nativeState = async () => { throw Object.assign(Error(code), { code }); };
+    deps.nativeState = async () => { throw Object.assign(Error(code), { code }); };
     const result = await runAutoHandoffWorker(op.handoff_id, { db, dependencies: deps });
     assert.equal(result.error_code, code); assert.equal(result.state, 'failed');
     assert.equal(counters.created, 0); assert.equal(counters.submitted, 0);
   }
+}));
+
+test('rollout の developer 記憶から、受け取った Throughline の記憶の本文を最初の1つだけ読む', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-inherited-'));
+  const file = join(dir, 'rollout.jsonl');
+  const developer = text => ({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text }] } });
+  const rows = [{ type: 'session_meta', payload: { id: 'T', cwd: '/project', originator: 'Codex Desktop', source: 'vscode' } },
+    developer('ふつうの developer 文'),
+    developer('## Throughline: New Codex Thread Handoff\n最初に受け取った記憶'),
+    developer('## Throughline: Active Work Context\n後から入った別の記憶')];
+  writeFileSync(file, rows.map(row => JSON.stringify({ timestamp: '2026-10-08T00:00:01.000Z', ...row })).join('\n') + '\n');
+  const state = readCodexHandoffState(file, { threadId: 'T' });
+  assert.equal(state.inheritedThroughlineMemory, true);
+  assert.equal(state.inheritedThroughlineMemoryText, '## Throughline: New Codex Thread Handoff\n最初に受け取った記憶');
+  writeFileSync(file, rows.slice(0, 2).map(row => JSON.stringify({ timestamp: '2026-10-08T00:00:01.000Z', ...row })).join('\n') + '\n');
+  const plain = readCodexHandoffState(file, { threadId: 'T' });
+  assert.equal(plain.inheritedThroughlineMemory, false); assert.equal(plain.inheritedThroughlineMemoryText, null);
+});
+
+test('前任をさかのぼれない記憶を受け取ったタスクも引き継ぎ、受け取った記憶をそのまま後継へ渡す', async () => withDb(async db => {
+  const op = request(db, 'manual-origin', { now: 1 }).operation;
+  const counters = { created: 0, submitted: 0, notified: 0 };
+  const deps = workerDependencies(db, {}, async () => { counters.submitted++; return { queued_submission_id: 'receipt' }; }, counters);
+  const read = deps.readSource;
+  const inheritedText = '## Throughline: New Codex Thread Handoff\n手動の引き継ぎで受け取った記憶。前のタスクの合意: 4イベントを申請する';
+  deps.readSource = (item, options) => ({ ...read(item, options), inheritedThroughlineMemory: true, inheritedThroughlineMemoryText: inheritedText });
+  const result = await runAutoHandoffWorker(op.handoff_id, { db, dependencies: deps });
+  assert.equal(result.state, 'continued', '断らずに引き継ぐ');
+  assert.equal(result.error_code, null); assert.equal(counters.created, 1); assert.equal(counters.submitted, 1); assert.equal(counters.notified, 0);
+  assert.deepEqual(result.runtime.inheritedMemory, { text: inheritedText, chars: Array.from(inheritedText).length, truncated: false });
+}));
+
+test('受け取った記憶は系列の最初の引き継ぎに残り、その先の後継の記憶にも出る。見出しは入れ子にしない', async () => withDb(db => {
+  let a = snapshot(db, request(db, 'A').operation, 2);
+  a = updateAutoHandoff(db, a.handoff_id, { target_thread_id: 'B', state: 'continued',
+    runtime_json: { inheritedMemory: untrackedInheritedMemory('## Throughline: New Codex Thread Handoff\n前のタスクの合意: 4イベントを申請する') } }).operation;
+  const first = renderAutoHandoffMemory(db, a);
+  assert.ok(first.includes('### 系列の最初のタスクが受け取っていた記憶（そのまま）'));
+  assert.ok(first.includes('前のタスクの合意: 4イベントを申請する'));
+  assert.ok(first.includes('（元の見出し: New Codex Thread Handoff）'));
+  assert.equal(first.match(/^## Throughline: /gm).length, 1, '見出しは後継の記憶の1つだけ');
+  assert.ok(first.indexOf('系列の最初のタスクが受け取っていた記憶') < first.indexOf('直近'), '古い記憶を先に置く');
+
+  let b = snapshot(db, request(db, 'B').operation, 2, 100, continuationInput(a));
+  b = updateAutoHandoff(db, b.handoff_id, { target_thread_id: 'C' }).operation;
+  assert.equal(b.previous_handoff_id, a.handoff_id);
+  assert.ok(renderAutoHandoffMemory(db, b).includes('前のタスクの合意: 4イベントを申請する'), '次の後継にも渡る');
+
+  // 受け取った記憶が無い系列には、この節を出さない
+  const plain = snapshot(db, request(db, 'P').operation, 2);
+  assert.ok(!renderAutoHandoffMemory(db, plain).includes('受け取っていた記憶'));
+}));
+
+test('長すぎる受け取った記憶は先頭だけを運び、切った事を後継の記憶に書く', async () => withDb(db => {
+  const long = untrackedInheritedMemory('あ'.repeat(120_001));
+  assert.equal(Array.from(long.text).length, 120_000); assert.equal(long.chars, 120_001); assert.equal(long.truncated, true);
+  assert.deepEqual(untrackedInheritedMemory(null), { text: '', chars: 0, truncated: false });
+  const a = updateAutoHandoff(db, snapshot(db, request(db, 'A').operation, 1).handoff_id, { runtime_json: { inheritedMemory: long } }).operation;
+  const text = renderAutoHandoffMemory(db, a);
+  assert.ok(text.includes('（長いので先頭だけ載せています。元は 120001 字）'));
+  const empty = updateAutoHandoff(db, snapshot(db, request(db, 'E').operation, 1).handoff_id, { runtime_json: { inheritedMemory: untrackedInheritedMemory(null) } }).operation;
+  assert.ok(renderAutoHandoffMemory(db, empty).includes('（本文を読めませんでした）'));
 }));
 
 test('開始eventからユーザー入力の保存までの間を別入力の混入と判定しない', async () => withDb(async db => {

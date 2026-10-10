@@ -103,6 +103,8 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   const pendingCalls = new Map();
   const nativeSessions = new Set();
   let inheritedThroughlineMemory = false;
+  // 受け取った記憶の本文（最初の1つ）。前任をさかのぼれないタスクを引き継ぐ時に、そのまま後継へ渡す。
+  let inheritedThroughlineMemoryText = null;
   let completedTools = 0;
   // turnId を指定した時だけ、その turn より後に始まった turn を並べる。closed は止まった（turn_aborted）か完了したか、
   // activity はモデルの発言・道具の呼び出し・圧縮・完了のどれかがあったか。入力を受けただけで止まった turn は activity が false。
@@ -147,7 +149,10 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
     if (row.type === 'response_item') {
       if (payload?.type === 'message' && payload.role === 'developer') {
         const text = (payload.content ?? []).map(c => c.text ?? '').join('\n');
-        if (/^## Throughline: (?:自動継続文脈|Active Work Context|New Codex Thread Handoff)/m.test(text)) inheritedThroughlineMemory = true;
+        if (/^## Throughline: (?:自動継続文脈|Active Work Context|New Codex Thread Handoff)/m.test(text)) {
+          inheritedThroughlineMemory = true;
+          inheritedThroughlineMemoryText ??= text;
+        }
       }
       if (payload?.type === 'message' && payload.role === 'user') {
         const text = (payload.content ?? []).filter(c => typeof c.text === 'string').map(c => c.text).join('\n');
@@ -212,6 +217,6 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   }
   return { meta, settings, rawSettings, preparedSettings, context, latestTurnId, turnStartAt, stoppedAt, stoppedReason,
     completedAt, correlatedTurnId, hasTurnInput, progress, completedTools, pendingCallCount: pendingCalls.size,
-    pendingNativeSessionCount: nativeSessions.size, inheritedThroughlineMemory, laterTurns,
+    pendingNativeSessionCount: nativeSessions.size, inheritedThroughlineMemory, inheritedThroughlineMemoryText, laterTurns,
     compactedRows: rows.filter(r => r.type === 'compacted').length };
 }

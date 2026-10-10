@@ -95,6 +95,16 @@ export function renderAutoHandoffMemory(db, operation) {
     lines.push('### 中断地点の取得',
       reference({ handoffId: operation.handoff_id, origin_session_id: operation.source_session_id, turn_number: latestTurn }, operation), '');
   }
+  // 系列の最初のタスクが、前任をさかのぼれない記憶を受け取っていた。その記憶より前の作業は、この本文にしか無い。
+  const inherited = memory.lineage.map(entry => entry.operation.runtime?.inheritedMemory).find(Boolean);
+  if (inherited) {
+    lines.push('### 系列の最初のタスクが受け取っていた記憶（そのまま）',
+      'この系列より前の作業の記憶です。取得コマンドの対象には入っていません。下の L1・L2 より古い内容です。');
+    if (inherited.truncated) lines.push(`（長いので先頭だけ載せています。元は ${inherited.chars} 字）`);
+    lines.push(inherited.text
+      ? inherited.text.replace(/^## Throughline: ([^\n]*)$/gm, '（元の見出し: $1）')
+      : '（本文を読めませんでした）', '');
+  }
   if (memory.olderSummaries.length) {
     lines.push('### 以前の記憶（L1）');
     for (const row of memory.olderSummaries) lines.push(`[${new Date(row.created_at).toISOString()}] ${row.summary} （詳細: ${reference(row, operation)}）`);

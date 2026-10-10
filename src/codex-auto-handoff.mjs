@@ -361,6 +361,17 @@ export async function carryAutoHandoffQueue(db, operation, runtime, { connect = 
   return summary();
 }
 
+// 受け取った記憶をそのまま運ぶ上限。超えた分は切り、切った事を記録する（後継の記憶に出す）。
+const INHERITED_MEMORY_MAX_CHARS = 120_000;
+
+/** 前任をさかのぼれないタスクが最初に受け取っていた記憶を、引き継ぎの記録へ残す形にする。 */
+export function untrackedInheritedMemory(text) {
+  const source = typeof text === 'string' ? text : '';
+  const chars = Array.from(source);
+  return { text: chars.length > INHERITED_MEMORY_MAX_CHARS ? chars.slice(0, INHERITED_MEMORY_MAX_CHARS).join('') : source,
+    chars: chars.length, truncated: chars.length > INHERITED_MEMORY_MAX_CHARS };
+}
+
 /** 旧タスクが、名前を付けない版の作った後継だった時の名前。その後継を作った引き継ぎから、後継の名前を作り直す。 */
 export function autoHandoffSourceFallbackTitle(db, operation) {
   const creator = findAutoHandoffForTarget(db, operation.source_thread_id);
@@ -554,7 +565,10 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         return sourceBoundary(operation, state) ? state : null;
       }, { timeoutMs: 30_000, timeoutCode: 'handoff_source_stop_unconfirmed' });
       if (!state.settings) throw error('handoff_settings_unavailable');
-      if (state.inheritedThroughlineMemory && !operation.previous_handoff_id) throw error('handoff_memory_lineage_untracked');
+      // 前任をさかのぼれない記憶を受け取ったタスク（手動の引き継ぎで始めたタスクなど）。断ると、止めたターンが
+      // そのまま残り、次の入力も同じ理由で止まる。受け取った記憶をそのまま後継へ渡して引き継ぐ（ADR 0046）。
+      const inheritedMemory = state.inheritedThroughlineMemory && !operation.previous_handoff_id
+        ? untrackedInheritedMemory(state.inheritedThroughlineMemoryText) : null;
       if (operation.previous_handoff_id) {
         const previous = getAutoHandoff(db, operation.previous_handoff_id);
         const continuation = deps.readSource(operation, { deliveryText: continuationInput(previous) });
@@ -563,7 +577,8 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         }
       }
       const native = await deps.nativeState(operation, runtime);
-      update({ state: 'source_stopped', settings_json: state.settings, runtime_json: { ...native, databasePath: DB_PATH } });
+      update({ state: 'source_stopped', settings_json: state.settings,
+        runtime_json: { ...native, databasePath: DB_PATH, ...(inheritedMemory ? { inheritedMemory } : {}) } });
     }
     // 最中に来た入力のturnが止まり切るまでの間は、境界がまだ見えない。短く待ってから判定する。
     const confirmSourceBoundary = () => deps.wait(() => sourceBoundary(operation, deps.readSource(operation)) || null,

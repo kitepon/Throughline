@@ -10,6 +10,32 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.13] — 2026-10-10
+
+### 修正
+
+- Codex Desktopの自動継続が、手動の引き継ぎ（`$throughline`）などで始めたタスクを`handoff_memory_lineage_untracked`で止め、そのタスクでは何度入力しても同じ理由で止まり続けた。macOSの実機で1つのタスクが止まり、ほかの道具からの返信も始まらなくなった。前任をさかのぼれない記憶を受け取ったタスクも引き継ぎ、受け取った記憶の本文をそのまま後継へ渡す（[ADR 0046](docs/adr/0046-codex-handoff-carries-untracked-inherited-memory.md)）。
+  - 後継の記憶に「系列の最初のタスクが受け取っていた記憶（そのまま）」の節として載せる。その後継がさらに引き継ぐ時も載せる。120,000字を超える分は切り、切った事を書く。
+  - 0.16.12までで止まっていたタスクは、次の入力か`throughline auto-handoff resume --operation <ID>`で引き継がれる。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex（Desktop） | 直した。実機の止まっていたタスクの記録を読めた（受け取った記憶10,006字）。再開の結果は公開の後に確かめる | 直した。本物のCodex Desktopで、手動の引き継ぎの記憶を持つタスクから2回続けて引き継ぎ、記憶が2つの後継へ渡った | 直した。本物のCodex Desktopでは流していない。CIのWindowsで単体試験が通った |
+| Claude Code | 対象外。Claude Codeの自動継続には、この理由で止める所が無い（記憶は通常のrecallで取る） | 同じ | 同じ |
+| Grok | 対象外。自動継続の機能が無い | 同じ | 同じ |
+| Cursor | 対象外。自動継続の機能が無い | 同じ | 同じ |
+
+### 変わらない事
+
+- 自動継続の記録に前任があるタスクの記憶の集め方。実行中の子agent・設定の不一致で止まる扱い。
+
+### 確認していない範囲
+
+- Windowsの本物のCodex Desktopでの通し。
+- 受け取った記憶が120,000字を超える実物（試験では作り物で確かめた）。
+
 ## [0.16.12] — 2026-10-10
 
 ### 修正
@@ -2147,7 +2173,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.12...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.13...HEAD
+[0.16.13]: https://github.com/kitepon/Throughline/compare/v0.16.12...v0.16.13
 [0.16.12]: https://github.com/kitepon/Throughline/compare/v0.16.11...v0.16.12
 [0.16.11]: https://github.com/kitepon/Throughline/compare/v0.16.10...v0.16.11
 [0.16.10]: https://github.com/kitepon/Throughline/compare/v0.16.9...v0.16.10
