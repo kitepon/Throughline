@@ -15,7 +15,7 @@ import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePrepa
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
-  untrackedInheritedMemory, resolveAutoHandoffSuccessor } from './codex-auto-handoff.mjs';
+  untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -364,6 +364,16 @@ test('Codexの内部の文脈（auto-compact-N）からの圧縮は、例外に�
     await assert.rejects(requestCodexAutoHandoff({ ...args, payload: { ...payload, ...broken } }), /handoff_hook_identity_invalid/);
   }
   assert.equal(recorded.length, 1);
+
+  // 失敗には、どの値が不正だったかの形を付ける。path と記号の混じる値は、中身を残さない
+  const shaped = await requestCodexAutoHandoff({ ...args, payload: { ...payload, turn_id: 'something else', transcript_path: null,
+    agent_type: 'reviewer', model: 'gpt-5.5' } }).catch(error => error);
+  assert.equal(shaped.code, 'handoff_hook_identity_invalid');
+  assert.deepEqual(shaped.hookIdentity, { session_id: thread, turn_id: 'text(14)', transcript_path: 'null', cwd: 'absolute',
+    agent_id: 'undefined', agent_type: 'reviewer', model: 'gpt-5.5', trigger: 'auto' });
+  assert.deepEqual(hookIdentityShape({ session_id: thread, turn_id: 'auto-compact-', transcript_path: 'relative/rollout.jsonl', cwd: 7 }),
+    { session_id: thread, turn_id: 'auto-compact-', transcript_path: 'relative(22)', cwd: 'number',
+      agent_id: 'undefined', agent_type: 'undefined', model: 'undefined', trigger: 'undefined' });
 }));
 
 test('PreCompactの入口は、JS実装のrealpathが使えない環境（WindowsのCodex Desktopのhook）でも引き継ぎを作る', async () => withDb(async (db, home) => {

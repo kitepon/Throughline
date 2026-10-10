@@ -50,6 +50,22 @@ test('logHookFailureは、外部CLIの失敗の理由とstderrの末尾を残す
   }
 });
 
+test('logHookFailureは、不正な合図の形を残す', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
+  try {
+    const shaped = new Error('handoff_hook_identity_invalid');
+    shaped.hookIdentity = { turn_id: 'auto-compact-', transcript_path: 'null', cwd: 'absolute', long: 'x'.repeat(81), count: 3 };
+    logHookFailure('HOOK_CODEX_FAILED', shaped, { home });
+    logHookFailure('HOOK_CODEX_FAILED', new Error('plain'), { home });
+    const [first, second] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    // 短い文字列だけを通す（長い値と文字列でない値は落とす）。
+    assert.deepEqual(first.identity, { turn_id: 'auto-compact-', transcript_path: 'null', cwd: 'absolute' });
+    assert.equal('identity' in second, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('logHookFailureは、どの会話の失敗かを残す', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
   try {

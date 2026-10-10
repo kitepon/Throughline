@@ -38,3 +38,18 @@ Codex は、利用者のターンとは別に、自分で作る内部の文脈�
 - 内部の文脈からの圧縮で、失敗の記録が増えなくなる。圧縮を止める動きは変わらない。
 - 内部の文脈からの圧縮が何度も起きるタスクでも、圧縮は通らない。利用者のターンの `PreCompact` が来るまで、文脈はそのまま残る。
 - Codex が内部の ID の形を変えると、また失敗として記録される。その時は記録の message で気づける。
+
+## 追記（2026-10-11）
+
+0.16.16 の macOS の実機で、同じ `handoff_hook_identity_invalid` が2回出た（2026-10-10 16:55:08 と 16:55:15）。どちらも、
+引き継ぎ先のタスクを作った直後（作成の 1.4 秒後と、最初のターンの開始の 1.5 秒後）。`internal-compactions.jsonl` は
+0行だった。この ADR が想定した形（ターンの ID が `auto-compact-N`）の呼び出しではなかった事になる。
+
+- Context に書いた「内部の文脈から `PreCompact(auto)` を呼ぶ」は、Codex の source を読んだ推測で、実機では確かめていない。
+  `next_internal_sub_id` の ID は、`thread/inject_items` の文脈（`new_inject_items_context`）にも使われる。
+- hook へ渡る `transcript_path` は null になり得る（`codex-rs/hooks/src/schema.rs` の `NullableString`）。ターンの中の
+  圧縮は、ターンの ID（UUID）をそのまま渡す（`with_model` は `sub_id` を引き継ぐ）。どの値が不正だったかは、失敗ログに
+  文面と位置しか無く、決められなかった。
+- 0.16.18 で、この失敗の行へ合図の形（`identity`。ID・種類・絶対 path かどうか）を残す。次に起きた行を読んで、
+  扱いを決める。この ADR の Decision 1〜4 は、それまで変えない。
+

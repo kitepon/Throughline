@@ -10,6 +10,25 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.18] — 2026-10-11
+
+### 変更
+
+- Codexの`PreCompact(auto)`のhookが`handoff_hook_identity_invalid`で失敗した時、失敗ログ（`~/.throughline/logs/hook-failures.log`）の行へ、渡された合図の形（`identity`）を残す。0.16.14で内部のID（`auto-compact-N`）を失敗から外したが、0.16.16のmacOSの実機で同じ失敗が2回出た（2026-10-10 16:55:08と16:55:15、引き継ぎ先のタスクを作った直後）。内部の圧縮の記録は0行で、0.16.14が想定した形ではなかった。失敗ログには文面と位置しか無く、どの値が不正だったかを決められなかった。
+  - 残すのは、会話のID・ターンのID・agentのID・agentの種類・モデル名・`trigger`と、`transcript_path`・`cwd`が絶対pathかどうか。pathの中身と、記号の混じる値は残さない（長さだけ）。会話の本文は入らない。
+  - 失敗の扱い（圧縮を止める・失敗として数える）は変えていない。原因が決まるまで、この失敗は今までどおり記録される。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex（Desktop） | 足した。単体試験と、切り離した置き場での本物のhookの命令（不正な合図を渡して、失敗ログの行に`identity`が出る事）。**本物のCodex Desktopがこの失敗を起こす場面は、狙って起こせないので未確認。次に起きた行で原因を決める** | 足した。単体試験と、切り離した置き場での本物のhookの命令。実機（同梱0.162.0-alpha.2）では、この失敗が起きていない | 足した。単体試験と、切り離した置き場での本物のhookの命令。実機では、この失敗の記録が無い |
+| Codex（CLI・席） | 自動継続の対象外（Desktop以外は、この検査の前後で何もしない）。対象外の呼び出しがこの検査で失敗した時は、同じ形が残る | 同じ。BellTeamのコンテナとmain-serverは自動継続が無効で、この処理へ入らない | 同じ |
+| Claude Code | 変更なし。この失敗はCodexの`PreCompact`だけが出す。失敗ログの部品は共通だが、`identity`を付けるのはCodexのこの失敗だけ | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+
 ## [0.16.17] — 2026-10-10
 
 ### 修正
@@ -2270,7 +2289,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.17...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.18...HEAD
+[0.16.18]: https://github.com/kitepon/Throughline/compare/v0.16.17...v0.16.18
 [0.16.17]: https://github.com/kitepon/Throughline/compare/v0.16.16...v0.16.17
 [0.16.16]: https://github.com/kitepon/Throughline/compare/v0.16.15...v0.16.16
 [0.16.15]: https://github.com/kitepon/Throughline/compare/v0.16.14...v0.16.15

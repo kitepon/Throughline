@@ -62,6 +62,13 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
   if (typeof context?.transcript_path === 'string' && context.transcript_path) {
     entry.transcript_path = context.transcript_path;
   }
+  // 不正な合図の形（errorが `hookIdentity` を持つ時）。文面が同じ失敗でも、どの値が不正だったかを残す。
+  // 値は呼び出し側が ID・種類・「絶対 path かどうか」へ直してある。ここでは短い文字列だけを通す。
+  const identity = error?.hookIdentity;
+  if (identity && typeof identity === 'object') {
+    const kept = Object.entries(identity).filter(([, value]) => typeof value === 'string' && value.length <= 80);
+    if (kept.length > 0) entry.identity = Object.fromEntries(kept);
+  }
   // 外部 CLI の失敗は、message が終了 code だけになる。理由（reason）と CLI の stderr の末尾も残す
   // （CLI は先頭に起動情報を出し、失敗の理由は末尾に出す）。
   if (typeof error?.reason === 'string' && error.reason) entry.reason = error.reason;

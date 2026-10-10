@@ -106,6 +106,26 @@ function openSuccessor(operation) {
 // Codex が内部の文脈へ付けるターンの ID（`codex-rs/core/src/session/mod.rs` の `next_internal_sub_id`）。
 const INTERNAL_COMPACTION_TURN_ID_PATTERN = /^auto-compact-\d+$/;
 
+const SAFE_IDENTITY_TEXT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+const identityText = value => typeof value !== 'string' ? (value === null ? 'null' : typeof value)
+  : SAFE_IDENTITY_TEXT_PATTERN.test(value) ? value : `text(${value.length})`;
+const identityPath = value => typeof value !== 'string' ? (value === null ? 'null' : typeof value)
+  : isAbsolute(value) ? 'absolute' : `relative(${value.length})`;
+
+/**
+ * 引き継ぎの起点にできなかった合図の形。失敗ログへ残して、どの値が不正だったかを後から読めるようにする
+ * （2026-10-10、macOS で `handoff_hook_identity_invalid` が5回出たが、ログに形が無く原因を決められなかった）。
+ * ID・モデル名・種類だけを残す。path は絶対かどうかだけ。記号の混じる値は長さだけ。会話の本文は入らない。
+ */
+export function hookIdentityShape(payload = {}) {
+  return {
+    session_id: identityText(payload.session_id), turn_id: identityText(payload.turn_id),
+    transcript_path: identityPath(payload.transcript_path), cwd: identityPath(payload.cwd),
+    agent_id: identityText(payload.agent_id), agent_type: identityText(payload.agent_type),
+    model: identityText(payload.model), trigger: identityText(payload.trigger),
+  };
+}
+
 /** ターンの外の自動圧縮を止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordInternalCompactionStop(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
@@ -179,7 +199,9 @@ export async function requestCodexAutoHandoff({ payload, db = null,
     return { status: 'ok', inserted: false, internalCompaction: true, continue: false,
       stopReason: 'Throughlineが、ターンの外の自動圧縮を止めました。文脈が上限に近づいたターンで、新しいタスクへ引き継ぎます。' };
   }
-  if (!located || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '')) throw error('handoff_hook_identity_invalid');
+  if (!located || !CODEX_NATIVE_ID_PATTERN.test(turnId ?? '')) {
+    throw Object.assign(error('handoff_hook_identity_invalid'), { hookIdentity: hookIdentityShape(payload) });
+  }
   // JS実装のrealpathは、WindowsのCodex Desktopが起動したhookの中で `EISDIR: lstat 'C:'` で落ちる。OSのrealpathを使う。
   const rolloutPath = realpathSync.native(payload.transcript_path);
   const state = readCodexHandoffState(rolloutPath, { threadId, turnId });
