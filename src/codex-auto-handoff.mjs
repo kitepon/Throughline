@@ -302,6 +302,39 @@ export async function nameAutoHandoffTarget(request, targetId, name) {
 }
 
 /**
+ * あるタスクの「今の続き」を引く（ほかの製品が、旧タスクあての連絡を今の続きへ渡すための入口）。読むだけ。
+ * 引き継ぎを先までたどり、残っている一番先の後継を返す。消された後継は無い物として扱う。
+ * @returns {{
+ *   thread_id: string, handed_off: boolean, current_thread_id: string,
+ *   chain: Array<{handoff_id: string, source_thread_id: string, target_thread_id: string, state: string, created_at: number, updated_at: number}>,
+ *   pending: null | {handoff_id: string, source_thread_id: string, state: string, error_code: string|null, resume_state: string|null,
+ *     in_flight: boolean, created_at: number, updated_at: number}
+ * }} current_thread_id は、後継が無ければ thread_id 自身。pending は、今の続きのタスクで、後継へ指示を送る前の引き継ぎ
+ *   （一番新しい1つ）。in_flight が true なら worker が動いている最中、false なら止まっている（error_code と resume_state を見る）。
+ */
+export function resolveAutoHandoffSuccessor(db, threadId, { findThread = findCodexThreadCandidate,
+  processes = readRuntimeProcesses, now = Date.now() } = {}) {
+  if (!CODEX_NATIVE_ID_PATTERN.test(threadId ?? '')) throw error('handoff_thread_id_invalid');
+  // 残っている一番先の後継（旧タスクへ入力が来た時に開く物と同じ）。そこから threadId まで、作った引き継ぎをさかのぼる。
+  const leaf = findLiveAutoHandoffSuccessor(db, threadId, { findThread });
+  const path = [];
+  for (let operation = leaf, depth = 0; operation && depth < 200; depth++) {
+    path.unshift(operation);
+    if (operation.source_thread_id === threadId) break;
+    operation = findAutoHandoffForTarget(db, operation.source_thread_id);
+  }
+  const chain = path.map(operation => ({ handoff_id: operation.handoff_id, source_thread_id: operation.source_thread_id,
+    target_thread_id: operation.target_thread_id, state: operation.state, created_at: operation.created_at, updated_at: operation.updated_at }));
+  const current = leaf ? leaf.target_thread_id : threadId;
+  const undelivered = listUndeliveredAutoHandoffsForSource(db, current)[0] ?? null;
+  const pending = undelivered ? { handoff_id: undelivered.handoff_id, source_thread_id: undelivered.source_thread_id,
+    state: undelivered.state, error_code: undelivered.error_code ?? null, resume_state: undelivered.resume_state ?? null,
+    in_flight: !HANDOFF_TERMINAL_STATES.has(undelivered.state) && workerActive(undelivered, processes, now),
+    created_at: undelivered.created_at, updated_at: undelivered.updated_at } : null;
+  return { thread_id: threadId, handed_off: chain.length > 0, current_thread_id: current, chain, pending };
+}
+
+/**
  * 引き継ぎが済んだ旧タスクの名前の頭へ、引き継ぎ済みの印を付ける。同じ名前の後継が一覧に並んでも、
  * 印の無い1本が今の続きだと分かるようにする。今の名前を読んでから付けるので、利用者が付け直した名前も残る。
  * 名前は表示だけに使うので、付けられなくても引き継ぎは止めない（理由は worker のログに残す）。

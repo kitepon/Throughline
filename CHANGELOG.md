@@ -10,6 +10,28 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.15] — 2026-10-10
+
+### 追加
+
+- `throughline auto-handoff successor --thread <Codexの会話のID> --json`。あるCodexのタスクの「今の続き」を返す、読むだけの入口。ほかの製品が、旧タスクあての連絡を今の続きへ渡す時に使う。`auto-handoff status --json`は新しい20件だけを返すので、古い引き継ぎの続きを引けなかった。
+  - 返す物: `handed_off`（残っている後継があるか）、`current_thread_id`（引き継ぎを先までたどった、残っている一番先の後継。無ければ渡したID自身）、`chain`（そこまでの引き継ぎ）、`pending`（今の続きのタスクで、後継へ指示を送る前の引き継ぎ。`in_flight`がtrueならworkerが動いている最中、falseなら止まっていて`error_code`と`resume_state`が入る）。
+  - 消された後継とアーカイブ済みの後継は、無い物として扱う（旧タスクへ入力が来た時に開く後継と同じ決め方）。
+  - 記録が無い端末では、引き継ぎが1つも無い時と同じ答えを返す。記録は読み取り専用で開く。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex（Desktop） | 追加した。実機の記録で確認（引き継ぎ済みのタスク2つから今の続きが返り、引き継ぎの無いタスクは自分自身が返った） | 追加した。実機の記録で確認（後継がアーカイブ済みの系列は、旧タスク自身が返った） | 追加した。実機の記録で確認（16本続いた系列の最初と途中から、同じ今の続きが返った。止まったタスクは`pending`に理由が出た） |
+| Claude Code | 対象外。Claude Codeの自動継続の記録は別の形で、`auto-handoff status --host claude --json`が全件を返す | 同じ | 同じ |
+| Grok | 対象外。自動継続の機能が無い | 同じ | 同じ |
+| Cursor | 対象外。自動継続の機能が無い | 同じ | 同じ |
+
+### 変わらない事
+
+- 引き継ぎの動き。`auto-handoff status --json`の出力。
+
 ## [0.16.14] — 2026-10-10
 
 ### 修正
@@ -2195,7 +2217,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.14...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.15...HEAD
+[0.16.15]: https://github.com/kitepon/Throughline/compare/v0.16.14...v0.16.15
 [0.16.14]: https://github.com/kitepon/Throughline/compare/v0.16.13...v0.16.14
 [0.16.13]: https://github.com/kitepon/Throughline/compare/v0.16.12...v0.16.13
 [0.16.12]: https://github.com/kitepon/Throughline/compare/v0.16.11...v0.16.12

@@ -412,6 +412,8 @@ Usage:
                               引き継ぎの状態と固定理由を確認
   throughline auto-handoff resume --operation <id> --json
                               同じ引き継ぎを再開（結果不明は再送しない）
+  throughline auto-handoff successor --thread <codex-thread-id> --json
+                              あるCodexのタスクの今の続きを返す（読むだけ）
   throughline auto-handoff mark-sources [--dry-run] [--json]
                               今までの引き継ぎの名前を付け直す（旧タスクへ印、
                               名前の無い後継へ名前）

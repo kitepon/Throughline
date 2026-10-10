@@ -15,7 +15,7 @@ import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePrepa
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
-  untrackedInheritedMemory } from './codex-auto-handoff.mjs';
+  untrackedInheritedMemory, resolveAutoHandoffSuccessor } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -285,6 +285,58 @@ test('PreCompactの重複ではworkerを増やさず、manualと別projectでは
   assert.equal(first.continue, false); assert.equal(second.operationId, first.operationId); assert.equal(launched, 1);
   assert.equal((await requestCodexAutoHandoff({ ...args, payload: { ...payload, trigger: 'manual' } })).status, 'skipped');
   assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
+}));
+
+test('タスクの今の続きを引く。先までたどり、消えた後継は無い物として扱い、途中の引き継ぎと止まった引き継ぎを見分ける', async () => withDb(async db => {
+  const id = n => `${String(n).repeat(8)}-${String(n).repeat(4)}-${String(n).repeat(4)}-${String(n).repeat(4)}-${String(n).repeat(12)}`;
+  const [A, B, C, D, X, Y, Z] = [1, 2, 3, 4, 5, 6, 7].map(id);
+  const done = (source, target) => updateAutoHandoff(db, request(db, source).operation.handoff_id,
+    { state: 'continued', target_thread_id: target, queued_submission_id: `receipt-${target}` }).operation;
+  const gone = new Set();
+  const options = { findThread: ({ threadId }) => gone.has(threadId) ? null : { rolloutPath: `/r/${threadId}`, mtimeMs: 1 }, processes: () => [], now: 1_000_000 };
+  // 引き継ぎの無いタスクは、自分が今の続き
+  assert.deepEqual(resolveAutoHandoffSuccessor(db, X, options), { thread_id: X, handed_off: false, current_thread_id: X, chain: [], pending: null });
+
+  const ab = done(A, B); const bc = done(B, C);
+  const fromA = resolveAutoHandoffSuccessor(db, A, options);
+  assert.equal(fromA.handed_off, true); assert.equal(fromA.current_thread_id, C); assert.equal(fromA.pending, null);
+  assert.deepEqual(fromA.chain.map(item => [item.handoff_id, item.source_thread_id, item.target_thread_id, item.state]),
+    [[ab.handoff_id, A, B, 'continued'], [bc.handoff_id, B, C, 'continued']]);
+  assert.equal(resolveAutoHandoffSuccessor(db, B, options).current_thread_id, C);
+  assert.deepEqual(resolveAutoHandoffSuccessor(db, B, options).chain.map(item => item.handoff_id), [bc.handoff_id]);
+  assert.equal(resolveAutoHandoffSuccessor(db, C, options).handed_off, false);
+
+  // 今の続き C が、さらに引き継いでいる最中（worker が動いている）
+  const cd = updateAutoHandoff(db, request(db, C).operation.handoff_id, { state: 'memory_ready' }).operation;
+  db.prepare('UPDATE codex_handoffs SET worker_identity_json = ?, updated_at = ? WHERE handoff_id = ?').run(JSON.stringify({ pid: 4242, started_identity: 'w' }), 999_000, cd.handoff_id);
+  const running = resolveAutoHandoffSuccessor(db, A, { ...options, processes: () => [{ pid: 4242, started_identity: 'w' }] });
+  assert.equal(running.current_thread_id, C); assert.equal(running.pending.handoff_id, cd.handoff_id);
+  assert.equal(running.pending.in_flight, true); assert.equal(running.pending.state, 'memory_ready');
+  // worker が居なくなっていれば、途中で止まった物として返す
+  assert.equal(resolveAutoHandoffSuccessor(db, A, options).pending.in_flight, false);
+
+  // C の引き継ぎが失敗して止まった
+  updateAutoHandoff(db, cd.handoff_id, { state: 'failed', error_code: 'handoff_summarizer_backend_failed', resume_state: 'source_stopped' });
+  const stopped = resolveAutoHandoffSuccessor(db, A, options);
+  assert.equal(stopped.current_thread_id, C);
+  assert.deepEqual([stopped.pending.state, stopped.pending.error_code, stopped.pending.resume_state, stopped.pending.in_flight],
+    ['failed', 'handoff_summarizer_backend_failed', 'source_stopped', false]);
+
+  // やり直して D へ続いた。C が消されても、D が残っていれば D が今の続き
+  updateAutoHandoff(db, cd.handoff_id, { state: 'continued', error_code: null, resume_state: null, target_thread_id: D, queued_submission_id: 'receipt-D' });
+  gone.add(C);
+  const toD = resolveAutoHandoffSuccessor(db, A, options);
+  assert.equal(toD.current_thread_id, D); assert.equal(toD.chain.length, 3); assert.equal(toD.pending, null);
+  // 後継が全部消されたら、旧タスクが今の続きに戻る
+  gone.add(D); gone.add(B);
+  assert.deepEqual(resolveAutoHandoffSuccessor(db, A, options), { thread_id: A, handed_off: false, current_thread_id: A, chain: [], pending: null });
+
+  // 後継が出来る前に失敗したタスク（後継なし）
+  updateAutoHandoff(db, request(db, Y).operation.handoff_id, { state: 'failed', error_code: 'handoff_target_not_loaded', resume_state: 'memory_ready' });
+  const failed = resolveAutoHandoffSuccessor(db, Y, options);
+  assert.equal(failed.handed_off, false); assert.equal(failed.current_thread_id, Y); assert.equal(failed.pending.error_code, 'handoff_target_not_loaded');
+  assert.throws(() => resolveAutoHandoffSuccessor(db, 'not-a-thread', options), /handoff_thread_id_invalid/);
+  void Z;
 }));
 
 test('Codexの内部の文脈（auto-compact-N）からの圧縮は、例外にせず止めて記録する。引き継ぎは作らない', async () => withDb(async (db, home) => {

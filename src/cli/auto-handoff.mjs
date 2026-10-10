@@ -5,7 +5,7 @@ import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from '../db.mjs';
 import { listAutoHandoffs, getAutoHandoff } from '../codex-auto-handoff-store.mjs';
 import { renderFrozenDetail } from '../codex-auto-handoff-memory.mjs';
 import { readAutoHandoffConfig, writeAutoHandoffConfig } from '../codex-auto-handoff-config.mjs';
-import { autoHandoffDeliveryProfile, runAutoHandoffWorker, markAutoHandoffSources } from '../codex-auto-handoff.mjs';
+import { autoHandoffDeliveryProfile, runAutoHandoffWorker, markAutoHandoffSources, resolveAutoHandoffSuccessor } from '../codex-auto-handoff.mjs';
 import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaudeAutoHandoffHooks,
   claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
@@ -17,17 +17,17 @@ import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWo
 const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open'];
 
 export function parseAutoHandoffArgs(args) {
-  const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, json: false, dryRun: false };
-  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources'].includes(out.action)) throw Error('auto_handoff_action_invalid');
+  const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, thread: null, json: false, dryRun: false };
+  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources', 'successor'].includes(out.action)) throw Error('auto_handoff_action_invalid');
   const allowed = ['host', ...{ enable: ['project'], disable: [], status: ['project', 'operation'],
-    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
+    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], successor: ['thread'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
   const seen = new Set();
   for (let i = 1; i < args.length; i++) {
     if (seen.has(args[i])) throw Error('auto_handoff_argument_invalid');
     seen.add(args[i]);
     if (args[i] === '--json') { out.json = true; continue; }
     if (args[i] === '--dry-run' && out.action === 'mark-sources') { out.dryRun = true; continue; }
-    const key = { '--host': 'host', '--operation': 'operation', '--project': 'project', '--origin': 'origin', '--turn': 'turn', '--database': 'database' }[args[i]];
+    const key = { '--host': 'host', '--operation': 'operation', '--project': 'project', '--origin': 'origin', '--turn': 'turn', '--database': 'database', '--thread': 'thread' }[args[i]];
     if (!key || !allowed.includes(key) || !args[i + 1] || args[i + 1].startsWith('--')) throw Error('auto_handoff_argument_invalid');
     out[key] = args[++i];
   }
@@ -36,6 +36,7 @@ export function parseAutoHandoffArgs(args) {
   if (out.project && !isAbsolute(out.project)) out.project = resolve(out.project);
   if (out.project && out.operation) throw Error('auto_handoff_argument_invalid');
   if (['worker', 'resume', 'detail', 'desktop-open'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
+  if (out.action === 'successor' && !out.thread) throw Error('auto_handoff_thread_required');
   if (out.action === 'detail') {
     out.turn = Number(out.turn);
     if (!out.origin || !Number.isSafeInteger(out.turn) || out.turn < 1) throw Error('auto_handoff_detail_identity_required');
@@ -128,6 +129,14 @@ export async function run(args = []) {
       finally { db.close(); }
       process.stdout.write(parsed.json ? JSON.stringify({ status: 'ok', text }) + '\n' : text + '\n');
       return 0;
+    } else if (parsed.action === 'successor') {
+      // あるタスクの今の続きを返す。読むだけ。DB がまだ無い端末では、引き継ぎが1つも無いのと同じ答えにする。
+      const db = existsSync(DB_PATH) ? openReadOnlyDb() : null;
+      try {
+        if (db && db.prepare('PRAGMA user_version').get().user_version !== CURRENT_VERSION) throw Error('auto_handoff_schema_mismatch');
+        result = { schema: 'throughline.codex_auto_handoff_successor.v1', ...(db ? resolveAutoHandoffSuccessor(db, parsed.thread)
+          : { thread_id: parsed.thread, handed_off: false, current_thread_id: parsed.thread, chain: [], pending: null }) };
+      } finally { db?.close(); }
     } else if (parsed.action === 'mark-sources') {
       // 0.16.9 までの版が引き継いだ分の名前を付け直す（名前の無い後継へ名前、旧タスクへ引き継ぎ済みの印）。何度流しても同じ結果になる。
       const db = getDb();

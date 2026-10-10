@@ -39,6 +39,14 @@ throughline auto-handoff status --operation <handoff-id> --json
 throughline auto-handoff resume --operation <handoff-id> --json
 ```
 
+あるタスクの今の続きは、次の命令で引けます（読むだけ。ほかの道具が、旧タスクあての連絡を今の続きへ渡す時に使います）。
+
+```bash
+throughline auto-handoff successor --thread <codex-thread-id> --json
+```
+
+`current_thread_id`が今の続きです（後継が無ければ渡したID自身）。`pending.in_flight`がtrueの間は、引き継ぎの途中です。
+
 原因を解消した後の`resume`は同じ引き継ぎと既知の後継を再利用します。配送後の結果不明は実際の入力・開始を観測した場合だけ回復し、作成結果が不明な後継は再作成しません。従来の手動`$throughline`とcurrent-thread実験の設定は独立しています。
 
 [実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-03-codex-auto-continuation.md)、[Windowsの実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-08-windows-codex-auto-handoff.md)、[Linuxの実測](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-08-linux-codex-auto-handoff.md)を参照してください。
