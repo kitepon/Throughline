@@ -97,6 +97,37 @@ test('PreCompact: 移っていない会話は、これまでどおり起動し�
   assert.equal(result.projectPath, '/work/app');
 }));
 
+test('PreCompact: CLAUDE_PROJECT_DIR が元の repository を指していても、会話を登録した作業ツリーで引き継ぐ（Claude Desktop が取り込んだ後継）', () => withDir(dir => {
+  // 作業ツリーで動く後継を Desktop が取り込むと、hook の cwd は作業ツリー、CLAUDE_PROJECT_DIR は元の repository になる
+  const repo = join(dir, 'repo');
+  const worktree = join(repo, '.claude', 'worktrees', 'core-ui');
+  mkdirSync(worktree, { recursive: true });
+  const registered = () => {
+    const db = makeBatonDb();
+    db.exec('CREATE TABLE sessions (session_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)');
+    db.prepare('INSERT INTO sessions VALUES (?, ?)').run(SESSION, worktree);
+    return db;
+  };
+  const adopted = { env: { CLAUDE_PROJECT_DIR: repo }, payload: { cwd: worktree }, platform: process.platform };
+
+  const { result, db } = request(dir, { db: registered(), ...adopted });
+  assert.equal(result.status, 'requested');
+  assert.equal(result.projectPath, worktree, '後継は、前任が動いていた作業ツリーで立てる');
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, worktree);
+  assert.equal(db.prepare('SELECT session_id FROM handoff_batons WHERE project_path = ?').get(worktree).session_id, SESSION,
+    '印も作業ツリーに書く。後継は同じ project の前任だけを合流させる');
+
+  // 有効かどうかも、登録した project で決める
+  rmSync(join(dir, `${SESSION}.json`));
+  assert.equal(request(dir, { db: registered(), ...adopted, config: { enabled: true, projects: [repo] } }).result.reason, 'auto_handoff_disabled');
+  assert.equal(request(dir, { db: registered(), ...adopted, config: { enabled: true, projects: [worktree] } }).result.status, 'requested');
+
+  // 登録した場所がもう無い時（作業ツリーを消した後）は、hook の環境から読んだ project で進める
+  rmSync(join(dir, `${SESSION}.json`));
+  rmSync(worktree, { recursive: true });
+  assert.equal(request(dir, { db: registered(), ...adopted }).result.projectPath, repo);
+}));
+
 test('PreCompact: 自動圧縮で有効な時だけ、印と記録を残して圧縮を止める', () => withDir(dir => {
   const { result, db } = request(dir);
   assert.equal(result.status, 'requested');
@@ -725,8 +756,8 @@ test('Stop: Desktop で開く引き継ぎの後継がターンを終えたら、
   assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null);
   writeRecord(dir, SESSION, { desktop: { wanted: false, state: null } });
   assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '端末から始めた会話の後継は移さない');
-  writeRecord(dir, SESSION, { state: 'unknown' });
-  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '受領を確かめられていない後継は移さない');
+  writeRecord(dir, SESSION, { state: 'failed', error_code: 'handoff_successor_launch_failed', successor: null });
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '後継が立たなかった引き継ぎでは動かない');
   // 対象の後継
   writeRecord(dir, SESSION, {});
   assert.equal(await requestClaudeDesktopOpen({ sessionId: SESSION, dir, launch }), null, '旧い会話自身の Stop では動かない');
@@ -746,6 +777,32 @@ test('Stop: Desktop で開く引き継ぎの後継がターンを終えたら、
   rmSync(join(dir, `${SUCCESSOR}.json`));
   assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch: async () => { throw new Error('spawn'); } }), null);
   assert.deepEqual([readClaudeAutoHandoff(SESSION, dir).desktop.state, readClaudeAutoHandoff(SESSION, dir).desktop.error_code], ['failed', 'desktop_open_start_failed']);
+}));
+
+test('Stop: 受領を確かめられなかった引き継ぎ（unknown）でも、その後継がターンを終えたら Desktop へ移す', () => withDir(async dir => {
+  const launched = [];
+  const launch = async (id) => { launched.push(id); };
+  // worker は、後継の最初の指示の受領を待ち切れなかった。記録にあるのは後継の短い ID だけ
+  const unconfirmed = { state: 'unknown', error_code: 'handoff_delivery_unconfirmed', accepted_at: null,
+    successor: { short_id: SUCCESSOR.slice(0, 8), session_id: null } };
+  writeRecord(dir, SESSION, unconfirmed);
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: 'bbbbbbbb-0000-4000-8000-000000000002', dir, launch }), null, '別の会話の Stop では動かない');
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), `h-${SESSION}`);
+  assert.deepEqual(launched, [SESSION]);
+  const record = readClaudeAutoHandoff(SESSION, dir);
+  assert.deepEqual(record.successor, { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR }, '移す process が使う後継の ID を記録へ入れる');
+  assert.deepEqual([record.state, record.error_code, record.desktop.state], ['unknown', 'handoff_delivery_unconfirmed', 'requested'],
+    '受領を確かめられなかった事は、記録に残したままにする');
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '2回目の Stop では起動しない');
+
+  // 移す process は、その記録で後継を止めて Desktop で開く
+  const calls = [];
+  const opened = await runClaudeDesktopOpen(SESSION, { dir, env: {}, pollMs: 10, idleTimeoutMs: 500,
+    spawn: (command, args) => { calls.push(args.slice(0, 2).join(' '));
+      return args[0] === 'agents' ? { status: 0, stdout: JSON.stringify([{ id: SUCCESSOR.slice(0, 8), kind: 'background', status: 'idle' }]) } : { status: 0, stdout: '' }; },
+    pty: (command, args) => { calls.push(args.join(' ')); return { status: 0, stdout: `Opening session ${SUCCESSOR} in Claude Desktop` }; } });
+  assert.deepEqual(calls, ['agents --json', `stop ${SUCCESSOR.slice(0, 8)}`, `--desktop --resume ${SUCCESSOR}`]);
+  assert.deepEqual([opened.state, opened.desktop.state], ['unknown', 'opened']);
 }));
 
 test('Desktop で開く: 後継が手すきになるのを待って止め、擬似端末の中で claude --desktop --resume を呼ぶ', () => withDir(async dir => {
@@ -1006,6 +1063,55 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   assert.equal(decisions.filter(entry => entry.phase === 'pre-tool-use-stop').length, 1);
   const merged = decisions.find(entry => entry.phase === 'prompt-submit' && entry.merged);
   assert.deepEqual([merged.triggered_path, merged.injection.auto_handoff_id], ['baton', record.handoff_id]);
+}));
+
+test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（CLAUDE_PROJECT_DIR は元の repository）に引き継いでも、後継は作業ツリーで立ち、記憶が入る', () => withDir(async home => {
+  // fox（Windows、Claude Code 2.1.296）で 2026-10-10 に起きた形。SessionStart の cwd は作業ツリー、
+  // PreCompact の時の CLAUDE_PROJECT_DIR は元の repository だった。
+  const repo = join(home, 'repo');
+  const worktree = join(repo, '.claude', 'worktrees', 'core-ui');
+  mkdirSync(worktree, { recursive: true });
+  const transcriptPath = join(home, 'transcript.jsonl');
+  const adopted = { ...fakeClaudePath(home), CLAUDE_PROJECT_DIR: repo, CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' };
+  const hook = (command, payload) =>
+    cli(home, [command], JSON.stringify({ session_id: SESSION, cwd: worktree, transcript_path: transcriptPath, ...payload }), adopted);
+
+  assert.equal(cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--json']).status, 0);
+  assert.equal(hook('session-start', { hook_event_name: 'SessionStart', source: 'resume' }).status, 0);
+  writeFileSync(transcriptPath, jsonl([
+    { ...user('画面の余白を直して', '2026-10-10T14:40:00Z'), entrypoint: 'claude-desktop', cwd: worktree },
+    assistant('余白を直します。', '2026-10-10T14:40:02Z'),
+    toolUse('toolu_9', 'Read', { file_path: join(worktree, 'ui.css') }),
+  ]));
+
+  const pre = hook('pre-compact', { hook_event_name: 'PreCompact', trigger: 'auto' });
+  assert.equal(pre.status, 2, pre.stderr);
+  const stopped = hook('pre-tool-use', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_use_id: 'toolu_9', permission_mode: 'auto' });
+  assert.equal(JSON.parse(stopped.stdout).continue, false);
+  const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
+  let handoff;
+  for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
+  assert.equal(handoff.error_code, 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
+  assert.equal(handoff.project_path, worktree, '後継を立てる場所は、前任が動いていた作業ツリー');
+
+  // 後継は作業ツリーで立ち、最初の指示（起動時に渡された継続の指示）を受ける
+  const recordFile = join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.json`);
+  const record = JSON.parse(readFileSync(recordFile, 'utf8'));
+  writeFileSync(recordFile, JSON.stringify({ ...record, state: 'launching', error_code: null }));
+  const successorPayload = { session_id: SUCCESSOR, cwd: record.project_path, hook_event_name: 'SessionStart', source: 'startup' };
+  assert.equal(cli(home, ['session-start'], JSON.stringify(successorPayload), fakeClaudePath(home)).status, 0);
+  const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
+    prompt: claudeContinuationInput(record) }), fakeClaudePath(home));
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
+  assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: 画面の余白を直して\n/);
+  assert.equal(existsSync(join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.accepted`)), true, '最初の指示が受領を残す');
+
+  const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'));
+  assert.equal(db.prepare('SELECT merged_into FROM sessions WHERE session_id = ?').get(SESSION).merged_into, SUCCESSOR);
+  db.close();
+  const decisions = readFileSync(join(home, '.throughline', 'logs', 'inheritance-decision.log'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(decisions.filter(entry => entry.phase === 'prompt-submit').map(entry => [entry.merged, entry.merge_skip_reason ?? null]), [[true, null]]);
 }));
 
 test('hook: 別の project へ移した会話（Claude Desktop）を、移った後に1回も Stop を通らないまま引き継いでも、後継へ記憶が入る', () => withDir(async home => {

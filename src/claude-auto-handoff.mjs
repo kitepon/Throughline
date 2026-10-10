@@ -250,6 +250,23 @@ function nativeProjectPath(projectPath, platform) {
 }
 
 /**
+ * その会話を sessions へ登録した project（SessionStart の cwd）。行が無い時、その場所がもう無い時は null。
+ *
+ * 作業ツリーで動く後継を Claude Desktop が取り込むと、hook の CLAUDE_PROJECT_DIR は元の repository を指す
+ * （Windows、Claude Code 2.1.296 で実測）。そこで後継を立てると、後継は別の作業ツリーで始まり、前任と project が
+ * 違うので記憶も合流しない（ADR 0049）。登録した project で立てれば、前任と後継の project がそろう。
+ */
+function registeredProjectPath(db, sessionId, platform) {
+  let registered;
+  // sessions を読めない時は、hook の環境から読んだ project で進める（今までと同じ動き）。
+  try { registered = db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(sessionId)?.project_path; }
+  catch { return null; }
+  if (typeof registered !== 'string' || !(posix.isAbsolute(registered) || win32.isAbsolute(registered))) return null;
+  const native = nativeProjectPath(registered, platform);
+  return existsSync(native) ? native : null;
+}
+
+/**
  * PreCompact hook の本体。自動圧縮で、その project が有効な時だけ、印と記録を残して圧縮を止める。
  *
  * @param {{
@@ -277,9 +294,15 @@ export function requestClaudeAutoHandoff({
   const existing = readClaudeAutoHandoff(sessionId, dir);
   // 有効判定は会話を起動した project で行う。hook の cwd は Bash の cd に追従する。
   // 会話が別の project へ移っている時（Claude Desktop）は、移った先で行う。
-  const projectPath = nativeProjectPath(
-    claudeHostAdapter.completionProjectPath({
-      cwd: payload.cwd ?? process.cwd(), env, transcriptPath: payload.transcript_path }), platform);
+  const relocated = readClaudeRelocatedCwd(payload.transcript_path);
+  const hookProjectPath = nativeProjectPath(
+    relocated ?? claudeHostAdapter.completionProjectPath({ cwd: payload.cwd ?? process.cwd(), env }), platform);
+  let db = null;
+  const open = () => (db ??= openDb());
+  // 自動圧縮で、機能が有効な時だけ、会話を登録した project を読む（ADR 0049）。
+  const projectPath = payload.trigger === 'auto' && !existing && config.enabled && !relocated
+    ? registeredProjectPath(open(), sessionId, platform) ?? hookProjectPath
+    : hookProjectPath;
 
   if (payload.trigger !== 'auto') {
     // 人が /compact を選んだ。まだ止めていない記録は取り下げる。
@@ -298,15 +321,14 @@ export function requestClaudeAutoHandoff({
   }
 
   // /tl と同じ印。後継の最初の指示が、この会話を前任として合流させる。
-  const db = openDb();
   // 会話が別の project へ移っている時（Claude Desktop）は、sessions の project も移った先にそろえる。
   // 合流は前任と後継の project が同じ時だけ行う。付け替えは Stop でも行うが、移った後に1回も Stop を
   // 通らないまま引き継ぐ会話があり、その時は後継へ記憶が入らなかった（0.15.2・0.15.3、macOS で実測）。
-  if (readClaudeRelocatedCwd(payload.transcript_path)) {
-    db.prepare('UPDATE sessions SET project_path = ? WHERE session_id = ? AND project_path <> ?')
+  if (relocated) {
+    open().prepare('UPDATE sessions SET project_path = ? WHERE session_id = ? AND project_path <> ?')
       .run(projectPath, sessionId, projectPath);
   }
-  writeBaton(db, { projectPath, sessionId, now });
+  writeBaton(open(), { projectPath, sessionId, now });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   removeStale(dir, now);
   const handoffId = randomUUID();
@@ -753,10 +775,15 @@ export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHand
   if (!validSessionId(sessionId)) return null;
   // この会話自身が引き継ぎの途中なら、作業は次の後継が続ける。移すのは、最後に作業を終えた後継だけ。
   if (readJson(recordPath(sessionId, dir))) return null;
-  const record = listClaudeAutoHandoffs({ dir }).find(item => item.successor?.session_id === sessionId &&
-    item.state === 'sent' && item.desktop?.wanted && !item.desktop.state);
+  const waiting = listClaudeAutoHandoffs({ dir }).filter(item => item.desktop?.wanted && !item.desktop.state);
+  // 受領を確かめられなかった引き継ぎ（unknown）は、後継の session id が記録に無い。その後継がターンを終えたなら、
+  // 後継は動いている。裏の会話のまま残さず、同じように Desktop へ移す（ADR 0049）。
+  const record = waiting.find(item => item.state === 'sent' && item.successor?.session_id === sessionId) ??
+    waiting.find(item => item.state === 'unknown' && !item.successor?.session_id &&
+      typeof item.successor?.short_id === 'string' && sessionId.startsWith(item.successor.short_id));
   if (!record) return null;
-  updateRecord(record.source_session_id, { desktop: { ...record.desktop, state: 'requested', error_code: null } }, { dir });
+  updateRecord(record.source_session_id, { successor: { ...record.successor, session_id: sessionId },
+    desktop: { ...record.desktop, state: 'requested', error_code: null } }, { dir });
   try { await launch(record.source_session_id, { dir }); }
   catch {
     updateRecord(record.source_session_id, { desktop: { ...record.desktop, state: 'failed', error_code: 'desktop_open_start_failed' } }, { dir });

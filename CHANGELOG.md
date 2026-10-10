@@ -10,6 +10,23 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.19] — 2026-10-11
+
+### 修正
+
+- Claude Codeの自動継続で、作業ツリー（`<repository>/.claude/worktrees/<名前>`）の後継をClaude Desktopが取り込んだ後にもう一度引き継ぐと、後継が元のrepositoryで立ち、前任の記憶が入らず、Desktopへも移らなかった（[ADR 0049](docs/adr/0049-claude-handoff-uses-registered-project.md)）。Windowsの実機（Claude Code 2.1.296）で2026-10-10 23:43に1回起きた。hookの`CLAUDE_PROJECT_DIR`が元のrepositoryを指し、会話を登録したproject（作業ツリー）と違っていた。
+  - 後継を立てるprojectを、会話が移った先（`relocated`）、会話を登録したproject（`sessions`。その場所が今もある時）、`CLAUDE_PROJECT_DIR`、hookのcwdの順で決める。
+  - 受領を確かめられなかった引き継ぎ（`unknown`・`handoff_delivery_unconfirmed`）でも、その後継がターンを終えたら、Claude Desktopへ移す。今までは裏の会話のまま残り、リモートコントロールからしか見えなかった。`state`と`error_code`は変えない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 直した。単体試験と、切り離した置き場での本物のhookの命令（作業ツリーで登録した会話へ、`CLAUDE_PROJECT_DIR`を元のrepositoryにして`pre-compact`を渡し、後継が作業ツリーで立って記憶が合流する事。直す前の版は`project_mismatch`になる事）。**本物のClaude Desktopが作業ツリーの後継を取り込む場面は、macOSでは未確認** | 直した。単体試験と、切り離した置き場での本物のhookの命令。Claude Desktopへ移す処理はLinuxでは対象外（Claude Codeの`--desktop`が無い）なので、`unknown`の後継を移す直しは働かない | 直した。単体試験と、切り離した置き場での本物のhookの命令（`CLAUDE_PROJECT_DIR`は`C:/…`の形）。実機で起きたのはこのOS。**直した版での本物の引き継ぎは、次に起きた時に記録で確かめる** |
+| Codex | 変更なし。projectはhookのcwdで決める。引き継ぎの部品も別 | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
 ## [0.16.18] — 2026-10-11
 
 ### 変更
@@ -2289,7 +2306,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.18...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.19...HEAD
+[0.16.19]: https://github.com/kitepon/Throughline/compare/v0.16.18...v0.16.19
 [0.16.18]: https://github.com/kitepon/Throughline/compare/v0.16.17...v0.16.18
 [0.16.17]: https://github.com/kitepon/Throughline/compare/v0.16.16...v0.16.17
 [0.16.16]: https://github.com/kitepon/Throughline/compare/v0.16.15...v0.16.16
