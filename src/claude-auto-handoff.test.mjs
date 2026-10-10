@@ -639,7 +639,83 @@ test('PreToolUse: Desktop で開く引き継ぎは、止めた理由に、後継
   writeFileSync(desktopTranscript, jsonl([{ ...user('読んで', '2026-10-08T12:00:00.000Z'), entrypoint: 'claude-desktop' }]));
   request(dir, { platform: 'darwin', transcriptPath: desktopTranscript });
   const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', tool_use_id: 't1' }, dir, launchWorker: async () => 1 });
-  assert.match(output.stopReason, /そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。$/);
+  assert.match(output.stopReason, /そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。後継はリモートコントロール付きで立てるので、claude\.ai\/code とClaudeのアプリからも見られます。$/);
+}));
+
+test('PreCompact: Claude Desktop から始まった会話と、その後継の引き継ぎだけ、後継をリモートコントロール付きで立てる印を付ける（OS に関係なく）', () => withDir(dir => {
+  const wanted = overrides => {
+    rmSync(join(dir, `${SESSION}.json`), { force: true });
+    request(dir, overrides);
+    return readClaudeAutoHandoff(SESSION, dir).remote_control;
+  };
+  const desktopTranscript = join(dir, 'desktop.jsonl');
+  writeFileSync(desktopTranscript, jsonl([{ ...user('読んで', '2026-10-10T05:00:00.000Z'), entrypoint: 'claude-desktop' }]));
+  const cliTranscript = join(dir, 'cli.jsonl');
+  writeFileSync(cliTranscript, jsonl([{ ...user('読んで', '2026-10-10T05:00:00.000Z'), entrypoint: 'cli' }]));
+  for (const platform of ['darwin', 'win32', 'linux']) {
+    const payload = platform === 'win32' ? { cwd: 'C:\\work\\app' } : undefined;
+    assert.deepEqual(wanted({ platform, payload, transcriptPath: desktopTranscript }), { wanted: true, state: null }, platform);
+    assert.equal(wanted({ platform, payload, env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).wanted, true, platform);
+    assert.equal(wanted({ platform, payload, transcriptPath: cliTranscript }).wanted, false, `${platform}: 端末から始めた会話の後継には付けない`);
+    assert.equal(wanted({ platform, payload }).wanted, false, platform);
+    assert.equal(wanted({ platform, payload, transcriptPath: cliTranscript, env: { THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL: 'on' } }).wanted, true, platform);
+    assert.equal(wanted({ platform, payload, transcriptPath: desktopTranscript, env: { THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL: 'off' } }).wanted, false, platform);
+  }
+  // 裏で作業している後継がさらに引き継ぐ時は、元の会話の出どころを引き継ぐ（後継の transcript は cli）。
+  writeRecord(dir, 'origin-desktop', { successor: { short_id: SESSION.slice(0, 8), session_id: SESSION }, remote_control: { wanted: true, state: 'requested' } });
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, true);
+  writeRecord(dir, 'origin-desktop', { successor: { short_id: SESSION.slice(0, 8), session_id: SESSION }, remote_control: { wanted: false, state: null } });
+  assert.equal(wanted({ platform: 'darwin', transcriptPath: cliTranscript }).wanted, false);
+}));
+
+test('worker: 印のある引き継ぎは、後継を --remote-control=<後継の名前> 付きで立てる。印の無い引き継ぎには付けない', () => withDir(async dir => {
+  const run = async (sessionId, env) => {
+    const transcriptPath = join(dir, `${sessionId}.jsonl`);
+    writeFileSync(transcriptPath, jsonl([{ ...user('14個のファイルを順に読んで', '2026-10-10T05:00:10Z'), entrypoint: env.CLAUDE_CODE_ENTRYPOINT ?? 'cli' },
+      { type: 'custom-title', customTitle: 'マビノギ BOT 開発' }, assistant('part04 を読みました。', '2026-10-10T05:00:12Z')]));
+    const db = makeBatonDb();
+    requestClaudeAutoHandoff({ payload: { session_id: sessionId, trigger: 'auto', cwd: '/work/OpenLogicool', transcript_path: transcriptPath },
+      env, config: ENABLED, openDb: () => db, dir, platform: 'linux' });
+    await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/OpenLogicool', transcript_path: transcriptPath },
+      dir, launchWorker: async () => {} });
+    const launches = [];
+    const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
+      spawn: (command, args) => { launches.push(args); successorStarts(dir, sessionId)(args); return launchedOk(); } });
+    return { record, launches };
+  };
+  const desktop = await run('bbbbbbbb-0000-4000-8000-000000000001', { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' });
+  assert.equal(desktop.launches.length, 1);
+  assert.deepEqual(desktop.launches[0].slice(0, 3), ['--bg', '--name=OpenLogicool｜マビノギ BOT 開発（自動引き継ぎ）', '--remote-control=OpenLogicool｜マビノギ BOT 開発（自動引き継ぎ）']);
+  assert.equal(desktop.record.state, 'sent');
+  assert.deepEqual(desktop.record.remote_control, { wanted: true, state: 'requested' });
+  assert.equal(publicClaudeAutoHandoff(desktop.record).remote_control_state, 'requested');
+
+  const terminal = await run('bbbbbbbb-0000-4000-8000-000000000002', {});
+  assert.ok(!terminal.launches[0].some(arg => arg.startsWith('--remote-control')));
+  assert.deepEqual(terminal.record.remote_control, { wanted: false, state: null });
+  assert.equal(publicClaudeAutoHandoff(terminal.record).remote_control_state, null);
+}));
+
+test('worker: リモートコントロールを付けると立てられない時は、付けずに立て直す。引き継ぎは止めない', () => withDir(async dir => {
+  const sessionId = 'cccccccc-0000-4000-8000-000000000001';
+  const transcriptPath = join(dir, `${sessionId}.jsonl`);
+  writeFileSync(transcriptPath, jsonl([{ ...user('読んで', '2026-10-10T05:00:10Z'), entrypoint: 'claude-desktop' }, assistant('読みました。', '2026-10-10T05:00:12Z')]));
+  const db = makeBatonDb();
+  requestClaudeAutoHandoff({ payload: { session_id: sessionId, trigger: 'auto', cwd: '/work/app', transcript_path: transcriptPath },
+    env: {}, config: ENABLED, openDb: () => db, dir, platform: 'darwin' });
+  await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/app', transcript_path: transcriptPath }, dir, launchWorker: async () => {} });
+  const launches = [];
+  const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
+    spawn: (command, args) => {
+      launches.push(args.some(arg => arg.startsWith('--remote-control')));
+      if (launches.length === 1) return { status: 1, stdout: '', stderr: 'Remote Control requires a claude.ai login' };
+      successorStarts(dir, sessionId)(args); return launchedOk();
+    } });
+  assert.deepEqual(launches, [true, false], '1回目は付けて、2回目は付けずに立てる');
+  assert.equal(record.state, 'sent'); assert.equal(record.error_code, null);
+  assert.deepEqual(record.remote_control, { wanted: true, state: 'unavailable' });
+  assert.equal(publicClaudeAutoHandoff(record).remote_control_state, 'unavailable');
+  assert.equal(publicClaudeAutoHandoff(record).desktop_state, 'waiting', 'Desktop へ開く印は変わらない');
 }));
 
 test('Stop: Desktop で開く引き継ぎの後継がターンを終えたら、移す process を1回だけ起動する', () => withDir(async dir => {

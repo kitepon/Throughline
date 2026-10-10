@@ -10,6 +10,35 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.16] — 2026-10-10
+
+### 追加
+
+- Claude Desktopから始まった会話の後継を、リモートコントロール付き（`--remote-control=<後継の名前>`）で立てる。後継は裏の会話で、ターンを終えるまでClaude Desktopの一覧に出ない。作業の最中も、claude.ai/codeとClaudeのアプリから様子を見て操作できる（[ADR 0048](docs/adr/0048-claude-desktop-origin-successor-has-remote-control.md)）。
+  - 端末から始めた会話の後継には付けない。後継がさらに引き継ぐ時は、元の会話の出どころを引き継ぐ。
+  - 付けて立てるのに失敗した時は、付けずに1回だけ立て直す。引き継ぎは止めない。
+  - `auto-handoff status --host claude --json`の`remote_control_state`で読める（`requested`: 付けて立てた、`unavailable`: 付けずに立て直した、`null`: 対象外）。
+  - 環境変数`THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL`で上書きできる（`on`・`off`）。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 追加した。試験用フォルダで、本物のworkerが後継をリモートコントロール付きで立て、transcriptにリモートのURLが入った（Claude Code 2.1.289、画面のあるsessionの端末）。sshから立てた時は、後継は立つがURLが入らなかった | 追加した。同じ確かめでURLが入った（2.1.296）。信頼していないフォルダでは、付けずに立て直す所まで動き、どちらも`Workspace not trusted`で立たなかった（今までと同じ） | 追加した。同じ確かめでURLが入った（2.1.296） |
+| Codex | 対象外。リモートコントロールはClaude Codeの機能 | 同じ | 同じ |
+| Grok | 対象外。同じ理由。自動継続の機能も無い | 同じ | 同じ |
+| Cursor | 対象外。同じ理由。自動継続の機能も無い | 同じ | 同じ |
+
+### 変わらない事
+
+- 後継がターンを終えた時にClaude Desktopへ移して開く動き。端末から始めた会話の引き継ぎ。
+
+### 確認していない範囲
+
+- claude.ai/codeとClaudeのアプリの側で、後継が見えて操作できる所（確かめたのは、後継のtranscriptにリモートのURLが入った事まで）。
+- Claude Desktopの会話の、本物の引き継ぎでの動き（試験は、端末から始めた会話にDesktopの印を付けて流した）。
+- リモートコントロールが使えない状態（未ログインなど）での実物の動き（試験では作り物の失敗で、付けずに立て直す事を確かめた）。
+
 ## [0.16.15] — 2026-10-10
 
 ### 追加
@@ -2217,7 +2246,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.15...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.16...HEAD
+[0.16.16]: https://github.com/kitepon/Throughline/compare/v0.16.15...v0.16.16
 [0.16.15]: https://github.com/kitepon/Throughline/compare/v0.16.14...v0.16.15
 [0.16.14]: https://github.com/kitepon/Throughline/compare/v0.16.13...v0.16.14
 [0.16.13]: https://github.com/kitepon/Throughline/compare/v0.16.12...v0.16.13

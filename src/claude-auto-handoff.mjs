@@ -61,6 +61,8 @@ const PER_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_ME
 const DESKTOP_ENTRYPOINT = 'claude-desktop';
 // 後継を Desktop で開くかを、会話の出どころに関係なく決める（`desktop` で必ず開く、`off` で開かない）。
 const OPEN_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_OPEN';
+// 後継をリモートコントロール付きで立てるかの上書き。`on` は出どころに関係なく付け、`off` は付けない。
+const REMOTE_CONTROL_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL';
 
 // requested と failed は、次の道具の hook が後継の立ち上げを始められる。
 const RETRYABLE_STATES = new Set(['requested', 'failed']);
@@ -145,6 +147,9 @@ export function publicClaudeAutoHandoff(record) {
     // 後継を Claude Desktop で開く引き継ぎか、開けたか（null は対象外）。
     desktop_state: record.desktop?.wanted ? (record.desktop.state ?? 'waiting') : null,
     desktop_error_code: record.desktop?.error_code ?? null,
+    // 後継をリモートコントロール付きで立てる引き継ぎか（null は対象外）。requested は指定を付けて立てた、unavailable は付けずに立て直した。
+    // 付けて立てた後に、Claude Code がリモートへつなげたかまでは見ていない。
+    remote_control_state: record.remote_control?.wanted ? (record.remote_control.state ?? 'waiting') : null,
     requested_at, updated_at };
 }
 
@@ -218,6 +223,19 @@ function openInDesktopWanted({ sessionId, transcriptPath, env, dir, platform }) 
   if (env[OPEN_OVERRIDE_ENV] === 'desktop') return true;
   if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
   return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.desktop?.wanted);
+}
+
+/**
+ * この会話の後継を、リモートコントロール付きで立てるか（ADR 0048）。
+ * Claude Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ付ける。後継は裏の会話で、ターンを終えるまで
+ * Desktop の一覧に出ない。リモートコントロールがあれば、作業の最中も claude.ai/code と Claude のアプリから見られる。
+ * 端末から始めた会話の後継は `claude agents`・`claude attach` で見られるので付けない。
+ */
+function remoteControlWanted({ sessionId, transcriptPath, env, dir }) {
+  if (env[REMOTE_CONTROL_OVERRIDE_ENV] === 'off') return false;
+  if (env[REMOTE_CONTROL_OVERRIDE_ENV] === 'on') return true;
+  if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
+  return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.remote_control?.wanted);
 }
 
 /**
@@ -308,6 +326,7 @@ export function requestClaudeAutoHandoff({
     accepted_at: null,
     desktop: { wanted: openInDesktopWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir, platform }),
       state: null, error_code: null, opened_at: null },
+    remote_control: { wanted: remoteControlWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir }), state: null },
   });
   return { status: 'requested', block: true, sessionId, projectPath, handoffId };
 }
@@ -489,7 +508,8 @@ function stopOutput(record) {
     ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
     : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
       (record.desktop?.wanted
-        ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。'
+        ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。' +
+          (record.remote_control?.wanted ? '後継はリモートコントロール付きで立てるので、claude.ai/code とClaudeのアプリからも見られます。' : '')
         : '後継の会話は `claude agents` の一覧に出ます。');
   return {
     continue: false,
@@ -605,9 +625,12 @@ function successorName(record) {
     titles: [record.transcript_path ? readSessionTitle(record.transcript_path) : null, record.in_flight?.user?.content] });
 }
 
-function successorArgs(record) {
+function successorArgs(record, { remoteControl = false } = {}) {
   // 名前は `--name=` の形で渡す。project のフォルダ名が `-` で始まっても、option として読まれない。
-  const args = ['--bg', `--name=${successorName(record)}`];
+  const name = successorName(record);
+  const args = ['--bg', `--name=${name}`];
+  // リモートコントロールの名前も `=` の形で渡す（名前を省ける option なので、離して書くと次の引数を名前として読む）。
+  if (remoteControl) args.push(`--remote-control=${name}`);
   const { model, effort, permission_mode: permissionMode } = record.settings ?? {};
   if (model) args.push('--model', model);
   if (effort) args.push('--effort', effort);
@@ -656,13 +679,27 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     settings: { ...record.settings, model: record.transcript_path ? readLatestModel(record.transcript_path) : null },
     in_flight: inFlight,
   });
-  const launched = spawn('claude', successorArgs(record), {
+  const launch = remoteControl => spawn('claude', successorArgs(record, { remoteControl }), {
     cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'],
   });
+  const backgroundedId = result => BACKGROUNDED_PATTERN.exec(normalizeTerminalText(`${result.stdout ?? ''}`))?.[1];
+  let launched = launch(Boolean(record.remote_control?.wanted));
+  if (record.remote_control?.wanted) {
+    if (!launched.error && launched.status === 0 && backgroundedId(launched)) {
+      update({ remote_control: { ...record.remote_control, state: 'requested' } });
+    } else if (!launched.error && !backgroundedId(launched)) {
+      // リモートコントロールを付けると立てられない（未ログイン、古い Claude Code など）。後継は立っていないので、
+      // 付けずに立て直す。引き継ぎは止めない。
+      process.stderr.write(`[auto-handoff] claude --bg --remote-control exit=${launched.status} ` +
+        `stderr=${JSON.stringify(`${launched.stderr ?? ''}`.slice(0, 300))}; retrying without remote control\n`);
+      update({ remote_control: { ...record.remote_control, state: 'unavailable' } });
+      launched = launch(false);
+    }
+  }
   if (launched.error) {
     return fail(launched.error.code === 'ENOENT' ? 'handoff_claude_cli_unavailable' : 'handoff_successor_launch_failed');
   }
-  const shortId = BACKGROUNDED_PATTERN.exec(normalizeTerminalText(`${launched.stdout ?? ''}`))?.[1];
+  const shortId = backgroundedId(launched);
   if (launched.status !== 0 || !shortId) {
     // 理由を端末内の worker のログに残す（指示や記憶は含まれない、起動コマンドの出力だけ）。
     process.stderr.write(`[auto-handoff] claude --bg exit=${launched.status} stdout=${JSON.stringify(`${launched.stdout ?? ''}`.slice(0, 500))} ` +
