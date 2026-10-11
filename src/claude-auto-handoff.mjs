@@ -14,13 +14,14 @@
  *                                  利用者の承認まで止めるため（0.15.3）。
  *   5. 後継の Stop               : Claude Desktop から始まった会話の後継は、そのターンの作業を終えた時に
  *                                  Desktop へ移して開く（`claude stop` → `claude --desktop --resume`。macOS と Windows）。
- *                                  Claude Code は、裏で動いている会話を Desktop へ移さない。
+ *                                  Claude Code は、裏で動いている会話を Desktop へ移さない。ほかの会話から届いた文を
+ *                                  保留している後継も、ターンが終わっていれば移す（ADR 0050）。
  *
  * 旧い会話は止めるだけで、空にしない。手動の /compact と subagent の中の圧縮は対象にしない。
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
  */
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -751,6 +752,59 @@ function readBackgroundAgent(shortId, { spawn, env }) {
   catch { return null; }
 }
 
+// 終わったターンの最後の assistant の行が持つ `stop_reason`。道具を呼んだ行（`tool_use`）と、途中で切れた行は含めない。
+const FINISHED_STOP_REASONS = new Set(['end_turn', 'stop_sequence']);
+// 後継の transcript は、末尾だけ読む。ターンの終わりの行は、最後の発言とその後の数行（hook のまとめ、題、保留の知らせ）にある。
+const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
+
+/** transcript の末尾の行を読む。途中から始まる最初の行は捨てる。読めない時は null。 */
+function readTranscriptTail(transcriptPath, bytes = TRANSCRIPT_TAIL_BYTES) {
+  let fd;
+  try {
+    fd = openSync(transcriptPath, 'r');
+    const { size } = fstatSync(fd);
+    const start = Math.max(0, size - bytes);
+    const buffer = Buffer.alloc(size - start);
+    const read = readSync(fd, buffer, 0, buffer.length, start);
+    const lines = buffer.toString('utf8', 0, read).split('\n');
+    if (start > 0) lines.shift();
+    const entries = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try { entries.push(JSON.parse(line)); } catch { /* 書いている途中の最後の行 */ }
+    }
+    return { size, entries };
+  } catch { return null; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+
+/**
+ * 後継の transcript が、終わったターンで止まっているか（ADR 0050）。
+ *
+ * 止まっている時は、その時の transcript の大きさを返す。呼ぶ側は、続けて2回同じ値が返った時だけ「動いていない」と見る。
+ * 止まっていない時（最後の発言が利用者の指示・道具の結果・道具を呼んだ assistant、または順番待ちの指示が残っている）と、
+ * 読めない時は null。会話の本文は読まない（行の種類と `stop_reason` だけを見る）。
+ */
+export function readFinishedTurnMark(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath) return null;
+  const tail = readTranscriptTail(transcriptPath);
+  if (!tail) return null;
+  const entries = tail.entries.filter(entry => entry && typeof entry === 'object' && entry.isSidechain !== true);
+  const last = entries.findLastIndex(entry => entry.type === 'user' || entry.type === 'assistant');
+  if (last < 0) return null;
+  const { type, message } = entries[last];
+  if (type !== 'assistant' || !FINISHED_STOP_REASONS.has(message?.stop_reason)) return null;
+  if (Array.isArray(message.content) && message.content.some(block => block?.type === 'tool_use')) return null;
+  // ターンの終わりの後に積まれた指示（`enqueue`）が、取り出されても消されてもいない。次のターンがすぐ始まる。
+  let queued = 0;
+  for (const entry of entries.slice(last + 1)) {
+    if (entry.type !== 'queue-operation') continue;
+    if (entry.operation === 'enqueue') queued += 1;
+    else if (entry.operation === 'dequeue' || entry.operation === 'remove') queued = Math.max(0, queued - 1);
+  }
+  return queued > 0 ? null : tail.size;
+}
+
 export async function launchClaudeDesktopOpen(sessionId, { dir = claudeAutoHandoffDir() } = {}) {
   if (!validSessionId(sessionId)) throw new ClaudeHandoffError('auto_handoff_session_id_invalid');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -768,10 +822,11 @@ export async function launchClaudeDesktopOpen(sessionId, { dir = claudeAutoHando
 /**
  * 後継の Stop hook から呼ぶ。Claude Desktop で開く引き継ぎの後継が、ターンを終えた。
  * その会話を Desktop へ移す process を起動する。対象でない会話には何もしない（null）。
+ * `transcriptPath` は、その後継の transcript（Stop の payload の値）。移す process が、ターンが終わっているかを読む（ADR 0050）。
  *
  * @returns {Promise<string|null>} 起動した時は、その引き継ぎ ID
  */
-export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHandoffDir(), launch = launchClaudeDesktopOpen }) {
+export async function requestClaudeDesktopOpen({ sessionId, transcriptPath = null, dir = claudeAutoHandoffDir(), launch = launchClaudeDesktopOpen }) {
   if (!validSessionId(sessionId)) return null;
   // この会話自身が引き継ぎの途中なら、作業は次の後継が続ける。移すのは、最後に作業を終えた後継だけ。
   if (readJson(recordPath(sessionId, dir))) return null;
@@ -782,8 +837,9 @@ export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHand
     waiting.find(item => item.state === 'unknown' && !item.successor?.session_id &&
       typeof item.successor?.short_id === 'string' && sessionId.startsWith(item.successor.short_id));
   if (!record) return null;
-  updateRecord(record.source_session_id, { successor: { ...record.successor, session_id: sessionId },
-    desktop: { ...record.desktop, state: 'requested', error_code: null } }, { dir });
+  const successor = { ...record.successor, session_id: sessionId };
+  if (typeof transcriptPath === 'string' && transcriptPath) successor.transcript_path = transcriptPath;
+  updateRecord(record.source_session_id, { successor, desktop: { ...record.desktop, state: 'requested', error_code: null } }, { dir });
   try { await launch(record.source_session_id, { dir }); }
   catch {
     updateRecord(record.source_session_id, { desktop: { ...record.desktop, state: 'failed', error_code: 'desktop_open_start_failed' } }, { dir });
@@ -798,6 +854,10 @@ export async function requestClaudeDesktopOpen({ sessionId, dir = claudeAutoHand
  * Claude Code は、裏で動いている会話（作業中も、手すきも）を Desktop へ移さない。手すきになるのを待って
  * `claude stop` で止め、`claude --desktop --resume <session id>` で開く。この命令は出力が端末でないと動かないので、
  * 擬似端末（macOS）か新しい console（Windows）の中で呼ぶ。後継がまた動き出した時は止めずに戻り、次の Stop でやり直す。
+ *
+ * ほかの会話から届いた文を Claude Code が保留している後継は、ターンを終えても手すき（`idle`）にならず、
+ * `waiting`（`permission prompt`）のままになる。この時は transcript を読み、終わったターンで止まっていれば同じように移す。
+ * 保留されている文は、止める時に消える（ADR 0050）。道具の許可を本当に待っている会話（ターンの途中）は移さない。
  */
 export async function runClaudeDesktopOpen(sourceSessionId, {
   dir = claudeAutoHandoffDir(),
@@ -812,16 +872,22 @@ export async function runClaudeDesktopOpen(sourceSessionId, {
   if (!record) throw new ClaudeHandoffError('handoff_not_found');
   if (record.desktop?.state !== 'requested') return record;
   const set = fields => { record = updateRecord(sourceSessionId, { desktop: { ...record.desktop, ...fields } }, { dir }); return record; };
-  const { short_id: shortId, session_id: successorId } = record.successor ?? {};
+  const { short_id: shortId, session_id: successorId, transcript_path: successorTranscript } = record.successor ?? {};
   if (!shortId || !validSessionId(successorId)) return set({ state: 'failed', error_code: 'desktop_open_successor_unknown' });
   const childEnv = successorEnv(env);
 
   let idle = false;
+  let finishedMark = null;
   for (const deadline = Date.now() + idleTimeoutMs; Date.now() < deadline;) {
     // 後継がさらに引き継ぎを始めた。作業は次の後継が続けるので、この会話は移さない。
     if (readJson(recordPath(successorId, dir))) return set({ state: 'superseded' });
     const agent = readBackgroundAgent(shortId, { spawn, env: childEnv });
     if (agent?.status === 'idle') { idle = true; break; }
+    // 保留の文を持つ後継は、作業中もターンの後も `waiting` を返す。transcript が終わったターンで止まっていて、
+    // 次に見た時も同じ大きさなら、手すきと同じに扱う。1回だけでは決めない（指示が届いた直後は、その行がまだ無い）。
+    const mark = agent?.status === 'waiting' && agent.state !== 'working' ? readFinishedTurnMark(successorTranscript) : null;
+    if (mark !== null && mark === finishedMark) { idle = true; break; }
+    finishedMark = mark;
     await delay(pollMs);
   }
   // 手すきにならない（次のターンが始まった、一覧を読めない）。止めずに戻り、次の Stop でやり直す。

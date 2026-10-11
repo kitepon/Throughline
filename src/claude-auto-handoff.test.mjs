@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,6 +16,7 @@ import {
   listClaudeAutoHandoffs,
   publicClaudeAutoHandoff,
   claudeContinuationInput,
+  readFinishedTurnMark,
   requestClaudeDesktopOpen,
   runClaudeDesktopOpen,
 } from './claude-auto-handoff.mjs';
@@ -866,6 +867,97 @@ test('Desktop で開く: 後継が手すきになるのを待って止め、擬�
   writeRecord(dir, SESSION, {});
   const untouched = await runClaudeDesktopOpen(SESSION, { dir, spawn: () => { throw new Error('must not run'); }, pty: () => { throw new Error('must not run'); } });
   assert.equal(untouched.desktop.state, null);
+}));
+
+// ---- ほかの会話から届いた文を保留している後継（ADR 0050） ----
+
+// Claude Code 2.1.296 の transcript の形。ターンの最後の assistant は `stop_reason: end_turn`、道具を呼ぶ行は `tool_use`。
+const endTurn = text => ({ type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] } });
+const callsTool = id => ({ type: 'assistant', message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name: 'Bash', input: {} }] } });
+const turnTail = [{ type: 'system', subtype: 'stop_hook_summary' }, { type: 'system', subtype: 'turn_duration' }, { type: 'last-prompt' }];
+// 保留の知らせは system の行で、user の行にも順番待ちの行にもならない（2026-10-11 の Windows と macOS の実測）
+const heldNotice = { type: 'system', subtype: 'informational', level: 'warning', content: 'Held peer message from another session' };
+
+test('transcript: 終わったターンで止まっている時だけ、印（transcript の大きさ）を返す', () => withDir(dir => {
+  const path = join(dir, 'successor.jsonl');
+  const mark = entries => { writeFileSync(path, jsonl(entries)); return readFinishedTurnMark(path); };
+  const finished = [user('続けて'), callsTool('t1'), toolResult('t1', 'ok'), endTurn('終わりました'), ...turnTail];
+
+  assert.equal(mark(finished), Buffer.byteLength(jsonl(finished)));
+  assert.equal(typeof mark([...finished, heldNotice]), 'number', '保留の知らせが後ろにあっても、ターンは終わっている');
+  assert.equal(mark([user('続けて'), callsTool('t1')]), null, '道具の許可を待っている（結果の無い道具の呼び出し）');
+  assert.equal(mark([user('続けて'), callsTool('t1'), toolResult('t1', 'ok')]), null, '道具の結果の後、次の発言を待っている');
+  assert.equal(mark([...finished, user('次はこれ')]), null, '次の指示が届いている');
+  assert.equal(mark([...finished, { type: 'queue-operation', operation: 'enqueue' }]), null, '順番待ちの指示が残っている');
+  assert.equal(typeof mark([...finished, { type: 'queue-operation', operation: 'enqueue' }, { type: 'queue-operation', operation: 'remove' }]), 'number',
+    '消された順番待ちは数えない');
+  assert.equal(mark([user('続けて'), assistant('途中')]), null, '`stop_reason` の無い行では決めない');
+  assert.equal(mark([user('続けて'), { type: 'assistant', message: { role: 'assistant', stop_reason: 'max_tokens', content: [{ type: 'text', text: '切れた' }] } }]), null);
+  assert.equal(typeof mark([...finished, { ...user('subagent の中'), isSidechain: true }]), 'number', 'subagent の行は見ない');
+  assert.equal(mark([]), null);
+  assert.equal(readFinishedTurnMark(join(dir, 'missing.jsonl')), null, '読めない時は決めない');
+  assert.equal(readFinishedTurnMark(null), null);
+
+  // 末尾だけを読む。長い transcript でも、最後のターンの行で決まる
+  const long = [...Array.from({ length: 400 }, (_, index) => user(`${index}`.padEnd(4_000, 'x'))), ...finished];
+  assert.equal(mark(long), Buffer.byteLength(jsonl(long)));
+}));
+
+test('Stop: 後継の transcript の場所を、移す process のために記録へ残す', () => withDir(async dir => {
+  writeRecord(dir, SESSION, {});
+  const launch = async () => {};
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, transcriptPath: '/home/u/.claude/projects/-work-app/successor.jsonl', dir, launch }), `h-${SESSION}`);
+  assert.deepEqual(readClaudeAutoHandoff(SESSION, dir).successor,
+    { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR, transcript_path: '/home/u/.claude/projects/-work-app/successor.jsonl' });
+  assert.equal(JSON.stringify(publicClaudeAutoHandoff(readClaudeAutoHandoff(SESSION, dir))).includes('successor.jsonl'), false, '公開の表示には場所を出さない');
+}));
+
+test('Desktop で開く: 保留の文で waiting のままの後継も、ターンが終わっていれば止めて開く。ターンの途中の許可待ちは移さない', () => withDir(async dir => {
+  const shortId = SUCCESSOR.slice(0, 8);
+  const transcript = join(dir, 'successor.jsonl');
+  const finished = [user('続けて'), callsTool('t1'), toolResult('t1', 'ok'), endTurn('終わりました'), ...turnTail, heldNotice];
+  const run = async ({ entries, agent = {}, recordTranscript = transcript, onPoll = () => {} }) => {
+    writeFileSync(transcript, jsonl(entries));
+    writeRecord(dir, SESSION, { successor: { short_id: shortId, session_id: SUCCESSOR, ...(recordTranscript ? { transcript_path: recordTranscript } : {}) },
+      desktop: { wanted: true, state: 'requested', error_code: null, opened_at: null } });
+    const calls = [];
+    let polls = 0;
+    const spawn = (command, args) => {
+      calls.push(args[0]);
+      if (args[0] !== 'agents') return { status: 0, stdout: '' };
+      onPoll(polls += 1);
+      return { status: 0, stdout: JSON.stringify([{ id: shortId, kind: 'background', status: 'waiting', waitingFor: 'permission prompt', state: 'done', ...agent }]) };
+    };
+    const pty = (command, args) => { calls.push(args.join(' ')); return { status: 0, stdout: `Opening session ${SUCCESSOR} in Claude Desktop` }; };
+    const record = await runClaudeDesktopOpen(SESSION, { dir, env: {}, spawn, pty, idleTimeoutMs: 80, pollMs: 5 });
+    return { record, calls };
+  };
+  const untouched = result => {
+    assert.equal(result.calls.some(call => call === 'stop' || call.startsWith('--desktop')), false, '止めない・開かない');
+    assert.equal(result.record.desktop.state, null, '次の Stop でやり直せる');
+  };
+
+  // Windows と macOS の実測（2026-10-11）: ほかの会話から届いた文を保留している間、ターンを終えても `waiting / permission prompt`
+  const held = await run({ entries: finished });
+  assert.deepEqual(held.calls, ['agents', 'agents', 'stop', `--desktop --resume ${SUCCESSOR}`], '続けて2回、同じ所で止まっているのを見てから止める');
+  assert.equal(held.record.desktop.state, 'opened');
+  // ターンの終わりに付く見立てが blocked の時（実機の後継）も同じ
+  assert.equal((await run({ entries: finished, agent: { state: 'blocked' } })).record.desktop.state, 'opened');
+
+  // 道具の許可を本当に待っている（ターンの途中）
+  untouched(await run({ entries: [user('続けて'), callsTool('t1')] }));
+  // 保留を持ったまま、次のターンが動いている
+  untouched(await run({ entries: [...finished, user('次はこれ'), callsTool('t2'), toolResult('t2', 'ok')] }));
+  untouched(await run({ entries: finished, agent: { state: 'working' } }));
+  // 見ている間に transcript が伸び続ける（指示が届いた）
+  untouched(await run({ entries: finished, onPoll: () => appendFileSync(transcript, jsonl([{ type: 'last-prompt' }])) }));
+  const arrived = await run({ entries: finished, onPoll: count => { if (count === 2) appendFileSync(transcript, jsonl([user('次はこれ')])); } });
+  untouched(arrived);
+  // transcript の場所が記録に無い（0.16.19 までの版が残した記録）・読めない時は、今までどおり待つ
+  untouched(await run({ entries: finished, recordTranscript: null }));
+  untouched(await run({ entries: finished, recordTranscript: join(dir, 'missing.jsonl') }));
+  // busy は、transcript が終わったターンに見えても移さない
+  untouched(await run({ entries: finished, agent: { status: 'busy' } }));
 }));
 
 test('公開CLI: --host claude は enable・disable・status・worker を受け取る', () => {

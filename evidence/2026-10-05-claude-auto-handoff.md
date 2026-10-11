@@ -292,3 +292,20 @@ Linuxの端末の対話画面へ指示を1回送った。試験用フォルダ�
 - 引き継ぎは続けて4回（00:13:18、00:13:39、00:14:00、00:14:19）。記録は全部`sent`。
 - 最後の後継が00:14:37に結果ファイルを書き、00:14:51に記録の`desktop.state`が`opened`、00:14:52にClaude Desktopの会話の置き場へ入った。
 - `hook-failures.log`は増えていない。実行時エラーのopenは0。
+
+## 2026-10-11: ほかの会話から届いた文を保留している後継（0.16.20、ADR 0050）
+
+試験用のフォルダに、Haikuの裏の会話を2つ立てた。受け手がターンを終えた後、権限の設定が違う送り手から`SendMessage`で1通送らせた。
+hookはPATH先頭の空の`throughline`が受け、引き継ぎの記録は作業用のフォルダに作った。本物の置き場には書いていない。
+移すprocess（`requestClaudeDesktopOpen`→`runClaudeDesktopOpen`）は、packageの関数を直接呼んだ。
+
+| | Windows（Claude Code 2.1.296） | macOS（Claude Code 2.1.289） |
+|---|---|---|
+| 権限（受け手／送り手） | auto／bypassPermissions | bypassPermissions／default |
+| 保留が入った後の受け手 | `status: waiting`・`waitingFor: permission prompt`・`state: done`。transcriptの最後は`Held peer message`の知らせの行 | 同じ |
+| 0.16.19の移すprocess（12秒） | 4回見て、止めずに戻った | 同じ |
+| 直した版の移すprocess | 2回見て`claude stop`。7秒 | 2回見て`claude stop`。6〜7秒 |
+| 止めた後 | `claude -p --resume`で続けられた | `claude -p --resume`で続けられた。別の回で、本物の`claude --desktop --resume`を呼び、Desktopの会話になった（`Imported CLI session`、会話の置き場に1件） |
+| 道具の許可を待つ会話（`Write`、権限default。`state: blocked`、transcriptの最後は`stop_reason: tool_use`） | 直した版は15秒待って、止めずに戻った | 同じ |
+
+Windowsでは、試験用の会話に`claude --desktop --resume`を呼んでいない。

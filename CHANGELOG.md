@@ -10,6 +10,31 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.20] — 2026-10-11
+
+### 修正
+
+- Claude Codeの自動継続で、後継がターンを終えてもClaude Desktopへ移らず、裏の会話のまま残る場面があった（[ADR 0050](docs/adr/0050-claude-successor-with-held-peer-message-moves-to-desktop.md)）。Windowsの実機（Claude Code 2.1.296）で2026-10-10に2回起きた（1回は2時間42分後に移り、1回は残ったまま）。利用者の別の会話から`SendMessage`で届いた文を、Claude Codeが承認まで保留していた。保留がある間、`claude agents`はその会話を、ターンの後も`waiting`（`permission prompt`）と返す。Throughlineは手すき（`idle`）の後継だけを移していた。
+  - 後継が`waiting`を返す時は、後継のtranscriptの末尾を読む。終わったターン（`stop_reason`が`end_turn`のassistantの行）で止まっていて、3秒後も同じなら、手すきと同じに扱って移す。
+  - **移す時に保留されている文は、会話へ届かないまま消える**（オーナーの裁定）。
+  - 道具の許可を本当に待っている会話（ターンの途中）と、次のターンが動いている会話は、今までどおり移さない。
+  - transcriptから読むのは行の種類と`stop_reason`だけで、本文は読まない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 直した。単体試験と、実機（Claude Code 2.1.289、Claude Desktop）の試験用の会話。保留を作り、0.16.19は止めず、直した版は`claude stop`→本物の`claude --desktop --resume`でDesktopの会話になる事。ターンの途中の許可待ちは止めない事 | 対象外。Claude Desktopへ移す処理が無い（Claude Codeの`--desktop`が無い）。単体試験とCIだけ | 直した。単体試験と、実機（Claude Code 2.1.296）の試験用の会話。保留を作り、0.16.19は止めず、直した版は`claude stop`まで進む事。ターンの途中の許可待ちは止めない事。**試験用の会話では`claude --desktop --resume`を呼んでいない**（止めた後の会話を開く所は0.16.9からの処理で、変えていない） |
+| Codex | 変更なし（会話から会話への文の保留が無い。引き継ぎの部品も別） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 止めた時、送り手の会話へ「届かなかった」と伝わるか。
+- リモートコントロール（claude.ai/codeとClaudeのアプリ）の画面に、保留を承認する問いが出るか。
+- 保留を持つ会話へ指示が届いた直後（その行がtranscriptに書かれる前）に、移す処理が重なる場面。
+
 ## [0.16.19] — 2026-10-11
 
 ### 修正
@@ -2306,7 +2331,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.19...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.20...HEAD
+[0.16.20]: https://github.com/kitepon/Throughline/compare/v0.16.19...v0.16.20
 [0.16.19]: https://github.com/kitepon/Throughline/compare/v0.16.18...v0.16.19
 [0.16.18]: https://github.com/kitepon/Throughline/compare/v0.16.17...v0.16.18
 [0.16.17]: https://github.com/kitepon/Throughline/compare/v0.16.16...v0.16.17

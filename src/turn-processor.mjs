@@ -273,7 +273,7 @@ async function processStop() {
   completeClaudeTurnWithoutHandoff({ sessionId: session_id });
   // Claude Desktop から始まった会話の後継が、ターンを終えた。Desktop へ移して開く process を起動する。
   // 失敗しても、会話の保存は続ける。
-  try { await requestClaudeDesktopOpen({ sessionId: session_id }); }
+  try { await requestClaudeDesktopOpen({ sessionId: session_id, transcriptPath: transcript_path }); }
   catch (err) { process.stderr.write(`[auto-handoff] desktop open: ${err instanceof Error ? err.message : 'unknown'}\n`); }
 
   // VSCode で開かれたプロジェクトに .vscode/tasks.json を自動プロビジョニングする。
