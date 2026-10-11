@@ -689,7 +689,10 @@ export function completeClaudeTurnWithoutHandoff({ sessionId, dir = claudeAutoHa
   return true;
 }
 
-/** 後継へ送る継続の指示。引き継ぎIDを含め、後継の最初の指示がこの配送のものかを照合できるようにする。 */
+/**
+ * 後継へ送る継続の指示。引き継ぎIDを含め、後継の最初の指示がこの配送のものかを照合できるようにする。
+ * 文の頭の形（`Throughline自動継続 ` + 36字の引き継ぎID）は、ほかの製品の hook も読んでいる（ADR 0053）。変える時は先に知らせる。
+ */
 export function claudeContinuationInput(record) {
   // この文は後継の最初の指示（利用者の発言）として届く。止めた道具をやり直さずに「済んだ」と書いて
   // 先へ進む後継が出たので（Haiku 4.5、macOS で実測）、実行されていない道具から始めることを明記する。

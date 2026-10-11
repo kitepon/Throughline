@@ -47,3 +47,7 @@ Claude Code の自動継続（ADR 0033）は、`PreCompact(auto)` で圧縮を�
 - 旧い会話は、記録がある間、文を受ければ文で答える。道具は断る（変えていない）。旧い会話あての連絡を今の続きへ渡すのは、
   連絡を運ぶ側の仕事で、5 の口で今の続きを引ける。
 - 記憶が入らなかった後継へ、後から記憶を入れる処理は無い。`throughline recall --session <旧い会話の id>` で引ける。
+- ほかの製品が、次の2つの形に頼っている（通話MCP `grokbot-bridge` 0.3.6 の `UserPromptSubmit` の hook。後継へ、前任が持っていた
+  通話の引き取りを知らせる）。変える時は、先にその製品の担当へ知らせる。
+  - 後継の最初の指示の頭: `Throughline自動継続 ` に続けて、36字の引き継ぎ ID。
+  - `auto-handoff status --host claude --operation <引き継ぎID> --json` の `handoffs[0].source_session_id`。
