@@ -250,15 +250,25 @@ function isSameExecutablePath(a, b, realpath) {
   return left !== null && right !== null && left === right;
 }
 
-function createCodexHooks() {
+// 登録済みの命令が今の node と script の実体を指している時は、その文字列のまま返す（ADR 0052）。
+// node の表記は入れる側の PATH で変わる。Codex は hook の信用を命令の文字列で決めるので、表記だけを書き換えると
+// 信用済みの hook が「変わった hook」になり、新しい会話が確認の画面で止まる。
+function registeredCodexHookCommand(expected, groups) {
+  const registered = (Array.isArray(groups) ? groups : []).flatMap(group => group?.hooks ?? []).map(hook => hook?.command)
+    .find(command => isEquivalentCodexHookCommand(command, expected));
+  return registered ?? expected;
+}
+
+function createCodexHooks(registered = {}) {
+  const command = (event, expected) => registeredCodexHookCommand(expected, registered?.[event]);
   return {
-    PreCompact: { matcher: 'auto', hooks: [{ type: 'command', command: buildCodexPreCompactHookCommand(),
+    PreCompact: { matcher: 'auto', hooks: [{ type: 'command', command: command('PreCompact', buildCodexPreCompactHookCommand()),
       timeout: 30, async: false, statusMessage: 'Throughline: 自動継続を準備' }] },
     UserPromptSubmit: {
       hooks: [
         {
           type: 'command',
-          command: buildCodexUserPromptSubmitHookCommand(),
+          command: command('UserPromptSubmit', buildCodexUserPromptSubmitHookCommand()),
           timeout: 30,
           async: false,
           statusMessage: null,
@@ -269,7 +279,7 @@ function createCodexHooks() {
       hooks: [
         {
           type: 'command',
-          command: buildCodexPostToolUseHookCommand(),
+          command: command('PostToolUse', buildCodexPostToolUseHookCommand()),
           timeout: 30,
           async: false,
           statusMessage: null,
@@ -280,7 +290,7 @@ function createCodexHooks() {
       hooks: [
         {
           type: 'command',
-          command: buildCodexStopHookCommand(),
+          command: command('Stop', buildCodexStopHookCommand()),
           timeout: 300,
           async: false,
           statusMessage: null,
@@ -628,7 +638,7 @@ function installCodexHooks() {
   const configPath = resolveCodexConfigPath();
   const current = readSettings(hooksPath);
   const existingHooks = current.hooks ?? {};
-  const codexHooks = createCodexHooks();
+  const codexHooks = createCodexHooks(existingHooks);
 
   for (const [key, entry] of Object.entries(codexHooks)) {
     const list = existingHooks[key] ?? [];
@@ -705,7 +715,7 @@ export function installCodexAutoHandoffHook(codexHome = join(homedir(), '.codex'
   const configPath = join(codexHome, 'config.toml');
   const current = readSettings(hooksPath);
   current.hooks ??= {};
-  const entry = createCodexHooks().PreCompact;
+  const entry = createCodexHooks(current.hooks).PreCompact;
   const groups = current.hooks.PreCompact ?? [];
   const existing = groups.flatMap(group => group.hooks ?? []).filter(hook => isThroughlineCodexHookCommand(hook.command));
   if (existing.length !== 1 || existing[0].command !== entry.hooks[0].command || existing[0].timeout !== 30) {

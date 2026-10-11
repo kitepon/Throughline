@@ -10,6 +10,29 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.23] — 2026-10-11
+
+### 修正
+
+- **`install`と`self-update`が、Codexの信用済みのhookを「変わったhook」にしていた**（[ADR 0052](docs/adr/0052-install-keeps-registered-codex-hook-command.md)）。Codexのhookの命令は`<node> <throughline.mjs> codex-hook <event>`で、`<node>`の表記は入れる側のPATHで決まる（PATHの上に今のnodeと同じ実体があればその表記、無ければ`process.execPath`）。`install`はhookを毎回作り直すので、前と違うPATHで入れると、同じnodeを指したまま文字列だけが変わった。Codexはhookの信用を命令の文字列で決めるので、Throughlineのhookが4つとも`modified`になり、新しい会話が起動の所で「Hooks need review」を出して、人が選ぶまで止まった。
+  - Linuxの実機で2026-10-11に起きた。09:20に`~/.local/bin`をPATHの先頭に付けて`self-update`を流し、`~/.local/lib/node-v24/bin/node`が、同じ実体を指すsymlinkの`~/.local/bin/node`に変わった。15:05に、常駐のprocessが立てるCodexの会話がそこで止まっていると知らせを受けた。
+  - 直した後は、登録済みの命令が今のnodeと`throughline.mjs`の実体（realpath）を指している時、その文字列のまま書く。`auto-handoff enable`が置く`PreCompact`も同じ。登録が無い時、旧い形の時、nodeかscriptの実体が違う時は、今までどおり書き直す。
+  - nodeの実体が変わった時（別の版の場所へ入れ直した時など）は命令が変わり、Codexは確認の画面を出す。これは変えていない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex | 直した。単体試験と、実機（Codex Desktop同梱の0.162.0-alpha.17.2）。仮のHOMEとCODEX_HOMEでhookを信用し、PATHだけ変えて入れ直すと、入っていた0.16.22は4つとも`modified`、この版は4つとも`trusted`で`hooks.json`は1バイトも変わらない | 直した。単体試験と、実機（codex-cli 0.162.1）で同じ確認 | 直した。単体試験（表記の違いは大文字と小文字で作る）と、実機（Codex Desktop同梱の0.162.0-alpha.17.2）で同じ確認 |
+| Claude Code | 変更なし（hookの命令は`throughline <subcommand>`で、nodeの場所が入らない） | 同じ | 同じ |
+| Grok | 変更なし。命令には同じ決め方でnodeの表記が入り、入れる側のPATHで変わる。Grokがhookの変更で確認を出すかは確かめていない | 同じ | 同じ |
+| Cursor | 変更なし。Grokと同じ | 同じ | 同じ |
+
+### 確かめていない事
+
+- 本物の`~/.codex`で、信用済みのhookを持つ端末へこの版を違うPATHから入れる所。確認は、仮のHOMEとCODEX_HOMEで、本物のCodexのApp Server（`hooks/list`）に信用の状態を聞く形で行った。
+- `doctor --codex`の「trusted」は、`trusted_hash`が記録されているかだけを見ている。Codexが今の命令と比べた結果は見ていないので、`modified`でも「trusted」と出る。この版では変えていない。
+
 ## [0.16.22] — 2026-10-11
 
 ### 変更
@@ -2378,7 +2401,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.22...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.23...HEAD
+[0.16.23]: https://github.com/kitepon/Throughline/compare/v0.16.22...v0.16.23
 [0.16.22]: https://github.com/kitepon/Throughline/compare/v0.16.21...v0.16.22
 [0.16.21]: https://github.com/kitepon/Throughline/compare/v0.16.20...v0.16.21
 [0.16.20]: https://github.com/kitepon/Throughline/compare/v0.16.19...v0.16.20

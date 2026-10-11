@@ -1,17 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   buildCodexPostToolUseHookCommand,
+  buildCodexPreCompactHookCommand,
   buildCodexStopHookCommand,
   buildCodexUserPromptSubmitHookCommand,
   buildCursorHookCommand,
   buildGrokHookCommand,
   createGrokHooksFile,
   createCursorHookEntries,
+  installCodexAutoHandoffHook,
   isEquivalentCodexHookCommand,
   isThroughlineCodexHookCommand,
   isThroughlineCursorHookCommand,
@@ -851,6 +853,97 @@ test('install is idempotent: second run keeps exactly one tl.md and one hook ent
       .length;
     assert.equal(processTurnCount, 1, 'double-install must not duplicate hook entries');
   } finally {
+    unsilence();
+    home.restore();
+  }
+});
+
+// 今の node を指す、別の表記。POSIX は symlink、Windows は大文字と小文字を入れ替えた path（どちらも realpath が同じになる）。
+function alternateNodeSpelling(dir) {
+  if (process.platform === 'win32') {
+    const upper = process.execPath.toUpperCase();
+    return upper !== process.execPath ? upper : process.execPath.toLowerCase();
+  }
+  mkdirSync(join(dir, 'altbin'), { recursive: true });
+  const link = join(dir, 'altbin', 'node');
+  symlinkSync(realpathSync.native(process.execPath), link);
+  return link;
+}
+
+test('install は、今の node を指す登録済みの Codex hook の命令を書き換えない（Codex の信用を保つ）', async () => {
+  const home = makeTempHome();
+  if (home.resolved !== home.dir) {
+    home.restore();
+    return;
+  }
+  const unsilence = silence();
+  try {
+    const hooksPath = join(home.dir, '.codex', 'hooks.json');
+    await run([]);
+    const nodePath = alternateNodeSpelling(home.dir);
+    const registered = {
+      PreCompact: buildCodexPreCompactHookCommand({ nodePath }),
+      UserPromptSubmit: buildCodexUserPromptSubmitHookCommand({ nodePath }),
+      PostToolUse: buildCodexPostToolUseHookCommand({ nodePath }),
+      Stop: buildCodexStopHookCommand({ nodePath }),
+    };
+    assert.notEqual(registered.Stop, buildCodexStopHookCommand({ nodePath: process.execPath }));
+    // ほかの PATH から入れた時の登録を作る。node の表記だけが違い、指す実体は同じ。
+    const file = JSON.parse(readFileSync(hooksPath, 'utf8'));
+    for (const [event, command] of Object.entries(registered)) {
+      const own = file.hooks[event].flatMap(group => group.hooks).filter(hook => isThroughlineCodexHookCommand(hook.command));
+      assert.equal(own.length, 1);
+      own[0].command = command;
+    }
+    file.hooks.Stop.push({ hooks: [{ type: 'command', command: '/usr/bin/node /opt/other/bin/other codex-hook stop', timeout: 5 }] });
+    const before = JSON.stringify(file, null, 2) + '\n';
+    writeFileSync(hooksPath, before);
+
+    await run([]);
+    assert.equal(readFileSync(hooksPath, 'utf8'), before);
+    const autoHandoff = installCodexAutoHandoffHook(join(home.dir, '.codex'));
+    assert.equal(autoHandoff.command, registered.PreCompact);
+    assert.equal(readFileSync(hooksPath, 'utf8'), before);
+
+    // 登録済みの node が今の node でない時は、今までどおり書き直す。
+    const moved = JSON.parse(before);
+    moved.hooks.Stop[0].hooks[0].command = buildCodexStopHookCommand({ nodePath: join(home.dir, 'gone', 'node') });
+    writeFileSync(hooksPath, JSON.stringify(moved, null, 2) + '\n');
+    await run([]);
+    const after = JSON.parse(readFileSync(hooksPath, 'utf8'));
+    assert.equal(after.hooks.Stop[0].hooks[0].command, buildCodexStopHookCommand());
+    assert.equal(after.hooks.UserPromptSubmit[0].hooks[0].command, registered.UserPromptSubmit);
+    assert.equal(after.hooks.PostToolUse[0].hooks[0].command, registered.PostToolUse);
+    assert.equal(after.hooks.PreCompact.at(-1).hooks[0].command, registered.PreCompact);
+  } finally {
+    unsilence();
+    home.restore();
+  }
+});
+
+test('install は、入れる側の PATH が変わっても Codex hook の命令を変えない', { skip: process.platform === 'win32' }, async () => {
+  const home = makeTempHome();
+  if (home.resolved !== home.dir) {
+    home.restore();
+    return;
+  }
+  const originalPath = process.env.PATH;
+  const unsilence = silence();
+  try {
+    const hooksPath = join(home.dir, '.codex', 'hooks.json');
+    const nodePath = alternateNodeSpelling(home.dir);
+    // node の symlink がある場所を PATH の先頭に置いて入れ、次は PATH に node が無い状態で入れる。
+    process.env.PATH = join(home.dir, 'altbin');
+    await run([]);
+    const first = readFileSync(hooksPath, 'utf8');
+    assert.equal(JSON.parse(first).hooks.Stop[0].hooks[0].command, buildCodexStopHookCommand({ nodePath }));
+    process.env.PATH = '';
+    assert.notEqual(buildCodexStopHookCommand(), buildCodexStopHookCommand({ nodePath }));
+    await run([]);
+    assert.equal(readFileSync(hooksPath, 'utf8'), first);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
     unsilence();
     home.restore();
   }
