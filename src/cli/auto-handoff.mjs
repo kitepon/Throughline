@@ -10,11 +10,12 @@ import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaud
   claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
 import { readClaudeAutoHandoffConfig, writeClaudeAutoHandoffConfig } from '../claude-auto-handoff-config.mjs';
-import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, runClaudeAutoHandoffWorker, runClaudeDesktopOpen } from '../claude-auto-handoff.mjs';
+import { listClaudeAutoHandoffs, publicClaudeAutoHandoff, resolveClaudeAutoHandoffSuccessor, runClaudeAutoHandoffWorker,
+  runClaudeDesktopOpen } from '../claude-auto-handoff.mjs';
 
 // Claude の自動継続 (ADR 0033)。引き継ぎの記録は旧い会話の session id で持つ。結果が不明な配送は
 // 再送しないので、resume は持たない。記憶の取得は通常の recall / detail を使うので、detail も持たない。
-const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open'];
+const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open', 'successor'];
 
 export function parseAutoHandoffArgs(args) {
   const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, thread: null, json: false, dryRun: false };
@@ -88,6 +89,10 @@ async function runClaude(parsed) {
   }
   if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation, { openDb: getDb }));
   if (parsed.action === 'desktop-open') return publicClaudeAutoHandoff(await runClaudeDesktopOpen(parsed.operation));
+  // ある会話の今の続きを返す。読むだけ（`--thread` には Claude の session id を渡す）。
+  if (parsed.action === 'successor') {
+    return { schema: 'throughline.claude_auto_handoff_successor.v1', host: 'claude', ...resolveClaudeAutoHandoffSuccessor(parsed.thread) };
+  }
   const handoffs = listClaudeAutoHandoffs()
     .filter(record => !parsed.project || sameProjectPath(record.project_path, parsed.project))
     .filter(record => !parsed.operation || record.handoff_id === parsed.operation || record.source_session_id === parsed.operation)

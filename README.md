@@ -63,7 +63,7 @@ throughline auto-handoff disable --host claude
 
 自動圧縮を置き換えます。圧縮が走る前に旧い会話を止め、記憶を持った新しい会話で作業を続けます（[ADR 0033](docs/adr/0033-claude-auto-handoff-new-session.md)）。
 
-1. 自動圧縮の直前に、圧縮を止めます。`/tl`と同じ印を残します。
+1. 自動圧縮の直前に、圧縮を止めて、引き継ぎを予約します。
 2. 旧い会話の次の道具を、実行させずに止めます。旧い会話は止めるだけで、空にしません。
 3. 同じprojectに、継続の指示を最初の指示として付けた新しいClaudeの会話を裏で立てます（`claude --bg`）。会話の名前は、前任の会話の題から`<project名>｜<作業の概要>（自動引き継ぎ）`にします。モデル・推論強度・権限は旧い会話から引き継ぎます。
 4. 最初の指示を受け取った時に、止めた時点の依頼、そのターンでここまでにしたこと（発言と道具の呼び出し）、実行されなかった道具、直近の会話の原文を注入します（上限9,500字）。止めたターンの道具の入出力は、後継が`throughline detail`で取り出せます。
@@ -73,6 +73,14 @@ throughline auto-handoff disable --host claude
 ```bash
 throughline auto-handoff status --host claude --operation <handoff-id> --json
 ```
+
+ある会話の今の続きは、次の命令で引けます（読むだけ。ほかの道具が、旧い会話あての連絡を今の続きへ渡す時に使います）。
+
+```bash
+throughline auto-handoff successor --host claude --thread <claude-session-id> --json
+```
+
+`current_session_id`が今の続きです（後継が無ければ渡したID自身）。`pending.state`が`requested`の間は、引き継ぎを予約しただけで、会話はまだ止まっていません。後継は、最初の指示が運ぶ引き継ぎIDで前任を決めます（[ADR 0053](docs/adr/0053-claude-successor-finds-predecessor-by-handoff-id.md)）。同じprojectに会話が何本あっても、前任の記憶は後継だけに入ります。
 
 後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
 

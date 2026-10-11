@@ -25,7 +25,9 @@
 
 1. `SessionStart` は `pending_handoffs` に intent を登録するだけで、merge も注入もしない。
 2. 次の最初の `UserPromptSubmit` が実セッションの存在証明となり、pending intent を一度だけ消費する。
-3. 適格な baton があればその session id を優先する。baton が無く、`source='clear'` の
+3. 届いた指示が Claude の自動継続の配送（文の頭が `Throughline自動継続 <引き継ぎID>`）なら、その引き継ぎの記録の旧い会話を
+   前任にする。baton は見ない（[ADR 0053](adr/0053-claude-successor-finds-predecessor-by-handoff-id.md)）。
+   それ以外で、適格な baton があればその session id を優先する。baton が無く、`source='clear'` の
    auto predecessor があれば、その前任を使う。
 4. 前任 transcript を backfill してから merge し、予算内の再開文脈を注入する。
 

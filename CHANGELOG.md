@@ -10,6 +10,40 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.24] — 2026-10-11
+
+### 修正
+
+- **Claude Codeの自動継続で、後継へ前任の記憶が入らない事があった。同じprojectの別の会話へ、前任の記憶が入る事もあった**（[ADR 0053](docs/adr/0053-claude-successor-finds-predecessor-by-handoff-id.md)）。後継が前任を見つける所は、`/tl`と同じ「projectごとに1つの印」に頼っていた。印は引き継ぎを予約した時（`PreCompact`）に書き、期限は1時間。後継が立つのは、旧い会話が次に道具を使った時。その間に、同じprojectの別の会話が最初の指示を受けると、印を取るか、期限切れとして消していた。
+  - Windowsの実機で2026-10-11に起きた。同じフォルダに役の違うClaudeの会話が何本も動いていた。ある会話が17:21:55に引き継ぎを予約し、止まったのは19:43:09。18:43:06に別の会話の最初の指示が印を期限切れ（81分）として消し、19:43:14に後継が受けた最初の指示には記憶が1文字も入らなかった。引き継ぎは`unknown`（`handoff_delivery_unconfirmed`）で終わり、後継は別の役の仕事を始めた。
+  - 直した後は、後継の最初の指示の頭にある引き継ぎIDから記録を引いて、その記録の旧い会話を前任にする。projectごとの印は見ない。自動継続は、予約の時に印を書かない。`/tl`の印は変えていない。
+  - 0.16.23までの版が書いた印が残っている時は、後継が合流した時に消す。
+- **受領を確かめられなかった引き継ぎ（`unknown`）の記録を、後継が残っていても24時間で消していた**。消えると、旧い会話がまた道具を使えるようになり、同じ会話から2つ目の後継が立つ。後継のtranscriptが残っている間は消さない。
+
+- **Claude Codeの自動継続で、後継のeffortを、hookが値を渡さない時にも引き継ぐ**。後継は、止めた時点のモデルとeffortで立てる（`claude --bg --model … --effort …`）。モデルはtranscriptの最後の発言から、effortは`PreToolUse`のpayload（`effort.level`）から読んでいた。payloadにeffortが無い時は、transcriptの最後の発言の`effort`から読む（subagentの中の行は除く）。どちらにも無い時は、今までどおり端末の既定で立つ。
+  - 2026-10-11にWindowsの実機で、xhighの会話の続きがmediumになった。transcriptの`effort`の項目を読むと、落ちたのは引き継ぎの時ではなかった。後継はxhighで立ち（09:35〜10:39、発言365行がxhigh）、0.16.20の「後継をClaude Desktopへ移す処理」（`claude stop` → `claude --desktop --resume`）が10:39:59に開き直した後、mediumになっていた（10:43から）。その後の引き継ぎ2回は、止めた時点のmediumをそのまま渡した。移す処理は0.16.22から既定で無効（[ADR 0051](docs/adr/0051-claude-successor-desktop-move-is-opt-in.md)）。有効にした時は、開き直した会話のeffortがClaude Desktopの既定に戻る。これは直していない。
+  - モデルは落ちていない。同じ列の会話は全部`claude-opus-5-5`で、後継も文脈を90万token台まで使っている。
+
+### 追加
+
+- **Claudeの会話の「今の続き」を引く口**。`throughline auto-handoff successor --host claude --thread <session id> --json`（読むだけ）。`current_session_id`が今の続き（後継が無ければ渡したID自身）、`chain`がたどった引き継ぎ、`pending`が今の続きの会話にある、後継がまだ立っていない引き継ぎ（`requested`は予約だけで、会話は止まっていない）。後継のsession idが記録に無い時は、transcriptの名前から引く。ほかの道具が、旧い会話あての連絡を今の続きへ渡す時に使う。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 直した（effortの控えは単体試験だけ）。単体試験と、実機で本物のhookの命令へ同じ順番（予約 → 別の会話の最初の指示 → 止める → 後継の最初の指示）を通した。入っていた0.16.23は前任の記憶が別の会話へ付き、後継は0文字。この版は後継だけに入る | 直した。同じ確認 | 直した。同じ確認。起きた端末 |
+| Codex | 変更なし（後継はApp Serverで作り、前任は引き継ぎの記録で決めている。projectごとの印を使わない。モデルとeffortは後継の設定へ写し、合わない時は引き継ぎを失敗にする） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い。最初の指示の合流は、引き継ぎIDで始まる指示が無いので今までどおり） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 本物のClaude Codeが、同じprojectに会話が何本もある状態で引き継ぐ所。確認は、仮のHOMEで、本物のhookの命令（`session-start`・`pre-compact`・`prompt-submit`・`pre-tool-use`）へ、実機で起きた順番を通す形で行った。後継を立てる`claude --bg`は偽物に置き換えている。
+- 記憶が入らなかった後継へ、後から記憶を入れる処理は無い。`throughline recall --session <旧い会話のid>`で引ける。
+- effortの控え（transcriptから読む所）は、単体試験で確かめた。payloadにeffortが無い本物のClaude Codeでは通していない。Windowsの実機の引き継ぎ（Claude Code 2.1.296）では、payloadの値とtranscriptの値は毎回同じだった。
+- 旧い会話は、引き継ぎの後も文を受ければ文で答える（道具は断る）。この版では変えていない。
+
 ## [0.16.23] — 2026-10-11
 
 ### 修正
@@ -2401,7 +2435,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.23...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.24...HEAD
+[0.16.24]: https://github.com/kitepon/Throughline/compare/v0.16.23...v0.16.24
 [0.16.23]: https://github.com/kitepon/Throughline/compare/v0.16.22...v0.16.23
 [0.16.22]: https://github.com/kitepon/Throughline/compare/v0.16.21...v0.16.22
 [0.16.21]: https://github.com/kitepon/Throughline/compare/v0.16.20...v0.16.21

@@ -2,7 +2,7 @@
  * handoff-executor.mjs — 最初の UserPromptSubmit で実行する引き継ぎ本体
  *
  * 二相ハンドオフ (ADR 0014) の第二相。SessionStart が登録した pending intent を
- * 消費し、baton path 優先 → auto path の順で前任を merge して、予算内の
+ * 消費し、自動継続の配送 (ADR 0053) → baton path → auto path の順で前任を merge して、予算内の
  * resume context を組み立てて返す。呼び出し元 (prompt-submit) が stdout へ書く。
  *
  * 幽霊セッション (transcript を生成しない SessionStart) はプロンプトを発火しない
@@ -11,12 +11,12 @@
  */
 
 import { existsSync } from 'node:fs';
-import { consumeBaton } from './baton.mjs';
+import { consumeBaton, discardBatonOf } from './baton.mjs';
 import { consumePendingHandoff } from './pending-handoff.mjs';
 import { mergeSpecificPredecessor, resolveMergeTarget } from './session-merger.mjs';
 import { backfillBodies, deriveTranscriptPath, logBackfill } from './turn-backfill.mjs';
 import { buildBudgetedResumeContext, buildAutoContinuationContext } from './resume-context.mjs';
-import { acceptClaudeAutoContinuation } from './claude-auto-handoff.mjs';
+import { acceptClaudeAutoContinuation, findClaudeAutoContinuationSource } from './claude-auto-handoff.mjs';
 import { readAllSessionStates } from './state-file.mjs';
 
 /**
@@ -25,7 +25,7 @@ import { readAllSessionStates } from './state-file.mjs';
  *   prompt は届いた指示の本文。前任が自動継続で引き継いだ会話の時に、配送の受領を照合する (ADR 0033)。
  * @returns {{
  *   attempted: boolean,            // pending 行が存在した (= newborn の初回プロンプト)
- *   triggeredPath: 'baton' | 'auto' | null,
+ *   triggeredPath: 'auto-handoff' | 'baton' | 'auto' | null,  // auto-handoff は自動継続の後継 (ADR 0053)
  *   baton: object | null,          // consumeBaton の生返り値 (ログ用)
  *   pendingCreatedAt: number | null,
  *   mergeResult: object,           // mergeSpecificPredecessor の返り値 or skip
@@ -47,14 +47,26 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
     };
   }
 
+  // 自動継続の後継は、最初の指示が運ぶ引き継ぎ ID で前任を決める (ADR 0053)。project ごとに1つの印は見ない
+  // (同じ project の別の会話のための印を、後継が取らない)。
+  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId });
   // baton 適格性はセッション誕生時刻 (pending.createdAt) 基準。
   // 誕生後に書かれたバトンは future_baton として残置される (本来の後継のもの)。
-  const baton = consumeBaton(db, { projectPath, now, bornAt: pending.createdAt });
+  const baton = continuationSourceId ? null : consumeBaton(db, { projectPath, now, bornAt: pending.createdAt });
 
   let triggeredPath = null;
   let mergeResult = { merged: false, skipReason: 'no_trigger' };
 
-  if (baton.sessionId) {
+  if (continuationSourceId) {
+    triggeredPath = 'auto-handoff';
+    discardBatonOf(db, { sessionId: continuationSourceId });
+    const { target: predecessorId } = resolveMergeTarget(db, continuationSourceId);
+    mergeResult = mergeSpecificPredecessor(db, {
+      newSessionId: sessionId,
+      predecessorId,
+      now,
+    });
+  } else if (baton.sessionId) {
     triggeredPath = 'baton';
     const { target: predecessorId } = resolveMergeTarget(db, baton.sessionId);
     mergeResult = mergeSpecificPredecessor(db, {
@@ -87,8 +99,8 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
     // 前任が自動継続でこの会話へ引き継いだなら、止めた時点の依頼を現在地に載せる (ADR 0033)。
     // 止めたターンは Stop を通っていないので、state ファイルが無いことがある。hook が記録した
     // transcript の場所を、回収元の候補に足す。
-    const autoContinuation = triggeredPath === 'baton'
-      ? acceptClaudeAutoContinuation({ predecessorId: baton.sessionId, successorSessionId: sessionId, prompt, now })
+    const autoContinuation = triggeredPath === 'auto-handoff' || triggeredPath === 'baton'
+      ? acceptClaudeAutoContinuation({ predecessorId: continuationSourceId ?? baton.sessionId, successorSessionId: sessionId, prompt, now })
       : null;
     const predecessorTranscriptPath = [derivedTranscriptPath, stateTranscriptPath, autoContinuation?.transcriptPath]
       .find((candidate) => candidate && existsSync(candidate)) ?? null;

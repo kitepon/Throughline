@@ -113,3 +113,16 @@ export function consumeBaton(db, { projectPath, now = Date.now(), bornAt = now, 
     throw err;
   }
 }
+
+/**
+ * ある会話を指している印を消す。自動継続の後継は、印ではなく引き継ぎ ID で前任を決める（ADR 0053）。
+ * 0.16.23 までの版が予約の時に書いた印が残っていると、同じ project の別の新しい会話がその前任を合流させるので、
+ * 後継が合流した時に消す。
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {{ sessionId: string }} params
+ * @returns {number} 消した行数
+ */
+export function discardBatonOf(db, { sessionId }) {
+  return Number(db.prepare('DELETE FROM handoff_batons WHERE session_id = ?').run(sessionId).changes);
+}

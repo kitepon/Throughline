@@ -39,7 +39,6 @@ import {
 } from './transcript-reader.mjs';
 import { captureInFlightTurn } from './turn-backfill.mjs';
 import { resolveMergeTarget } from './session-merger.mjs';
-import { writeBaton } from './baton.mjs';
 import { sameProjectPath } from './project-path.mjs';
 import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
@@ -69,6 +68,8 @@ const REMOTE_CONTROL_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL';
 const RETRYABLE_STATES = new Set(['requested', 'failed']);
 // 後継の最初の指示は、worker が後継の ID を記録へ写す前に届くことがある（launching）。
 const ACCEPTABLE_STATES = new Set(['launching', 'launched', 'sent', 'unknown']);
+/** 後継が立っている状態。 */
+const SUCCESSOR_STATES = new Set(['launched', 'sent', 'unknown']);
 
 export const claudeAutoHandoffDir = () => join(homedir(), '.throughline', 'claude-auto-handoff');
 // 0.15.2 までが受け口の控えを置いた場所。期限の掃除だけを続ける。
@@ -159,16 +160,36 @@ export function publicClaudeAutoHandoff(record) {
  * 後継の transcript は、Claude の projects の下の、後継を起動した project のフォルダに出来る。フォルダ名の付け方は
  * OS で違うので、旧い会話の transcript の場所から projects をたどり、その下のフォルダを順に見る。
  */
-function successorRemains(record) {
-  const successorId = record?.successor?.session_id;
-  if (record?.state !== 'sent' || !validSessionId(successorId) || typeof record.transcript_path !== 'string') return false;
-  const file = `${successorId}.jsonl`;
+/** Claude の projects の下から、後継の transcript を探して session id を返す。渡すのは session id か、その頭8字。 */
+function findSuccessorSessionId(record) {
+  const known = record?.successor?.session_id;
+  const prefix = validSessionId(known) ? known : record?.successor?.short_id;
+  if (typeof prefix !== 'string' || !/^[0-9a-f-]{8,}$/.test(prefix) || typeof record.transcript_path !== 'string') return null;
   const own = dirname(record.transcript_path);
-  if (existsSync(join(own, file))) return true;
+  const inFolder = folder => {
+    if (validSessionId(known)) return existsSync(join(folder, `${known}.jsonl`)) ? known : null;
+    let names;
+    try { names = readdirSync(folder); }
+    catch { return null; }
+    const file = names.find(name => name.startsWith(prefix) && name.endsWith('.jsonl'));
+    return file ? file.slice(0, -'.jsonl'.length) : null;
+  };
+  const found = inFolder(own);
+  if (found) return found;
   let folders;
   try { folders = readdirSync(dirname(own), { withFileTypes: true }); }
-  catch { return false; }
-  return folders.some(entry => entry.isDirectory() && existsSync(join(dirname(own), entry.name, file)));
+  catch { return null; }
+  for (const entry of folders) {
+    const id = entry.isDirectory() ? inFolder(join(dirname(own), entry.name)) : null;
+    if (id) return id;
+  }
+  return null;
+}
+
+function successorRemains(record) {
+  // 受領を確かめられなかった引き継ぎ（unknown）も、後継は立っている。記録を消すと、旧い会話からもう1つ後継が立つ。
+  if (!SUCCESSOR_STATES.has(record?.state)) return false;
+  return findSuccessorSessionId(record) !== null;
 }
 
 function removeStale(dir, now) {
@@ -198,6 +219,40 @@ function removeStale(dir, now) {
       rmSync(path, { force: true });
     }
   }
+}
+
+/**
+ * ある会話の「今の続き」を引く（ほかの製品が、旧い会話あての連絡を今の続きへ渡すための入口）。読むだけ。
+ * 引き継ぎの記録を先までたどり、後継が立っている一番先の会話を返す。後継の session id が記録に無い時
+ * （受領を確かめられなかった引き継ぎ）は、transcript の名前から引く。引けなければ、そこで止まる。
+ * @returns {{
+ *   session_id: string, handed_off: boolean, current_session_id: string,
+ *   chain: Array<{handoff_id: string, source_session_id: string, successor_session_id: string|null, successor_short_id: string|null,
+ *     state: string, requested_at: number, updated_at: number}>,
+ *   pending: null | {handoff_id: string, source_session_id: string, state: string, error_code: string|null, requested_at: number, updated_at: number}
+ * }} current_session_id は、後継が無ければ session_id 自身。pending は、今の続きの会話にある、後継がまだ立っていない引き継ぎ
+ *   （requested: 予約だけで会話は止まっていない、launching: 後継を立てている所、failed: 後継は立たなかった）。
+ */
+export function resolveClaudeAutoHandoffSuccessor(sessionId, { dir = claudeAutoHandoffDir() } = {}) {
+  if (!validSessionId(sessionId)) throw new ClaudeHandoffError('auto_handoff_session_id_invalid');
+  const chain = [];
+  let current = sessionId;
+  let pending = null;
+  for (let depth = 0; depth < 200; depth++) {
+    const record = readClaudeAutoHandoff(current, dir);
+    if (!record) break;
+    if (!SUCCESSOR_STATES.has(record.state)) {
+      pending = { handoff_id: record.handoff_id, source_session_id: record.source_session_id, state: record.state,
+        error_code: record.error_code ?? null, requested_at: record.requested_at, updated_at: record.updated_at };
+      break;
+    }
+    const successorId = findSuccessorSessionId(record) ?? (validSessionId(record.successor?.session_id) ? record.successor.session_id : null);
+    chain.push({ handoff_id: record.handoff_id, source_session_id: record.source_session_id, successor_session_id: successorId,
+      successor_short_id: record.successor?.short_id ?? null, state: record.state, requested_at: record.requested_at, updated_at: record.updated_at });
+    if (!successorId || chain.some(step => step.source_session_id === successorId)) break;
+    current = successorId;
+  }
+  return { session_id: sessionId, handed_off: chain.length > 0, current_session_id: current, chain, pending };
 }
 
 /** script から起動した Claude（`claude -p`、Agent SDK）は、呼び出し元がその process の結果を待っている。止めない。 */
@@ -333,7 +388,9 @@ export function requestClaudeAutoHandoff({
     return { status: 'skipped', block: false, reason: 'handoff_host_unsupported', sessionId, projectPath };
   }
 
-  // /tl と同じ印。後継の最初の指示が、この会話を前任として合流させる。
+  // 後継は、最初の指示が運ぶ引き継ぎ ID からこの記録を引いて、この会話を前任として合流させる（ADR 0053）。
+  // project ごとに1つしか無い `/tl` の印は書かない。印を書いてから後継が立つまでの間に、同じ project の別の会話が
+  // 印を消す・上書きする・取ることがあり、後継へ記憶が入らなかった（0.16.23、Windows で実測）。
   // 会話が別の project へ移っている時（Claude Desktop）は、sessions の project も移った先にそろえる。
   // 合流は前任と後継の project が同じ時だけ行う。付け替えは Stop でも行うが、移った後に1回も Stop を
   // 通らないまま引き継ぐ会話があり、その時は後継へ記憶が入らなかった（0.15.2・0.15.3、macOS で実測）。
@@ -341,7 +398,6 @@ export function requestClaudeAutoHandoff({
     open().prepare('UPDATE sessions SET project_path = ? WHERE session_id = ? AND project_path <> ?')
       .run(projectPath, sessionId, projectPath);
   }
-  writeBaton(open(), { projectPath, sessionId, now });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   removeStale(dir, now);
   const handoffId = randomUUID();
@@ -376,6 +432,23 @@ function readLatestModel(transcriptPath) {
   return null;
 }
 
+/** Claude Code の effort の値。 */
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/**
+ * 止める時点の effort。transcript の最後の assistant 行（subagent の中の行は除く）から読む。
+ * hook の payload に effort が無い時の控え。読めなければ null（後継は、その端末の既定の effort で立つ）。
+ */
+function readLatestEffort(transcriptPath) {
+  const entries = readRawEntries(transcriptPath);
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (entry?.type !== 'assistant' || entry.isSidechain) continue;
+    if (EFFORT_LEVELS.has(entry.effort)) return entry.effort;
+  }
+  return null;
+}
+
 /**
  * 止める会話の題。人が付けた題を先に読む（Claude Desktop の題と、`--name` で付いた後継の名前もこの行に入る）。
  * 無ければ Claude Code が付けた題を読む。
@@ -388,6 +461,8 @@ function readSessionTitle(transcriptPath) {
 }
 
 const CONTINUATION_MARKER = /Throughline自動継続 ([0-9a-f-]{36})/;
+/** 後継の最初の指示そのもの（文の頭にある時だけ）。会話の途中で引用された文は、配送として扱わない。 */
+const CONTINUATION_PREFIX = /^\s*Throughline自動継続 ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])/;
 
 // 後継へ渡す「このターンでここまでにしたこと」。1件の長さと件数を抑える。全文は取り込んだ details にある。
 const STEP_TEXT_MAX_CHARS = 300;
@@ -625,7 +700,24 @@ export function claudeContinuationInput(record) {
 }
 
 /**
- * 最初の UserPromptSubmit（baton の合流）から呼ぶ。前任がこの後継へ自動で引き継いだ会話なら、
+ * 最初の UserPromptSubmit から呼ぶ。届いた指示が自動継続の配送（文の頭が `Throughline自動継続 <引き継ぎID>`）なら、
+ * その引き継ぎの前任の session id を返す（ADR 0053）。記録が無い・後継が別の会話だと分かっている時は null。
+ * project ごとの印を使わないので、同じ project に会話が何本あっても、後継は自分の前任だけを合流させる。
+ *
+ * @returns {string|null}
+ */
+export function findClaudeAutoContinuationSource({ prompt, successorSessionId, dir = claudeAutoHandoffDir() }) {
+  if (typeof prompt !== 'string' || typeof successorSessionId !== 'string') return null;
+  const handoffId = CONTINUATION_PREFIX.exec(prompt)?.[1];
+  if (!handoffId) return null;
+  const record = listClaudeAutoHandoffs({ dir }).find(item => item.handoff_id === handoffId);
+  if (!record || !ACCEPTABLE_STATES.has(record.state) || record.source_session_id === successorSessionId) return null;
+  if (record.successor?.short_id && !successorSessionId.startsWith(record.successor.short_id)) return null;
+  return record.source_session_id;
+}
+
+/**
+ * 最初の UserPromptSubmit（前任の合流）から呼ぶ。前任がこの後継へ自動で引き継いだ会話なら、
  * 止めた時点の依頼を返す。届いた指示がこの引き継ぎの配送なら、受領を記録する。
  *
  * @returns {{handoffId: string, projectPath: string, inFlight: object|null, transcriptPath: string|null}|null}
@@ -711,7 +803,9 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   if (inFlight && openDb) inFlight.turn = captureStoppedTurn(record, openDb);
   update({
     state: 'launching',
-    settings: { ...record.settings, model: record.transcript_path ? readLatestModel(record.transcript_path) : null },
+    // モデルと effort は、止めた時点の物を後継へ渡す。effort は hook の payload の値を使い、無い時だけ transcript から読む。
+    settings: { ...record.settings, model: record.transcript_path ? readLatestModel(record.transcript_path) : null,
+      effort: record.settings?.effort ?? (record.transcript_path ? readLatestEffort(record.transcript_path) : null) },
     in_flight: inFlight,
   });
   const launch = remoteControl => spawn('claude', successorArgs(record, { remoteControl }), {

@@ -19,6 +19,8 @@ import {
   readFinishedTurnMark,
   requestClaudeDesktopOpen,
   runClaudeDesktopOpen,
+  findClaudeAutoContinuationSource,
+  resolveClaudeAutoHandoffSuccessor,
 } from './claude-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
@@ -85,7 +87,6 @@ test('PreCompact: 会話が別の project へ移っている時は、移った�
   assert.equal(result.block, true);
   assert.equal(result.projectPath, moved);
   assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, moved);
-  assert.equal(db.prepare('SELECT session_id FROM handoff_batons WHERE project_path = ?').get(moved).session_id, SESSION);
   assert.equal(db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get(SESSION).project_path, moved,
     '後継は同じ project の前任だけを合流させるので、sessions の project も移った先にそろえる');
 }));
@@ -117,8 +118,7 @@ test('PreCompact: CLAUDE_PROJECT_DIR が元の repository を指していても�
   assert.equal(result.status, 'requested');
   assert.equal(result.projectPath, worktree, '後継は、前任が動いていた作業ツリーで立てる');
   assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, worktree);
-  assert.equal(db.prepare('SELECT session_id FROM handoff_batons WHERE project_path = ?').get(worktree).session_id, SESSION,
-    '印も作業ツリーに書く。後継は同じ project の前任だけを合流させる');
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
 
   // 有効かどうかも、登録した project で決める
   rmSync(join(dir, `${SESSION}.json`));
@@ -131,13 +131,13 @@ test('PreCompact: CLAUDE_PROJECT_DIR が元の repository を指していても�
   assert.equal(request(dir, { db: registered(), ...adopted }).result.projectPath, repo);
 }));
 
-test('PreCompact: 自動圧縮で有効な時だけ、印と記録を残して圧縮を止める', () => withDir(dir => {
+test('PreCompact: 自動圧縮で有効な時だけ、記録を残して圧縮を止める。project ごとの印は書かない', () => withDir(dir => {
   const { result, db } = request(dir);
   assert.equal(result.status, 'requested');
   assert.equal(result.block, true);
   assert.equal(result.projectPath, '/work/app');
-  assert.deepEqual({ ...db.prepare('SELECT project_path, session_id, created_at FROM handoff_batons').get() },
-    { project_path: '/work/app', session_id: SESSION, created_at: 1_000 }, '/tl と同じ印');
+  // 後継は引き継ぎ ID で前任を引く（ADR 0053）。同じ project の別の会話が取れる印は残さない
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
   const record = readClaudeAutoHandoff(SESSION, dir);
   assert.equal(record.state, 'requested');
   assert.equal(record.handoff_id, result.handoffId);
@@ -145,7 +145,6 @@ test('PreCompact: 自動圧縮で有効な時だけ、印と記録を残して�
   // 同じ圧縮で hook が2回届いても、同じ引き継ぎのまま止め続ける
   const again = request(dir, { db, now: 6_000 }).result;
   assert.deepEqual([again.status, again.block, again.handoffId], ['already_requested', true, result.handoffId]);
-  assert.equal(db.prepare('SELECT created_at FROM handoff_batons').get().created_at, 1_000);
 
   // 有効判定は会話を起動した project で行う（cwd は Bash の cd に追従する）
   rmSync(join(dir, `${SESSION}.json`));
@@ -164,7 +163,6 @@ test('PreCompact: Windows の `C:/…` の形の project は、後継が印を�
   });
   assert.equal(result.status, 'requested');
   assert.equal(result.projectPath, 'C:\\Users\\k\\proj');
-  assert.equal(db.prepare('SELECT project_path FROM handoff_batons').get().project_path, 'C:\\Users\\k\\proj');
   assert.equal(readClaudeAutoHandoff(SESSION, dir).project_path, 'C:\\Users\\k\\proj');
 }));
 
@@ -224,18 +222,75 @@ test('PreCompact: 後継の会話が残っている引き継ぎの記録は、�
   };
   const kept = 'aaaaaaaa-0000-4000-8000-000000000011', moved = 'aaaaaaaa-0000-4000-8000-000000000012';
   const gone = 'aaaaaaaa-0000-4000-8000-000000000013', unconfirmed = 'aaaaaaaa-0000-4000-8000-000000000014';
-  const failed = 'aaaaaaaa-0000-4000-8000-000000000015';
+  const failed = 'aaaaaaaa-0000-4000-8000-000000000015', unconfirmedAlive = 'aaaaaaaa-0000-4000-8000-000000000016';
   // 後継の transcript が、旧い会話と同じフォルダにある。別の project のフォルダにある（会話を移していた時）。
   writeFileSync(join(projects, '-work-app', `${record(kept)}.jsonl`), '');
   writeFileSync(join(projects, '-moved-app', `${record(moved)}.jsonl`), '');
-  // 後継が消されている。受領を確かめられなかった（後継の session id が無い）。立ち上げに失敗した。
+  // 受領を確かめられなかった（後継の session id が無い）が、後継の transcript は残っている。後継は動いているので、記録を消さない
+  record(unconfirmedAlive, { state: 'unknown', successor: { short_id: 'dddddddd', session_id: null } });
+  writeFileSync(join(projects, '-moved-app', 'dddddddd-0000-4000-8000-000000000016.jsonl'), '');
+  // 後継が消されている。受領を確かめられず、後継の transcript も無い。立ち上げに失敗した。
   record(gone);
-  record(unconfirmed, { state: 'unknown', successor: { short_id: 'bbbbbbbb', session_id: null } });
+  record(unconfirmed, { state: 'unknown', successor: { short_id: 'cccccccc', session_id: null } });
   writeFileSync(join(projects, '-work-app', `${record(failed, { state: 'failed' })}.jsonl`), '');
   request(dir, { now });
-  assert.deepEqual(readdirSync(dir).filter(name => name.endsWith('.json')).sort(), [`${SESSION}.json`, `${kept}.json`, `${moved}.json`].sort());
+  assert.deepEqual(readdirSync(dir).filter(name => name.endsWith('.json')).sort(),
+    [`${SESSION}.json`, `${kept}.json`, `${moved}.json`, `${unconfirmedAlive}.json`].sort());
   // 残した記録の会話は、圧縮と道具を止め続ける。同じ会話から2つ目の後継は立たない。
   assert.equal(request(dir, { now, payload: { session_id: kept } }).result.status, 'already_requested');
+}));
+
+test('後継の最初の指示: 文の頭の引き継ぎ ID から前任を引く。引用・別の会話・後継が立つ前の記録では引かない', () => withDir(dir => {
+  const handoffId = '11111111-2222-4333-8444-555555555555';
+  const write = fields => writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2',
+    handoff_id: handoffId, source_session_id: SESSION, project_path: '/work/app', state: 'launching', successor: null, ...fields }));
+  const prompt = claudeContinuationInput({ handoff_id: handoffId });
+  const find = (overrides = {}) => findClaudeAutoContinuationSource({ prompt, successorSessionId: SUCCESSOR, dir, ...overrides });
+
+  write({});
+  assert.equal(find(), SESSION, '後継の ID が記録へ入る前（launching）でも、引き継ぎ ID で引ける');
+  write({ state: 'unknown', successor: { short_id: SUCCESSOR.slice(0, 8), session_id: null } });
+  assert.equal(find(), SESSION, '受領を確かめられなかった後でも引ける');
+  assert.equal(find({ successorSessionId: 'ffffffff-0000-4000-8000-000000000001' }), null, '記録の後継と違う会話は、後継と認めない');
+  assert.equal(find({ successorSessionId: SESSION }), null, '前任自身は後継ではない');
+  assert.equal(find({ prompt: `この文は何？\n${prompt}` }), null, '会話の途中で引用された文は、配送として扱わない');
+  assert.equal(find({ prompt: prompt.replace(handoffId, '99999999-2222-4333-8444-555555555555') }), null, '記録に無い引き継ぎ ID');
+  assert.equal(find({ prompt: null }), null);
+  for (const state of ['requested', 'failed']) {
+    write({ state });
+    assert.equal(find(), null, `${state}: 後継が立っていない記録`);
+  }
+}));
+
+test('今の続き: 引き継ぎの記録を先までたどり、後継の ID が記録に無い時は transcript の名前から引く', () => withDir(dir => {
+  const projects = join(dir, 'claude', 'projects');
+  mkdirSync(join(projects, '-work-app'), { recursive: true }); mkdirSync(join(projects, '-work-app-wt'), { recursive: true });
+  const a = 'aaaaaaaa-0000-4000-8000-000000000021', b = 'bbbbbbbb-0000-4000-8000-000000000022', c = 'cccccccc-0000-4000-8000-000000000023';
+  const record = (id, fields) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2',
+    handoff_id: `h-${id.slice(0, 8)}`, source_session_id: id, project_path: '/work/app', transcript_path: join(projects, '-work-app', `${id}.jsonl`),
+    requested_at: 1_000, updated_at: 2_000, error_code: null, ...fields }));
+  assert.deepEqual(resolveClaudeAutoHandoffSuccessor(a, { dir }),
+    { session_id: a, handed_off: false, current_session_id: a, chain: [], pending: null }, '記録が無い会話は、自分自身が今の続き');
+
+  // a → b（受領済み）→ c（受領を確かめられなかった。後継の transcript は別の project のフォルダにある）。c は引き継ぎを予約しただけ
+  record(a, { state: 'sent', successor: { short_id: 'bbbbbbbb', session_id: b } });
+  writeFileSync(join(projects, '-work-app', `${b}.jsonl`), '');
+  record(b, { state: 'unknown', error_code: 'handoff_delivery_unconfirmed', successor: { short_id: 'cccccccc', session_id: null } });
+  writeFileSync(join(projects, '-work-app-wt', `${c}.jsonl`), '');
+  record(c, { state: 'requested', successor: null });
+  const resolved = resolveClaudeAutoHandoffSuccessor(a, { dir });
+  assert.deepEqual([resolved.handed_off, resolved.current_session_id], [true, c]);
+  assert.deepEqual(resolved.chain.map(step => [step.source_session_id, step.successor_session_id, step.successor_short_id, step.state]),
+    [[a, b, 'bbbbbbbb', 'sent'], [b, c, 'cccccccc', 'unknown']]);
+  assert.deepEqual(resolved.pending, { handoff_id: 'h-cccccccc', source_session_id: c, state: 'requested', error_code: null, requested_at: 1_000, updated_at: 2_000 },
+    '予約だけの会話は、まだ止まっていない。今の続きはその会話のまま');
+  assert.equal(resolveClaudeAutoHandoffSuccessor(b, { dir }).current_session_id, c, '途中の会話から引いても同じ');
+
+  // 後継の transcript が見つからない時は、そこで止まる（分からない ID を作らない）
+  rmSync(join(projects, '-work-app-wt', `${c}.jsonl`));
+  const lost = resolveClaudeAutoHandoffSuccessor(a, { dir });
+  assert.deepEqual([lost.current_session_id, lost.chain.at(-1).successor_session_id, lost.chain.at(-1).successor_short_id], [b, null, 'cccccccc']);
+  assert.throws(() => resolveClaudeAutoHandoffSuccessor('../escape', { dir }), /auto_handoff_session_id_invalid/);
 }));
 
 test('PreToolUse: 記録のある会話の道具を実行させずに止め、止めた時点の依頼と設定を写して worker を1回だけ起動する', () => withDir(async dir => {
@@ -297,13 +352,12 @@ test('PreToolUse: worker を起動できなければ failed にし、次の道�
   assert.equal(readClaudeAutoHandoff(SESSION, dir).state, 'stopped');
 }));
 
-test('Stop: 圧縮を止めた後、道具を呼ばずにターンが終わったら記録を取り下げる（印は残す）', () => withDir(async dir => {
+test('Stop: 圧縮を止めた後、道具を呼ばずにターンが終わったら記録を取り下げる', () => withDir(async dir => {
   const { db } = request(dir);
   assert.equal(completeClaudeTurnWithoutHandoff({ sessionId: 'aaaaaaaa-0000-4000-8000-000000000009', dir }), false);
   assert.equal(completeClaudeTurnWithoutHandoff({ sessionId: `grok:${SESSION}`, dir }), false);
   assert.equal(completeClaudeTurnWithoutHandoff({ sessionId: SESSION, dir }), true);
   assert.equal(readClaudeAutoHandoff(SESSION, dir), null);
-  assert.equal(db.prepare('SELECT session_id FROM handoff_batons').get().session_id, SESSION);
 
   // 止めた後（worker が動いている）の記録は取り下げない
   request(dir);
@@ -336,6 +390,36 @@ const launchedOk = () => ({ status: 0, stdout: 'Starting background service…\n
 // 後継の最初の UserPromptSubmit。起動時に渡された指示で、受領を残す。worker が後継の ID を記録へ写す前に届く。
 const successorStarts = (dir, predecessorId = SESSION) => args => acceptClaudeAutoContinuation({
   predecessorId, successorSessionId: SUCCESSOR, prompt: args.at(-1), dir, now: 5_000 });
+
+test('worker: hook の payload に effort が無い時は、止めた時点の effort を transcript から読んで後継へ渡す', () => withDir(async dir => {
+  const transcriptPath = join(dir, 'transcript.jsonl');
+  const turn = (text, timestamp, effort, extra = {}) => ({ ...assistant(text, timestamp, 'claude-opus-5-5'), effort, perTurnEffort: effort, ...extra });
+  writeFileSync(transcriptPath, jsonl([
+    user('設計を見直して', '2026-10-11T00:35:00Z'),
+    turn('見直します。', '2026-10-11T00:35:10Z', 'medium'),
+    // 利用者が途中で effort を上げた。subagent の中の行は、会話の effort ではない
+    turn('続けます。', '2026-10-11T00:40:00Z', 'xhigh'),
+    turn('調べます。', '2026-10-11T00:40:05Z', 'low', { isSidechain: true }),
+    { type: 'assistant', message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'toolu_3', name: 'Read', input: { file_path: '/work/app/a.txt' } }] } },
+  ]));
+  const launch = async payload => {
+    rmSync(join(dir, `${SESSION}.json`), { force: true }); rmSync(join(dir, `${SESSION}.claim`), { force: true });
+    request(dir, { transcriptPath });
+    await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', transcript_path: transcriptPath, tool_use_id: 'toolu_3', ...payload },
+      dir, launchWorker: async () => {} });
+    const calls = [];
+    const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: { PATH: '/bin' }, acceptTimeoutMs: 50, pollMs: 10, transcriptTimeoutMs: 50,
+      spawn: (command, args) => { calls.push(args); return launchedOk(); } });
+    return { record, args: calls[0] };
+  };
+  const pick = args => ['--model', '--effort'].map(flag => args[args.indexOf(flag) + 1]);
+
+  const missing = await launch({});
+  assert.deepEqual(pick(missing.args), ['claude-opus-5-5', 'xhigh'], '最後の発言の effort（subagent の行は除く）');
+  assert.deepEqual([missing.record.settings.model, missing.record.settings.effort], ['claude-opus-5-5', 'xhigh']);
+  // payload に effort がある時は、その値を使う
+  assert.deepEqual(pick((await launch({ effort: { level: 'max' } })).args), ['claude-opus-5-5', 'max']);
+}));
 
 test('worker: 継続の指示を最初の指示として付けて後継を同じprojectに立て、後継の受領を待つ', () => withDir(async dir => {
   const { record, calls } = await runWorker(dir, { spawn: launchedOk, onLaunched: successorStarts(dir) });
@@ -1195,7 +1279,68 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
     [['manual', 'skipped', 'manual_compact'], ['auto', 'requested', null]]);
   assert.equal(decisions.filter(entry => entry.phase === 'pre-tool-use-stop').length, 1);
   const merged = decisions.find(entry => entry.phase === 'prompt-submit' && entry.merged);
-  assert.deepEqual([merged.triggered_path, merged.injection.auto_handoff_id], ['baton', record.handoff_id]);
+  assert.deepEqual([merged.triggered_path, merged.injection.auto_handoff_id], ['auto-handoff', record.handoff_id]);
+}));
+
+test('hook: 引き継ぎを予約してから止まるまでの間に、同じ project の別の会話が最初の指示を受けても、記憶は後継だけに入る', () => withDir(async home => {
+  // fox（Windows、0.16.23）で 2026-10-11 に起きた形。席の会話が 17:21 に引き継ぎを予約し、道具を使ったのは 19:43 だった。
+  // その間に、同じフォルダの別の会話が最初の指示を受けて project ごとの印を消し、後継へ記憶が1文字も入らなかった。
+  const project = join(home, 'project');
+  mkdirSync(project, { recursive: true });
+  const transcriptPath = join(home, 'transcript.jsonl');
+  const OTHER = 'cccccccc-1111-4222-8333-444444444444';
+  const extra = fakeClaudePath(home);
+  const hook = (command, payload, sessionId = SESSION) =>
+    cli(home, [command], JSON.stringify({ session_id: sessionId, cwd: project, transcript_path: transcriptPath, ...payload }), extra);
+
+  assert.equal(cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--json']).status, 0);
+  assert.equal(hook('session-start', { hook_event_name: 'SessionStart', source: 'startup' }).status, 0);
+  writeFileSync(transcriptPath, jsonl([
+    user('Windows の席として、アプリを入れ直して', '2026-10-11T08:20:00Z'),
+    assistant('入れ直します。', '2026-10-11T08:20:02Z'),
+    toolUse('toolu_7', 'Bash', { command: 'echo reinstall' }),
+  ]));
+  assert.equal(hook('pre-compact', { hook_event_name: 'PreCompact', trigger: 'auto' }).status, 2);
+
+  // 同じ project で、別の役の新しい会話が始まり、最初の指示を受ける
+  const otherPayload = { session_id: OTHER, cwd: project, transcript_path: join(home, 'other.jsonl') };
+  assert.equal(cli(home, ['session-start'], JSON.stringify({ ...otherPayload, hook_event_name: 'SessionStart', source: 'startup' }), extra).status, 0);
+  const other = cli(home, ['prompt-submit'], JSON.stringify({ ...otherPayload, hook_event_name: 'UserPromptSubmit', prompt: 'Bot の仕事を続けて' }), extra);
+  assert.equal(other.status, 0, other.stderr);
+  assert.doesNotMatch(other.stdout, /Windows の席として/, '別の会話へ、席の会話の記憶を入れない');
+
+  // 席の会話が道具を使い、止まる。後継が立ち、最初の指示（継続の指示）を受ける
+  assert.equal(JSON.parse(hook('pre-tool-use', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'toolu_7' }).stdout).continue, false);
+  const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
+  for (let i = 0; i < 100 && status()[0].state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
+  const recordFile = join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.json`);
+  const record = JSON.parse(readFileSync(recordFile, 'utf8'));
+  writeFileSync(recordFile, JSON.stringify({ ...record, state: 'launched', error_code: null, successor: { short_id: SUCCESSOR.slice(0, 8), session_id: null } }));
+  const successorPayload = { session_id: SUCCESSOR, cwd: project, transcript_path: join(home, 'successor.jsonl') };
+  assert.equal(cli(home, ['session-start'], JSON.stringify({ ...successorPayload, hook_event_name: 'SessionStart', source: 'startup' }), extra).status, 0);
+  const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
+    prompt: claudeContinuationInput(record) }), extra);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
+  assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: Windows の席として、アプリを入れ直して\n/);
+  assert.equal(existsSync(join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.accepted`)), true, '最初の指示が受領を残す');
+
+  const db = new DatabaseSync(join(home, '.throughline', 'throughline.db'));
+  assert.equal(db.prepare('SELECT merged_into FROM sessions WHERE session_id = ?').get(SESSION).merged_into, SUCCESSOR);
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
+  db.close();
+  const decisions = readFileSync(join(home, '.throughline', 'logs', 'inheritance-decision.log'), 'utf8').trim().split('\n').map(JSON.parse)
+    .filter(entry => entry.phase === 'prompt-submit');
+  assert.deepEqual(decisions.map(entry => [entry.session_id, entry.triggered_path, entry.merged]),
+    [[OTHER, null, false], [SUCCESSOR, 'auto-handoff', true]]);
+
+  // 今の続きを引く口（ほかの製品が、旧い会話あての連絡を付け替える時に使う）
+  writeFileSync(join(home, 'successor.jsonl'), '');
+  const resolved = JSON.parse(cli(home, ['auto-handoff', 'successor', '--host', 'claude', '--thread', SESSION, '--json']).stdout);
+  assert.deepEqual([resolved.schema, resolved.host, resolved.session_id, resolved.handed_off], ['throughline.claude_auto_handoff_successor.v1', 'claude', SESSION, true]);
+  assert.equal(resolved.chain[0].successor_short_id, SUCCESSOR.slice(0, 8));
+  const missing = cli(home, ['auto-handoff', 'successor', '--host', 'claude', '--json']);
+  assert.deepEqual([missing.status, JSON.parse(missing.stdout)], [1, { status: 'failed', code: 'auto_handoff_thread_required' }]);
 }));
 
 test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（CLAUDE_PROJECT_DIR は元の repository）に引き継いでも、後継は作業ツリーで立ち、記憶が入る', () => withDir(async home => {
