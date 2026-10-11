@@ -796,6 +796,16 @@ test('Stop: 受領を確かめられなかった引き継ぎ（unknown）でも�
     '受領を確かめられなかった事は、記録に残したままにする');
   assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), null, '2回目の Stop では起動しない');
 
+  // 移す process が、手すきを待ち切れずに戻った（fox の実物、2026-10-11 02:51）。記録には後継の session id が入っている。
+  // 次の Stop で、同じ記録からやり直す
+  const busy = await runClaudeDesktopOpen(SESSION, { dir, env: {}, pollMs: 10, idleTimeoutMs: 40, pty: () => { throw new Error('must not open'); },
+    spawn: (command, args) => { assert.equal(args[0], 'agents'); return { status: 0, stdout: JSON.stringify([{ id: SUCCESSOR.slice(0, 8), kind: 'background', status: 'busy' }]) }; } });
+  assert.deepEqual([busy.state, busy.desktop.state, busy.successor.session_id], ['unknown', null, SUCCESSOR]);
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: `${SUCCESSOR.slice(0, 8)}-0000-4000-8000-000000000009`, dir, launch }), null, '短い ID が同じでも、別の会話の Stop では動かない');
+  assert.equal(await requestClaudeDesktopOpen({ sessionId: SUCCESSOR, dir, launch }), `h-${SESSION}`, '戻った後の Stop でやり直す');
+  assert.deepEqual(launched, [SESSION, SESSION]);
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).desktop.state, 'requested');
+
   // 移す process は、その記録で後継を止めて Desktop で開く
   const calls = [];
   const opened = await runClaudeDesktopOpen(SESSION, { dir, env: {}, pollMs: 10, idleTimeoutMs: 500,

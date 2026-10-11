@@ -833,9 +833,10 @@ export async function requestClaudeDesktopOpen({ sessionId, transcriptPath = nul
   const waiting = listClaudeAutoHandoffs({ dir }).filter(item => item.desktop?.wanted && !item.desktop.state);
   // 受領を確かめられなかった引き継ぎ（unknown）は、後継の session id が記録に無い。その後継がターンを終えたなら、
   // 後継は動いている。裏の会話のまま残さず、同じように Desktop へ移す（ADR 0049）。
+  // 1回目の Stop で session id を記録へ入れるので、移せずに戻った後の Stop は、その id で同じ記録を見つける。
   const record = waiting.find(item => item.state === 'sent' && item.successor?.session_id === sessionId) ??
-    waiting.find(item => item.state === 'unknown' && !item.successor?.session_id &&
-      typeof item.successor?.short_id === 'string' && sessionId.startsWith(item.successor.short_id));
+    waiting.find(item => item.state === 'unknown' && typeof item.successor?.short_id === 'string' &&
+      (item.successor.session_id ? item.successor.session_id === sessionId : sessionId.startsWith(item.successor.short_id)));
   if (!record) return null;
   const successor = { ...record.successor, session_id: sessionId };
   if (typeof transcriptPath === 'string' && transcriptPath) successor.transcript_path = transcriptPath;

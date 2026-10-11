@@ -10,6 +10,28 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.21] — 2026-10-11
+
+### 修正
+
+- Claude Codeの自動継続で、受領を確かめられなかった引き継ぎ（`unknown`）の後継をClaude Desktopへ移す処理が、1回しか起きなかった（0.16.19で入れた処理の漏れ。[ADR 0049](docs/adr/0049-claude-handoff-uses-registered-project.md)）。1回目のStopで後継のsession idを記録へ入れるが、次のStopで記録を探す条件は「session idがまだ無い」だった。1回目に後継が手すきにならずに戻ると、その後のターンの終わりでは何も起きず、後継は裏の会話のまま残った。Windowsの実機で1回起きた（2026-10-10 23:43の引き継ぎ。1回目は10-11 02:51で、後継は保留の文で`waiting`だった。その後の09:10と10:03のターンの終わりでは、移す処理が起きなかった）。
+  - session idが記録にある時は、そのidが同じ会話のStopで、同じ記録からやり直す。短いIDの先頭一致で探すのは、session idがまだ無い時だけ。
+  - 受領が残った引き継ぎ（`sent`）の後継は、今までもやり直していた。変えていない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 直した。単体試験と、実機（Claude Code 2.1.289）。試験用の場所の記録と本物の`claude agents`で、0.16.20は戻った後のStopで何もせず、直した版は移すprocessをもう1回起こす事 | 記録を探す処理は同じ物なので直っている。単体試験と、実機（Claude Code 2.1.296）で同じ確認。ただしClaude Desktopへ移す処理は、Linuxでは起動しない（Claude Codeの`--desktop`が無い） | 直した。単体試験と、実機（Claude Code 2.1.296）で同じ確認。この失敗が起きた本物の記録を試験用の場所へ写した物でも、0.16.20は何もせず、直した版は移すprocessを起こす事 |
+| Codex | 変更なし（引き継ぎの部品が別。Desktopへ移す処理が無い） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 本物の引き継ぎで、受領を確かめられなかった後継が、2回目より後のStopでClaude Desktopへ移る所。0.16.19より後、受領を確かめられない引き継ぎは起きていない（狙って起こせない）。
+- この失敗が起きた会話（2026-10-10 23:43の後継）は、直す前に次の後継へ引き継いだ。作業は次の後継が続けていて、この会話はDesktopへ移さない。
+
 ## [0.16.20] — 2026-10-11
 
 ### 修正
@@ -2331,7 +2353,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.20...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.21...HEAD
+[0.16.21]: https://github.com/kitepon/Throughline/compare/v0.16.20...v0.16.21
 [0.16.20]: https://github.com/kitepon/Throughline/compare/v0.16.19...v0.16.20
 [0.16.19]: https://github.com/kitepon/Throughline/compare/v0.16.18...v0.16.19
 [0.16.18]: https://github.com/kitepon/Throughline/compare/v0.16.17...v0.16.18
