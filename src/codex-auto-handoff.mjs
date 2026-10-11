@@ -132,6 +132,12 @@ function recordInternalCompactionStop(entry) {
   appendFileSync(join(stateRoot(), 'internal-compactions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
+/** 記録（rollout）を持たない会話の自動圧縮を通した記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
+function recordUnrecordedCompactionPass(entry) {
+  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  appendFileSync(join(stateRoot(), 'unrecorded-compactions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
+
 /** 引き継ぎ済みの旧タスクを止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordAutoHandoffRedirect(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
@@ -186,10 +192,18 @@ function settleUndeliveredAutoHandoff(db, threadId, { rolloutPath, processes, re
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
   findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
-  recordInternalCompaction = recordInternalCompactionStop,
+  recordInternalCompaction = recordInternalCompactionStop, recordUnrecordedCompaction = recordUnrecordedCompactionPass,
   processes = readRuntimeProcesses, readTarget = targetState, now = Date.now() } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
+  // 記録（rollout）を持たない会話からの合図。Codex Desktop は、ターンの終わりや会話を開いた時に、画面に出ない会話を
+  // 自分で立てる（2026-10-11、macOS。`transcript_path` が null、会話の ID は引き継ぎ元でも引き継ぎ先でもない）。
+  // Throughline はその会話を記録していないので、引き継ぐ記憶が無く、後継も作れない。失敗にせず、圧縮にも手を出さない (ADR 0054)。
+  if (payload.transcript_path === null || payload.transcript_path === undefined) {
+    recordUnrecordedCompaction({ at: new Date(now).toISOString(), thread_id: identityText(threadId), turn_id: identityText(turnId),
+      model: identityText(payload.model) });
+    return { status: 'skipped', unrecordedThread: true };
+  }
   const located = CODEX_NATIVE_ID_PATTERN.test(threadId ?? '') &&
     typeof payload.transcript_path === 'string' && isAbsolute(payload.transcript_path) && isAbsolute(payload.cwd ?? '');
   // Codex が自分で作った内部の文脈（ターンの ID が `auto-compact-N`）からの圧縮。利用者のターンではないので、

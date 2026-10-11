@@ -339,6 +339,34 @@ test('タスクの今の続きを引く。先までたどり、消えた後継�
   void Z;
 }));
 
+test('記録（rollout）を持たない会話からの圧縮の合図は、失敗にせず、圧縮にも手を出さない。引き継ぎは作らない', async () => withDb(async (db, home) => {
+  // 2026-10-11 16:22 JST、macOS の Codex Desktop。会話の ID は引き継ぎ元でも引き継ぎ先でもなく、`transcript_path` が null だった
+  const payload = { trigger: 'auto', cwd: home, session_id: '01a129d6-fe64-7010-9c79-19fe3b82c64d', turn_id: '01a129d6-fed1-7662-8286-280519f8d9bf',
+    transcript_path: null, model: 'gpt-6.1-sol' };
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  let launched = 0; const passed = [], stopped = [];
+  const args = { db, config, payload, launchWorker: async () => { launched++; }, recordUnrecordedCompaction: entry => passed.push(entry),
+    recordInternalCompaction: entry => stopped.push(entry), now: Date.parse('2026-10-11T07:22:00.396Z') };
+  const result = await requestCodexAutoHandoff(args);
+  assert.deepEqual(result, { status: 'skipped', unrecordedThread: true }, '圧縮を止める指示（continue: false）を返さない');
+  assert.equal(launched, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM codex_handoffs').get().n, 0, '引き継ぎの行は作らない');
+  assert.deepEqual(passed, [{ at: '2026-10-11T07:22:00.396Z', thread_id: payload.session_id, turn_id: payload.turn_id, model: 'gpt-6.1-sol' }]);
+  assert.deepEqual(stopped, []);
+
+  // 項目そのものが無い時と、ターンの ID が内部の形の時も同じ。記号の混じる値は、記録へ中身を残さない
+  await requestCodexAutoHandoff({ ...args, payload: { trigger: 'auto', cwd: home, session_id: payload.session_id, turn_id: 'auto-compact-1', model: 'a model/with spaces' } });
+  assert.deepEqual(passed[1], { at: '2026-10-11T07:22:00.396Z', thread_id: payload.session_id, turn_id: 'auto-compact-1', model: 'text(19)' });
+  assert.deepEqual(stopped, []);
+
+  // 記録の場所が相対の時は、今までどおり失敗（記録を持つはずの会話で、場所だけが不正）
+  await assert.rejects(requestCodexAutoHandoff({ ...args, payload: { ...payload, transcript_path: 'relative/rollout.jsonl' } }), /handoff_hook_identity_invalid/);
+  // 無効な project と手動の圧縮は、記録も残さない
+  assert.equal((await requestCodexAutoHandoff({ ...args, config: { ...config, projects: ['/other'] } })).status, 'skipped');
+  assert.equal((await requestCodexAutoHandoff({ ...args, payload: { ...payload, trigger: 'manual' } })).status, 'skipped');
+  assert.equal(passed.length, 2);
+}));
+
 test('Codexの内部の文脈（auto-compact-N）からの圧縮は、例外にせず止めて記録する。引き継ぎは作らない', async () => withDb(async (db, home) => {
   const thread = '11111111-1111-1111-1111-111111111111';
   const file = join(home, 'rollout.jsonl'); writeFileSync(file, '');
@@ -360,16 +388,16 @@ test('Codexの内部の文脈（auto-compact-N）からの圧縮は、例外に�
 
   // 形の決まっていない ID と、場所の分からない呼び出しは、今までどおり失敗として扱う
   for (const broken of [{ turn_id: 'something-else' }, { turn_id: undefined }, { turn_id: 'auto-compact-' }, { session_id: 'not-a-uuid' },
-    { transcript_path: null }, { transcript_path: 'relative/rollout.jsonl' }]) {
+    { transcript_path: 'relative/rollout.jsonl' }]) {
     await assert.rejects(requestCodexAutoHandoff({ ...args, payload: { ...payload, ...broken } }), /handoff_hook_identity_invalid/);
   }
   assert.equal(recorded.length, 1);
 
   // 失敗には、どの値が不正だったかの形を付ける。path と記号の混じる値は、中身を残さない
-  const shaped = await requestCodexAutoHandoff({ ...args, payload: { ...payload, turn_id: 'something else', transcript_path: null,
+  const shaped = await requestCodexAutoHandoff({ ...args, payload: { ...payload, turn_id: 'something else', transcript_path: 'relative/rollout.jsonl',
     agent_type: 'reviewer', model: 'gpt-5.5' } }).catch(error => error);
   assert.equal(shaped.code, 'handoff_hook_identity_invalid');
-  assert.deepEqual(shaped.hookIdentity, { session_id: thread, turn_id: 'text(14)', transcript_path: 'null', cwd: 'absolute',
+  assert.deepEqual(shaped.hookIdentity, { session_id: thread, turn_id: 'text(14)', transcript_path: 'relative(22)', cwd: 'absolute',
     agent_id: 'undefined', agent_type: 'reviewer', model: 'gpt-5.5', trigger: 'auto' });
   assert.deepEqual(hookIdentityShape({ session_id: thread, turn_id: 'auto-compact-', transcript_path: 'relative/rollout.jsonl', cwd: 7 }),
     { session_id: thread, turn_id: 'auto-compact-', transcript_path: 'relative(22)', cwd: 'number',

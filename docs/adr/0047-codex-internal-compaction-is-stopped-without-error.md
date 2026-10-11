@@ -53,3 +53,10 @@ Codex は、利用者のターンとは別に、自分で作る内部の文脈�
 - 0.16.18 で、この失敗の行へ合図の形（`identity`。ID・種類・絶対 path かどうか）を残す。次に起きた行を読んで、
   扱いを決める。この ADR の Decision 1〜4 は、それまで変えない。
 
+## 追記（2026-10-12）
+
+0.16.23 の macOS の実機で、形の付いた失敗が2回出た（2026-10-11 16:22:00 と 16:23:01）。不正だったのは `transcript_path`
+（null）で、ターンの ID は UUID だった。合図の会話は、引き継ぎ元でも引き継ぎ先でもない、Codex Desktop が自分で立てた
+記録なしの会話だった。扱いは [ADR 0054](0054-codex-compaction-of-thread-without-rollout-is-left-alone.md) で決めた。
+この ADR の Decision 1〜4（記録を持つ会話の、ターンの ID が `auto-compact-N` の合図）は変えていない。実機でその形が
+来た事は、まだ無い（macOS の実機に `internal-compactions.jsonl` は出来ていない）。

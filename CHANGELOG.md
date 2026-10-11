@@ -10,6 +10,32 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.25] — 2026-10-12
+
+### 修正
+
+- **macOSのCodex Desktopで、引き継ぎのたびに`handoff_hook_identity_invalid`の失敗が記録されていた**（[ADR 0054](docs/adr/0054-codex-compaction-of-thread-without-rollout-is-left-alone.md)）。引き継ぎそのものは成功していた。0.16.18で失敗の行へ残すようにした合図の形を、2026-10-11の2回（0.16.23）で読めた。
+  - 合図は、引き継ぎ元でも引き継ぎ先でもない会話から来ていた。記録の場所（`transcript_path`）がnullで、会話のIDとターンのIDは正しい形。Codex Desktopのログでは、Desktop自身が立てた、画面に出ない会話（MCPが起動し、ターンが始まって終わる。画面の側は「unknown conversation」として受ける）。旧タスクのターンが止まった直後と、後継の画面を開いた直後に1つずつ出来て、最初のターンで自動圧縮を始めていた。
+  - Throughlineは、これを失敗として記録し、その会話のターンを止めていた。
+  - 直した後は、`PreCompact(auto)`の合図に記録の場所が無い時、引き継ぎの対象にしない。失敗にせず、圧縮を止める指示も返さない。通した事を`~/.throughline/codex-auto-handoff/unrecorded-compactions.jsonl`へ1行残す（時刻・会話のID・ターンのID・モデル名）。
+  - 記録の場所が相対pathの時と、記録を持つ会話の扱いは変えていない。
+  - 0.16.14（[ADR 0047](docs/adr/0047-codex-internal-compaction-is-stopped-without-error.md)）が想定した形（ターンのIDが`auto-compact-N`）は、実機ではまだ来ていない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Codex | 直した。起きた端末。単体試験と、実機で本物のhookの命令へ起きた形の合図を渡した（入っていた0.16.24は失敗を記録して`continue: false`。この版は何も出力せず、失敗の記録は増えない）。本物のCodex Desktopの引き継ぎでは、まだ通していない | 直した。同じ確認。実機でこの失敗が起きた事は無い | 直した。同じ確認。実機でこの失敗が起きた事は無い |
+| Claude Code | 変更なし（この失敗はCodexの`PreCompact`だけが出す。Claude Codeの会話は必ず記録を持つ） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 本物のCodex Desktopが、記録なしの会話から合図を出す場面での、この版の動き。狙って起こせない。次のmacOSの引き継ぎで、失敗ログが増えず、`unrecorded-compactions.jsonl`に行が出る事で確かめる。
+- Codex Desktopが、その会話を何に使っているか。Throughlineが止めていた間に、Desktopの側で欠けていた物があったかも分かっていない。
+- 2026-10-10の5回（0.16.12と0.16.16）は、失敗の行に形が残っていない。同じ検査・同じ場面だが、同じ形だったとは確かめられない。
+
 ## [0.16.24] — 2026-10-11
 
 ### 修正
@@ -2435,7 +2461,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.24...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.25...HEAD
+[0.16.25]: https://github.com/kitepon/Throughline/compare/v0.16.24...v0.16.25
 [0.16.24]: https://github.com/kitepon/Throughline/compare/v0.16.23...v0.16.24
 [0.16.23]: https://github.com/kitepon/Throughline/compare/v0.16.22...v0.16.23
 [0.16.22]: https://github.com/kitepon/Throughline/compare/v0.16.21...v0.16.22
