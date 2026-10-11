@@ -10,6 +10,31 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.22] — 2026-10-11
+
+### 変更
+
+- **Claude Codeの自動継続で、後継をClaude Desktopへ移す処理を、既定で無効にした**（[ADR 0051](docs/adr/0051-claude-successor-desktop-move-is-opt-in.md)）。後継は裏の会話のまま残り、リモートコントロール（claude.ai/codeとClaudeのアプリ）、`claude agents`、`claude attach <id>`で見られる。Claude Desktopの一覧には出ない。
+  - 今までは、Claude Desktopから始まった会話の後継がターンを終えるたびに、`claude stop`で止めて`claude --desktop --resume`で開き直していた。Windowsの実機で2026-10-11に2回（10:31、10:39）、オーナーがスマホから話している最中の会話が消えた。止めると、起動時に付けたリモートコントロールの接続が切れ、移った先のDesktopの会話ではリモートコントロールが有効になっていなかった。1回目は、会話が裏で走らせていた命令（`run_in_background`）も一緒に止まった。作業ツリーで作業していた会話は、開き直した後のcwdが元のrepositoryになった。
+  - 0.16.20（保留の文を持つ後継も移す）で、それまで移らなかった会話が移るようになり、この2回が起きた。保留の文が無い会話では、0.16.8（macOS）と0.16.9（Windows）から同じ事が起きていた。
+  - 環境変数`THROUGHLINE_AUTO_HANDOFF_OPEN`を`origin`にすると、今までの既定（Desktopから始まった会話の後継だけ移す）で動く。`desktop`は出どころに関係なく移す。未設定とそれ以外の値は移さない。
+  - 0.16.21までの版が「移す」と記録した引き継ぎの後継も、有効にしていなければ移さない。
+- 旧い会話を止めた理由の文を直した。移さない時は「後継の会話は裏で作業を続けます」と書き、リモートコントロール付きの時はその事も書く。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code | 止めた。単体試験と、実機（Claude Code 2.1.289）。試験用の場所の記録で、入っていた0.16.20は移すprocessを起こし、この版は未設定では起こさず（記録も変えない）、`origin`では起こす事 | 元から移す処理が動かない（Claude Codeの`--desktop`が無い）。単体試験と、実機（2.1.296）で、記録を探す処理が同じ結果になる事 | 止めた。単体試験と、実機（Claude Code 2.1.296）で同じ確認。今日消えた会話を移した本物の記録の写しでも、未設定では起こさない事 |
+| Codex | 変更なし（Desktopへ移す処理が無い。後継は最初からCodex Desktopのタスク） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- この版での本物の引き継ぎ。後継がターンを終えても裏の会話のまま残り、スマホから見え続ける所。
+- 0.16.21までに移した会話（Desktopの会話になっている）へ、リモートコントロールを付け直す方法。
+
 ## [0.16.21] — 2026-10-11
 
 ### 修正
@@ -2353,7 +2378,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.21...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.22...HEAD
+[0.16.22]: https://github.com/kitepon/Throughline/compare/v0.16.21...v0.16.22
 [0.16.21]: https://github.com/kitepon/Throughline/compare/v0.16.20...v0.16.21
 [0.16.20]: https://github.com/kitepon/Throughline/compare/v0.16.19...v0.16.20
 [0.16.19]: https://github.com/kitepon/Throughline/compare/v0.16.18...v0.16.19

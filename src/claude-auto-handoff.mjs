@@ -60,7 +60,7 @@ const PER_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_ME
 
 // Claude Desktop の画面から始まった会話が transcript に持つ印。
 const DESKTOP_ENTRYPOINT = 'claude-desktop';
-// 後継を Desktop で開くかを、会話の出どころに関係なく決める（`desktop` で必ず開く、`off` で開かない）。
+// 後継を Desktop へ移すか。既定は移さない（ADR 0051）。`origin` は Desktop から始まった会話の後継だけ、`desktop` は出どころに関係なく移す。
 const OPEN_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_OPEN';
 // 後継をリモートコントロール付きで立てるかの上書き。`on` は出どころに関係なく付け、`off` は付けない。
 const REMOTE_CONTROL_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL';
@@ -214,14 +214,26 @@ function readLatestEntrypoint(transcriptPath) {
 }
 
 /**
- * この会話の後継を、Claude Desktop で開くか。
- * Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ開く。端末から始めた会話の後継は
+ * 後継を Claude Desktop へ移す処理を、利用者が有効にしているか（ADR 0051）。既定は無効。
+ * 移す時は、裏の会話を `claude stop` で止めて Desktop で開き直す。止めると、その会話のリモートコントロールの接続が切れ
+ * （スマホと claude.ai/code から会話が消える）、裏で走らせていた命令も止まる。利用者が話している最中の会話でも起きる。
+ * `THROUGHLINE_AUTO_HANDOFF_OPEN` が `origin`（Desktop から始まった会話の後継だけ）か `desktop`（出どころに関係なく）の時だけ移す。
+ */
+function desktopOpenMode(env) {
+  const mode = env[OPEN_OVERRIDE_ENV];
+  return mode === 'origin' || mode === 'desktop' ? mode : 'off';
+}
+
+/**
+ * この会話の後継を、Claude Desktop で開くか。既定では開かない（ADR 0051）。
+ * `origin` の時は、Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ開く。端末から始めた会話の後継は
  * `claude agents` の一覧に出るので、Desktop へは移さない。Claude Code の `--desktop` があるのは macOS と Windows だけ
  * （Linux は `--desktop isn't available on this platform` で断る）。
  */
 function openInDesktopWanted({ sessionId, transcriptPath, env, dir, platform }) {
-  if (!['darwin', 'win32'].includes(platform) || env[OPEN_OVERRIDE_ENV] === 'off') return false;
-  if (env[OPEN_OVERRIDE_ENV] === 'desktop') return true;
+  const mode = desktopOpenMode(env);
+  if (!['darwin', 'win32'].includes(platform) || mode === 'off') return false;
+  if (mode === 'desktop') return true;
   if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
   return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.desktop?.wanted);
 }
@@ -531,9 +543,9 @@ function stopOutput(record) {
     ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
     : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
       (record.desktop?.wanted
-        ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。' +
-          (record.remote_control?.wanted ? '後継はリモートコントロール付きで立てるので、claude.ai/code とClaudeのアプリからも見られます。' : '')
-        : '後継の会話は `claude agents` の一覧に出ます。');
+        ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。'
+        : '後継の会話は裏で作業を続けます。`claude agents` の一覧に出ます。') +
+      (record.remote_control?.wanted ? '後継はリモートコントロール付きで立てるので、claude.ai/code とClaudeのアプリからも見られます。' : '');
   return {
     continue: false,
     stopReason: reason,
@@ -821,13 +833,15 @@ export async function launchClaudeDesktopOpen(sessionId, { dir = claudeAutoHando
 
 /**
  * 後継の Stop hook から呼ぶ。Claude Desktop で開く引き継ぎの後継が、ターンを終えた。
- * その会話を Desktop へ移す process を起動する。対象でない会話には何もしない（null）。
+ * その会話を Desktop へ移す process を起動する。対象でない会話と、移す処理が無効（既定）の時は何もしない（null）。
  * `transcriptPath` は、その後継の transcript（Stop の payload の値）。移す process が、ターンが終わっているかを読む（ADR 0050）。
  *
  * @returns {Promise<string|null>} 起動した時は、その引き継ぎ ID
  */
-export async function requestClaudeDesktopOpen({ sessionId, transcriptPath = null, dir = claudeAutoHandoffDir(), launch = launchClaudeDesktopOpen }) {
+export async function requestClaudeDesktopOpen({ sessionId, transcriptPath = null, dir = claudeAutoHandoffDir(), launch = launchClaudeDesktopOpen, env = process.env }) {
   if (!validSessionId(sessionId)) return null;
+  // 既定では移さない。0.16.21 までの版が「移す」と記録した引き継ぎの後継も、利用者が有効にしていなければ移さない（ADR 0051）。
+  if (desktopOpenMode(env) === 'off') return null;
   // この会話自身が引き継ぎの途中なら、作業は次の後継が続ける。移すのは、最後に作業を終えた後継だけ。
   if (readJson(recordPath(sessionId, dir))) return null;
   const waiting = listClaudeAutoHandoffs({ dir }).filter(item => item.desktop?.wanted && !item.desktop.state);
