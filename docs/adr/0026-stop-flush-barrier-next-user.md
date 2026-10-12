@@ -58,3 +58,8 @@ latest user group は次の turn になっていて、assistant 本文はまだ�
 
 L1 の要約が走る Stop では、L3 の抽出が transcript を読み直すまでに数秒かかる。その間に次の turn が本文を
 書くと、L3 が次の turn の行から取られる可能性がある。コードを読んだ見立てで、再現は確かめていない。
+
+## 追記（2026-10-12、ADR 0055）
+
+Decision 5（2つ以上前の group は見ない）は、待っていた入力が2通以上続けて届く形を落としていた。ADR 0055 で、
+assistant 断片の無い group を飛ばして探すように変えた。assistant 断片を持つ group を2つ以上遡らない事は変えていない。

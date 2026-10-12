@@ -65,3 +65,8 @@ Grok 1.0.4 バイナリの hook 出力型は `GateHookJson`（PreToolUse deny/up
 2026-08-17 実機受入: `grok:01a00ff1-3f97-70e2-ba76-5acd90561a84` の `/tl` が
 `c01a2689-5b4f-4977-97ce-f73fcf317f94` を Dotagents 棚に立て、初手末尾は待機、
 後継は待って止まった。v0.10.0 で公開。
+
+## 追記（2026-10-12、ADR 0056）
+
+Grok は自動圧縮で `chat_history.jsonl` を書き直す。位置だけで保存済みを決めると、圧縮をまたいだターンが落ちる。
+Grok が自分で書く user 行（`compaction_meta`・`system_reminder`）の扱いと合わせて、ADR 0056 で直した。

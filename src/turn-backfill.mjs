@@ -20,6 +20,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { hostAdapterForSessionId } from './hosts/index.mjs';
 import {
   extractDetailBlocks,
   getLogicalTurnGroups,
@@ -58,6 +59,98 @@ export function deriveTranscriptPath(projectPath, sessionId) {
 }
 
 /**
+ * 書き直される transcript の、世代1つぶんの turn_number の幅（ADR 0056）。
+ * 世代 g のターンは `g * TRANSCRIPT_GENERATION_SPAN + transcript 内の位置` で保存する。世代 0 は今までの番号と同じ。
+ */
+export const TRANSCRIPT_GENERATION_SPAN = 1_000_000;
+
+/**
+ * host が transcript を書き直す会話（Grok の自動圧縮・巻き戻し）の回収 (ADR 0056)。
+ *
+ * turn_number は transcript 内の位置なので、書き直された後の位置は、保存済みの別のターンの番号と重なる。
+ * 位置だけで「保存済み」を決めると、書き直しをまたいだターンを飛ばす。ここでは本文も比べる。
+ *
+ *   - 保存済みか: どれかの世代で、群の断片と同じ位置に、同じ本文の assistant 行がある。
+ *   - 書き直されたか: 今の世代で保存した assistant 行のうち、transcript の同じ位置に同じ本文が無い行がある。
+ *     その時は次の世代へ進み、保存していない群を新しい世代の番号で入れる。
+ *
+ * 世代は保存済みの turn_number から読める（`floor(turn_number / SPAN)`）ので、別の置き場を持たない。
+ */
+function backfillRewritableTranscript(db, { targetSessionId, originSessionId, groups, now }) {
+  const stored = new Map();
+  let currentGeneration = 0;
+  for (const row of db
+    .prepare(`SELECT turn_number, text FROM bodies WHERE origin_session_id = ? AND role = 'assistant'`)
+    .all(originSessionId)) {
+    stored.set(row.turn_number, row.text);
+    currentGeneration = Math.max(currentGeneration, Math.floor(row.turn_number / TRANSCRIPT_GENERATION_SPAN));
+  }
+  const generations = Array.from({ length: currentGeneration + 1 }, (_, index) => currentGeneration - index);
+
+  const fragmentAt = new Map();
+  for (const g of groups) for (const f of g.fragments) fragmentAt.set(f.index, f.content);
+  const currentBase = currentGeneration * TRANSCRIPT_GENERATION_SPAN;
+  const rewritten = [...stored].some(([turnNumber, text]) =>
+    turnNumber >= currentBase && fragmentAt.get(turnNumber - currentBase) !== text);
+  const writeBase = (rewritten ? currentGeneration + 1 : currentGeneration) * TRANSCRIPT_GENERATION_SPAN;
+
+  /** 保存済みの群なら、その行の turn_number。断片が複数の行に当たる時は、最後の行。 */
+  const storedTurnNumber = (g) => {
+    for (const generation of generations) {
+      const base = generation * TRANSCRIPT_GENERATION_SPAN;
+      for (let index = g.fragments.length - 1; index >= 0; index--) {
+        const f = g.fragments[index];
+        if (stored.get(base + f.index) === f.content) return base + f.index;
+      }
+    }
+    return null;
+  };
+
+  const insertBody = db.prepare(
+    `INSERT OR IGNORE INTO bodies
+       (session_id, origin_session_id, turn_number, role, text, token_count, created_at, turn_start)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  let insertedTurns = 0;
+  let skippedExisting = 0;
+  const turnNumbers = [];
+
+  db.exec('BEGIN');
+  try {
+    for (const g of groups) {
+      const existing = storedTurnNumber(g);
+      if (existing !== null) {
+        skippedExisting++;
+        turnNumbers.push(existing);
+        continue;
+      }
+      const turnNumber = writeBase + g.representative.index;
+      const assistantAt = g.representative.timestamp ?? now;
+      const userAt = g.user.timestamp ?? assistantAt;
+      insertBody.run(targetSessionId, originSessionId, turnNumber, 'user', g.user.content,
+        Math.round(g.user.content.length / 4), userAt, g.user.start);
+      insertBody.run(targetSessionId, originSessionId, turnNumber, 'assistant', g.representative.content,
+        Math.round(g.representative.content.length / 4), assistantAt, null);
+      insertedTurns++;
+      turnNumbers.push(turnNumber);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  return {
+    groups: groups.length,
+    insertedTurns,
+    skippedExisting,
+    lastTurnNumber: turnNumbers.at(-1),
+    turnNumbers,
+    rewritten,
+  };
+}
+
+/**
  * transcript の未捕捉完了ターンを bodies へ回収する。
  *
  * @param {import('node:sqlite').DatabaseSync} db
@@ -72,6 +165,9 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
   const groups = getLogicalTurnGroups(transcriptPath);
   if (groups.length === 0) {
     return { groups: 0, insertedTurns: 0, skippedExisting: 0, lastTurnNumber: null, turnNumbers: [] };
+  }
+  if (hostAdapterForSessionId(originSessionId).rewritesTranscript) {
+    return backfillRewritableTranscript(db, { targetSessionId, originSessionId, groups, now });
   }
 
   const existing = new Set(

@@ -66,6 +66,7 @@ test('every host adapter satisfies the shared hook contract', () => {
     assert.equal(typeof adapter.host, 'string');
     assert.equal(adapter.matchesSessionId(sessionId), true);
     assert.equal(typeof adapter.waitsForStopTranscriptFlush, 'boolean');
+    assert.equal(typeof adapter.rewritesTranscript, 'boolean');
     assert.equal(typeof adapter.consumesHandoffAtSessionStart, 'boolean');
     assert.equal(typeof adapter.deliverHandoffInjection, 'function');
     assert.equal(typeof adapter.resolveCommandPrompt, 'function');
@@ -78,6 +79,11 @@ test('flush barrier applies to claude and codex sessions, not grok or cursor', (
   assert.equal(hostAdapterForSessionId('codex:t1').waitsForStopTranscriptFlush, true);
   assert.equal(hostAdapterForSessionId('grok:t1').waitsForStopTranscriptFlush, false);
   assert.equal(hostAdapterForSessionId('cursor:t1').waitsForStopTranscriptFlush, false);
+  // transcript を書き直すと分かっている host は Grok だけ（ADR 0056）。
+  assert.equal(hostAdapterForSessionId('claude-session').rewritesTranscript, false);
+  assert.equal(hostAdapterForSessionId('codex:t1').rewritesTranscript, false);
+  assert.equal(hostAdapterForSessionId('grok:t1').rewritesTranscript, true);
+  assert.equal(hostAdapterForSessionId('cursor:t1').rewritesTranscript, false);
 });
 
 test('only Cursor consumes handoff at sessionStart', () => {

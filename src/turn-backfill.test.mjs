@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { backfillBodies, captureInFlightTurn, deriveTranscriptPath } from './turn-backfill.mjs';
+import { backfillBodies, captureInFlightTurn, deriveTranscriptPath, TRANSCRIPT_GENERATION_SPAN } from './turn-backfill.mjs';
 
 function makeDb() {
   const db = new DatabaseSync(':memory:');
@@ -292,6 +292,159 @@ function withDetails(db) {
 
 const toolUse = (id, name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
 const toolResult = (id, content) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
+
+// --- host が書き直す transcript（Grok。ADR 0056） ---
+
+const GROK = 'grok:11111111-2222-3333-4444-555555555555';
+const grokUser = (text, extra = {}) => ({ type: 'user', content: [{ type: 'text', text }], ...extra });
+const grokAssistant = (text) => ({ type: 'assistant', content: text, model_id: 'm' });
+const grokSystem = { type: 'system', content: 'system prompt' };
+const storedRows = (db) => db
+  .prepare('SELECT turn_number, role, text FROM bodies ORDER BY turn_number, role DESC')
+  .all()
+  .map((row) => `${row.turn_number}${row.role[0]}=${row.text}`);
+const grokBackfill = (db, entries) =>
+  withData(entries, (path) => backfillBodies(db, { targetSessionId: GROK, originSessionId: GROK, transcriptPath: path, now: 999 }));
+
+const GROK_BEFORE_COMPACTION = [
+  grokSystem,
+  grokUser('preamble'),
+  grokUser('reminder', { synthetic_reason: 'system_reminder' }),
+  grokUser('request 1', { prompt_index: 0 }),
+  grokAssistant('working 1'),
+  grokAssistant('answer 1'), // 4
+  grokUser('request 2', { prompt_index: 1 }),
+  grokAssistant('working 2'),
+  grokAssistant('working 2b'),
+  grokAssistant('answer 2'), // 8
+];
+// 圧縮の後。位置 4〜9 に、圧縮をまたいだターンの断片が並ぶ。位置 4 と 8 は保存済みの番号と重なる。
+const grokAfterCompaction = (fragments) => [
+  grokSystem,
+  grokUser('summary', { synthetic_reason: 'compaction_meta' }),
+  grokUser('line kept by the compaction'),
+  grokUser('continue', { synthetic_reason: 'compaction_meta' }),
+  grokUser('reminder', { synthetic_reason: 'system_reminder' }),
+  ...fragments.map(grokAssistant),
+];
+
+test('backfillBodies: Grok が圧縮で書き直した後のターンは、番号が保存済みのターンと重なっても、新しい世代の番号で保存する', () => {
+  const db = makeDb();
+  const first = grokBackfill(db, GROK_BEFORE_COMPACTION);
+  assert.deepEqual(first.turnNumbers, [4, 8]);
+  assert.equal(first.rewritten, false);
+
+  // 代表ではない断片（位置 8）だけが保存済みの番号と重なる形。直す前は、群を飛ばした後に受領で失敗した。
+  const after = grokAfterCompaction(['after 1', 'after 2', 'after 3', 'after 4', 'after 5', 'answer 3']);
+  const second = grokBackfill(db, after);
+  const span = TRANSCRIPT_GENERATION_SPAN;
+  assert.deepEqual(
+    { groups: second.groups, insertedTurns: second.insertedTurns, skippedExisting: second.skippedExisting, rewritten: second.rewritten },
+    { groups: 1, insertedTurns: 1, skippedExisting: 0, rewritten: true },
+  );
+  assert.deepEqual(second.turnNumbers, [span + 9]);
+  assert.equal(second.lastTurnNumber, span + 9);
+  assert.deepEqual(storedRows(db), [
+    '4u=request 1', '4a=answer 1', '8u=request 2', '8a=answer 2',
+    `${span + 9}u=line kept by the compaction`, `${span + 9}a=answer 3`,
+  ]);
+
+  // 同じ transcript をもう一度読んでも増えず、世代も進まない。
+  const again = grokBackfill(db, after);
+  assert.deepEqual(
+    { insertedTurns: again.insertedTurns, skippedExisting: again.skippedExisting, rewritten: again.rewritten, turnNumbers: again.turnNumbers },
+    { insertedTurns: 0, skippedExisting: 1, rewritten: false, turnNumbers: [span + 9] },
+  );
+
+  // 次のターンは同じ世代の続きの番号で入る。
+  const next = grokBackfill(db, [...after, grokUser('request 4', { prompt_index: 3 }), grokAssistant('answer 4')]);
+  assert.deepEqual(next.turnNumbers, [span + 9, span + 11]);
+  assert.equal(next.insertedTurns, 1);
+  assert.equal(next.rewritten, false);
+});
+
+test('backfillBodies: Grok の書き直し後に、代表の断片の番号が保存済みのターンと重なっても、黙って落とさない', () => {
+  const db = makeDb();
+  grokBackfill(db, GROK_BEFORE_COMPACTION);
+  // 代表（位置 8）が、保存済みの「answer 2」の番号と重なる形。直す前は、失敗も出さずに落としていた。
+  const result = grokBackfill(db, grokAfterCompaction(['after 1', 'after 2', 'after 3', 'after 4', 'answer 3']));
+  assert.equal(result.insertedTurns, 1);
+  assert.deepEqual(result.turnNumbers, [TRANSCRIPT_GENERATION_SPAN + 8]);
+  assert.equal(
+    db.prepare(`SELECT text FROM bodies WHERE turn_number = ? AND role = 'assistant'`).get(TRANSCRIPT_GENERATION_SPAN + 8).text,
+    'answer 3',
+  );
+  assert.equal(db.prepare(`SELECT text FROM bodies WHERE turn_number = 8 AND role = 'assistant'`).get().text, 'answer 2');
+});
+
+test('backfillBodies: Grok の2回目の書き直しは、さらに次の世代の番号になる', () => {
+  const db = makeDb();
+  const span = TRANSCRIPT_GENERATION_SPAN;
+  grokBackfill(db, GROK_BEFORE_COMPACTION);
+  grokBackfill(db, grokAfterCompaction(['after 1', 'answer 3'])); // 世代 1 の位置 5
+  const third = grokBackfill(db, grokAfterCompaction(['later 1', 'later 2', 'answer 5']));
+  assert.equal(third.rewritten, true);
+  assert.deepEqual(third.turnNumbers, [2 * span + 6]);
+  assert.deepEqual(storedRows(db).filter((row) => row.includes('a=')), [
+    '4a=answer 1', '8a=answer 2', `${span + 5}a=answer 3`, `${2 * span + 6}a=answer 5`,
+  ]);
+});
+
+test('backfillBodies: Grok の巻き戻しで後ろだけが変わった時、変わっていないターンは重ねて入れない', () => {
+  const db = makeDb();
+  grokBackfill(db, GROK_BEFORE_COMPACTION);
+  // 「request 2」より後ろを巻き戻して、別の依頼をした。位置 6〜7 に別の本文が入る。
+  const rewound = [...GROK_BEFORE_COMPACTION.slice(0, 6), grokUser('request 2 again', { prompt_index: 1 }), grokAssistant('working'), grokAssistant('new answer 2')];
+  const result = grokBackfill(db, rewound);
+  assert.deepEqual(
+    { insertedTurns: result.insertedTurns, skippedExisting: result.skippedExisting, rewritten: result.rewritten },
+    { insertedTurns: 1, skippedExisting: 1, rewritten: true },
+  );
+  assert.deepEqual(result.turnNumbers, [4, TRANSCRIPT_GENERATION_SPAN + 7]);
+  assert.deepEqual(storedRows(db).filter((row) => row.includes('a=')), [
+    '4a=answer 1', '8a=answer 2', `${TRANSCRIPT_GENERATION_SPAN + 7}a=new answer 2`,
+  ]);
+});
+
+test('backfillBodies: Grok の合成行を user として保存していた頃のターンは、群がまとまっても重ねて入れない', () => {
+  const db = makeDb();
+  // 直す前は、ターンの途中の system_reminder が群を2つに割っていた（代表は位置 3 と 5）。
+  const insert = db.prepare(`INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, created_at) VALUES (?, ?, ?, ?, ?, 1)`);
+  for (const [turn, role, text] of [[3, 'user', 'request 1'], [3, 'assistant', 'working 1'], [5, 'user', 'reminder'], [5, 'assistant', 'answer 1']]) {
+    insert.run(GROK, GROK, turn, role, text);
+  }
+  const result = grokBackfill(db, [
+    grokSystem,
+    grokUser('preamble'),
+    grokUser('reminder', { synthetic_reason: 'system_reminder' }),
+    grokUser('request 1', { prompt_index: 0 }),
+    grokAssistant('working 1'), // 3
+    grokUser('reminder', { synthetic_reason: 'system_reminder' }),
+    grokAssistant('answer 1'), // 5
+  ]);
+  assert.deepEqual(
+    { groups: result.groups, insertedTurns: result.insertedTurns, skippedExisting: result.skippedExisting, rewritten: result.rewritten },
+    { groups: 1, insertedTurns: 0, skippedExisting: 1, rewritten: false },
+  );
+  // 受領は、行が実際にある番号（最後に当たった行）で出す。
+  assert.deepEqual(result.turnNumbers, [5]);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM bodies').get().n, 4);
+});
+
+test('backfillBodies: 追記だけの host（Claude Code）は、今までどおり位置だけで保存済みを決める', () => {
+  const db = makeDb();
+  const insert = db.prepare(`INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, created_at) VALUES (?, ?, ?, ?, ?, 1)`);
+  insert.run('target', 'origin', 1, 'user', 'stored under another text');
+  insert.run('target', 'origin', 1, 'assistant', 'stored under another text');
+  withData([entry('user', 'question'), entry('assistant', 'answer')], (path) => {
+    const result = backfillBodies(db, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 });
+    assert.deepEqual(
+      { insertedTurns: result.insertedTurns, skippedExisting: result.skippedExisting, turnNumbers: result.turnNumbers },
+      { insertedTurns: 0, skippedExisting: 1, turnNumbers: [1] },
+    );
+    assert.equal(result.rewritten, undefined);
+  });
+});
 
 test('captureInFlightTurn: 止めたターンの発言を全部つないで本文にし、末尾の道具まで details に入れる。合流時の回収は重ねない', () => {
   withData(

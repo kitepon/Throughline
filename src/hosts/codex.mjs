@@ -17,6 +17,7 @@ export const codexHostAdapter = Object.freeze({
   completionProjectPath: ({ cwd }) => cwd,
   // 既存挙動: Claude Stop hook の flush barrier は grok 以外 (codex: 含む) に適用される。
   waitsForStopTranscriptFlush: true,
+  rewritesTranscript: false,
   deliverHandoffInjection({ text, stdout = process.stdout }) {
     stdout.write(text + '\n');
     return { delivered: true };

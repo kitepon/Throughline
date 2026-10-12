@@ -152,6 +152,71 @@ test('Claude Stop flush barrierは、前後の空白を除いてmarkerと本文�
   }
 });
 
+test('Claude Stop flush barrierは、Stop直後に待っていた入力が2通以上続けて届いても、未捕捉の完了turnを採用する', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'throughline-stop-flush-queued-inputs-'));
+  const transcriptPath = join(root, 'transcript.jsonl');
+  const text = (role, value) => ({ type: role, message: { role, content: [{ type: 'text', text: value }] } });
+  let elapsed = 0;
+  const clock = { now: () => elapsed, wait: async (milliseconds) => { elapsed += milliseconds; } };
+  const write = (entries) => writeFileSync(transcriptPath, entries.map((entry) => JSON.stringify(entry)).join('\n'), 'utf8');
+  const completed = [
+    text('user', 'first request'),
+    text('assistant', 'first answer'),
+    text('user', 'second request'),
+    text('assistant', 'second answer'),
+  ];
+  try {
+    for (const queued of [2, 3]) {
+      write([...completed, ...Array.from({ length: queued }, (_, index) => text('user', `queued request ${index}`))]);
+      const captured = [];
+      elapsed = 0;
+      const result = await waitForClaudeStopTranscriptFlush({
+        transcriptPath,
+        lastAssistantMessage: 'second answer',
+        timeoutMs: 100,
+        intervalMs: 10,
+        isTurnCaptured: (fragmentTurnNumbers) => { captured.push(fragmentTurnNumbers); return false; },
+        ...clock,
+      });
+      assert.deepEqual(result, { status: 'ready', userTurnNumber: 2, assistantTurnNumber: 3 }, `queued=${queued}`);
+      assert.deepEqual(captured, [[3]]);
+      assert.equal(elapsed, 0, 'the completed turn is already flushed; no waiting');
+    }
+
+    // 捕捉済みの同文answerは今回のStopの完了ではない。
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'second answer', timeoutMs: 30, intervalMs: 10,
+      isTurnCaptured: () => true, ...clock,
+    }), /not visible before deadline/);
+
+    // 本文を持つgroupを飛ばして、その前のturnを採用しない。
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'first answer', timeoutMs: 30, intervalMs: 10,
+      isTurnCaptured: () => false, ...clock,
+    }), /not visible before deadline/);
+
+    // 届いた入力のturnが本文を書き始めていたら採用しない。
+    appendFileSync(transcriptPath, `\n${JSON.stringify(text('assistant', 'working on the queued requests'))}`, 'utf8');
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'second answer', timeoutMs: 30, intervalMs: 10,
+      isTurnCaptured: () => false, ...clock,
+    }), /not visible before deadline/);
+
+    // 本文を持つgroupが1つも無い時は、採用する物が無い。
+    write([text('user', 'only request'), text('user', 'queued request 0'), text('user', 'queued request 1')]);
+    elapsed = 0;
+    await assert.rejects(waitForClaudeStopTranscriptFlush({
+      transcriptPath, lastAssistantMessage: 'second answer', timeoutMs: 30, intervalMs: 10,
+      isTurnCaptured: () => false, ...clock,
+    }), /not visible before deadline/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Claude Stop flush barrierは、Stop直後に次のuser行が届いても、未捕捉の完了turnを待たずに採用する', async () => {
   const root = mkdtempSync(join(tmpdir(), 'throughline-stop-flush-next-user-'));
   const transcriptPath = join(root, 'transcript.jsonl');

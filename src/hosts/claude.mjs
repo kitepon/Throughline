@@ -77,6 +77,8 @@ export const claudeHostAdapter = Object.freeze({
   // Claude Stop payload の last_assistant_message を transcript 可視化の
   // barrier に使う (ADR 0012)。
   waitsForStopTranscriptFlush: true,
+  // Claude Code の transcript は追記だけ。圧縮は要約行を足す (ADR 0032)。
+  rewritesTranscript: false,
   // 完了受領はセッションを起動した project に書く。hook payload の cwd は Bash の cd に
   // 追従するため、作業中に下位ディレクトリへ移ると起動 project の feed から漏れる。
   // Claude Code は hook の環境変数 CLAUDE_PROJECT_DIR に起動 project を渡す。

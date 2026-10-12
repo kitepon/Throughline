@@ -34,6 +34,21 @@ export function isCompactSummaryEntry(entry) {
   return entry?.isCompactSummary === true;
 }
 
+const GROK_HOST_WRITTEN_SYNTHETIC_REASONS = Object.freeze(['compaction_meta', 'system_reminder']);
+
+/**
+ * Grok が chat_history.jsonl へ自分で書く user 行か（ADR 0056）。type は user だが、人の発言ではない。
+ * `compaction_meta` は自動圧縮の要約と続きの指示、`system_reminder` は host の注意書き（Throughline の
+ * 引き継ぎの注入もこの印で書く）。ターンの始まりにも本文にもしない。`task_completed` は host が自分から
+ * 始めるターンの始まりなので、ここには入れない。
+ * @param {object} entry
+ */
+export function isGrokHostWrittenUserEntry(entry) {
+  return entry?.type === 'user'
+    && entry.message === undefined
+    && GROK_HOST_WRITTEN_SYNTHETIC_REASONS.includes(entry.synthetic_reason);
+}
+
 function extractText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -96,6 +111,8 @@ export function readTranscript(transcriptPath) {
     const turnNumber = position++;
     // 圧縮の要約は host が書いた行。ターンは圧縮をまたいで続くので、ここで区切らない。
     if (isCompactSummaryEntry(entry)) continue;
+    // Grok の合成行も host が書いた行。番号は進める（数えていた頃に保存した turn_number と食い違わせない）。
+    if (isGrokHostWrittenUserEntry(entry)) continue;
 
     const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
     // grok chat_history.jsonl は Claude の message 包みを持たず type/content 直置き。
@@ -221,6 +238,10 @@ export function readLatestUserGroup(transcriptPath) {
  * Stopの直後に次のuser行（queueから届いた入力）が書かれた時、完了したturnは
  * latestではなく1つ前のgroupになる。fragmentTurnNumbers はgroup内の全assistant断片のindex。
  *
+ * queueの入力は2通以上が続けて書かれることがある（ADR 0055）。その時、latestの手前には
+ * assistant断片の無いgroupが並ぶ。previous は、それらを飛ばして、assistant断片を持つ
+ * 一番近いgroupにする。
+ *
  * @param {string} transcriptPath
  * @returns {{
  *   latest: {userTurnNumber: number, assistantTurnNumber: number|null, assistantContent: string|null, fragmentTurnNumbers: number[]},
@@ -229,11 +250,14 @@ export function readLatestUserGroup(transcriptPath) {
  */
 export function readLatestLogicalTurnCompletions(transcriptPath) {
   const turns = readTranscript(transcriptPath);
-  const userIndexes = [];
-  for (let index = turns.length - 1; index >= 0 && userIndexes.length < 2; index--) {
-    if (turns[index].role === 'user') userIndexes.push(index);
+  let latestUserIndex = -1;
+  for (let index = turns.length - 1; index >= 0; index--) {
+    if (turns[index].role === 'user') {
+      latestUserIndex = index;
+      break;
+    }
   }
-  if (userIndexes.length === 0) return null;
+  if (latestUserIndex < 0) return null;
 
   const describe = (start, end) => {
     let representative = null;
@@ -251,10 +275,20 @@ export function readLatestLogicalTurnCompletions(transcriptPath) {
       fragmentTurnNumbers,
     };
   };
-  return {
-    latest: describe(userIndexes[0], turns.length),
-    previous: userIndexes.length === 2 ? describe(userIndexes[1], userIndexes[0]) : null,
-  };
+  let previous = null;
+  let end = latestUserIndex;
+  for (let index = latestUserIndex - 1; index >= 0; index--) {
+    if (turns[index].role !== 'user') continue;
+    const group = describe(index, end);
+    if (group.fragmentTurnNumbers.length > 0) {
+      previous = group;
+      break;
+    }
+    // assistant断片の無いgroup（続けて届いた入力）。1つ手前を見る。最初のgroupまで断片が無ければ、それを返す。
+    previous = group;
+    end = index;
+  }
+  return { latest: describe(latestUserIndex, turns.length), previous };
 }
 
 /**

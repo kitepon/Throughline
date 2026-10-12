@@ -10,6 +10,37 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.26] — 2026-10-12
+
+### 修正
+
+- **Grokが会話を自動圧縮した後、圧縮をまたいだターンが保存されず、その会話のStopが毎回失敗していた**（[ADR 0056](docs/adr/0056-grok-rewritten-chat-history-keeps-captured-turns-apart.md)）。Linuxの実機（BellTeamコンテナ、Grok 1.0.46）で2026-10-12に起きた。失敗の文面は`completed pair was not captured before receipt publication`。
+  - Grokは自動圧縮で`chat_history.jsonl`を書き直す。Throughlineはターンの番号を記録の中の位置で振っているので、書き直した後の位置が、保存済みの別のターンの番号と重なった。重なった群を「保存済み」として飛ばし、完了受領を書く所で失敗していた。
+  - 代表の断片の位置が重なる形では、失敗も出ずに、圧縮をまたいだターンが落ちていた（2026-09-30の別の会話）。
+  - 直した後は、Grokの記録では、同じ位置に同じ本文のassistant行がある時だけ保存済みとする。書き直しの後のターンは、世代を分けた番号（世代×1,000,000＋位置）で保存する。すでに番号が重なっている会話は、この版の最初のStopで、落ちていたターンが入る。
+- **Grokが自分で書いたuser行（`system_reminder`・`compaction_meta`）を、人の発言として保存していた**（同じADR）。依頼の直後に注意書きが来ると、そのターンのuserの本文が注意書きになっていた。ターンの途中に来ると、1つのターンが2つに割れていた。直した後は、ターンの始まりにも本文にもしない。Throughlineが引き継ぎで注入する行も、この印で書いている。
+- **Claude Codeで、ターンが終わった直後に待っていた入力が2通以上届くと、Stopが`Claude Stop transcript completion was not visible before deadline`で失敗していた**（[ADR 0055](docs/adr/0055-stop-flush-barrier-skips-queued-inputs.md)）。Linuxの実機（BellTeamコンテナ）で2026-10-12に起きた。
+  - 完了したターンを探す処理が、直後の入力を1通までしか遡らなかった（ADR 0026）。2通が続けて書かれると、完了したターンは2つ前の群になる。
+  - 保存の欠けは無かった。次のStopが、そのターンをまとめて取り込む。受領がそのぶん遅れ、失敗が1回数えられていた。
+  - 直した後は、assistantの本文が無い群（続けて届いた入力）を飛ばして、完了したターンを探す。採用の条件（未捕捉である事、次のターンが本文を書き始めていない事）は変えていない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Grok（記録の書き直し・合成行） | 直した。単体試験と、実機で本物のhookの命令（`process-turn`）へ合成した記録を通した。本物のGrokの自動圧縮をまたぐ場面は見ていない | 直した。起きた端末（コンテナ）。同じ確認と、コンテナの本物のDBのGrokの会話110件をメモリへ写した空実行（書き直しと判定したのは圧縮の跡がある2件だけ）。本物の自動圧縮をまたぐ場面は、直した版では見ていない | 直した。macOSと同じ確認。本物の自動圧縮をまたぐ場面は見ていない |
+| Claude Code（待っていた入力が2通以上） | 直した。単体試験と、実機で本物のhookの命令へ合成した記録を通した。本物のClaude Codeでこの形が起きた事は無い | 直した。起きた端末（コンテナ）。同じ確認。直した版で本物の形が起きた事は、まだ無い | 直した。macOSと同じ確認 |
+| Codex | 変更なし（Stopは別の入口で、rolloutから取り込む。rolloutは追記だけ） | 同じ | 同じ |
+| Cursor | 変更なし（Stopの待ちを使わない。記録を書き直すかは確かめていない。コンテナの取り込みの記録169会話に、群が減った跡は無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 本物のGrokが自動圧縮をまたぐ場面での、この版の動き。狙って起こせるかを確かめていない。コンテナの、番号が重なっている会話の次のStopで分かる。
+- Grokの巻き戻しが`chat_history.jsonl`をどう書き直すか。実物を見ていない。
+- 圧縮をまたいだターンの、元の依頼の文が`chat_history.jsonl`に残っているか。保存されるuserの本文は、圧縮の後に残った印の無いuser行。
+- 本物のClaude Codeが、待っていた入力を2通続けて書く場面での、この版の動き。
+- Cursorが記録を書き直すか。
+
 ## [0.16.25] — 2026-10-12
 
 ### 修正
@@ -2461,7 +2492,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.25...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.26...HEAD
+[0.16.26]: https://github.com/kitepon/Throughline/compare/v0.16.25...v0.16.26
 [0.16.25]: https://github.com/kitepon/Throughline/compare/v0.16.24...v0.16.25
 [0.16.24]: https://github.com/kitepon/Throughline/compare/v0.16.23...v0.16.24
 [0.16.23]: https://github.com/kitepon/Throughline/compare/v0.16.22...v0.16.23

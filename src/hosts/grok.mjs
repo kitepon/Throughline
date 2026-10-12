@@ -77,6 +77,8 @@ export const grokHostAdapter = Object.freeze({
   // Claude Stop transcript flush barrier は Claude transcript の完了行を待つ機構。
   // Grok の chat_history には適用しない (既存挙動)。
   waitsForStopTranscriptFlush: false,
+  // Grok は自動圧縮と巻き戻しで chat_history.jsonl を書き直す。位置だけでは保存済みのターンを見分けられない (ADR 0056)。
+  rewritesTranscript: true,
   // Grok は UserPromptSubmit stdout をモデルへ渡さないため chat_history に直接注入する。
   deliverHandoffInjection({ payload, text }) {
     const injected = injectGrokHandoffContext(payload.transcript_path, text);

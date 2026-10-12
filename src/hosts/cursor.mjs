@@ -116,6 +116,8 @@ export const cursorHostAdapter = Object.freeze({
   // transcript path も cwd から導くため、hook の cwd がそのまま起動 project である。
   completionProjectPath: ({ cwd }) => cwd,
   waitsForStopTranscriptFlush: false,
+  // Cursor が transcript を書き直すかは確かめていない。書き直した跡を見ていないので、今までの扱いのまま (ADR 0056)。
+  rewritesTranscript: false,
   consumesHandoffAtSessionStart: true,
   deliverHandoffInjection({ text, stdout = process.stdout }) {
     stdout.write(`${JSON.stringify({ additional_context: text })}\n`);
