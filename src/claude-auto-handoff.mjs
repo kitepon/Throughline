@@ -260,6 +260,24 @@ function unsupportedEntrypoint(env) {
   return typeof env.CLAUDE_CODE_ENTRYPOINT === 'string' && env.CLAUDE_CODE_ENTRYPOINT.startsWith('sdk-');
 }
 
+// Aiterm が席の Claude に付ける印（ADR 0057）。名前と意味は Aiterm の担当と合わせてある。変える時は先に知らせ合う。
+// 起動の印と、席の Claude を起こした時の会話 ID（`--session-id` の値。席の途中で変わらない）。
+const AITERM_LAUNCH_ENV = 'AITERM_AGENT_LAUNCH_ID';
+const AITERM_SEAT_SESSION_ENV = 'AITERM_AGENT_VENDOR_SESSION_ID';
+
+/**
+ * Aiterm が起こした席の会話か（ADR 0057）。席は起こした時の会話に結び付いていて、呼び手はその会話の番の終わりを待っている。
+ * 裏の後継へ引き継ぐと、呼び手の文は後継へ届かず、後継の答えも呼び手へ戻らない。席の会話は引き継がない。
+ *
+ * 席と数えるのは、環境の会話 ID がこの会話の ID と同じ時だけ。起動の印だけでは決めない。印は席の Claude が起こした子へ
+ * 継がれ、裏の会話（`claude --bg`）は常駐の process の環境を継ぐ。席の中から常駐が起きると、その後に立つ裏の会話は、
+ * 席と関係が無くても席の印を持つ（Linux、Claude Code 2.1.296 で実測）。印だけで外すと、利用者の会話の後継まで外れる。
+ * 会話 ID を出さない版の Aiterm が起こした席は、見分けられないので、今までどおり引き継ぐ。
+ */
+export function isAitermSeatConversation(env, sessionId) {
+  return Boolean(env?.[AITERM_LAUNCH_ENV]) && typeof sessionId === 'string' && env[AITERM_SEAT_SESSION_ENV] === sessionId;
+}
+
 /** transcript の最後の行が持つ出どころ（`cli`、`claude-desktop` など）。読めなければ null。 */
 function readLatestEntrypoint(transcriptPath) {
   if (typeof transcriptPath !== 'string') return null;
@@ -377,8 +395,12 @@ export function requestClaudeAutoHandoff({
     if (existing?.state === 'requested') rmSync(path, { force: true });
     return { status: 'skipped', block: false, reason: 'manual_compact', sessionId, projectPath };
   }
+  const seat = isAitermSeatConversation(env, sessionId);
+  // 席の会話に、後継を立てる前の記録が残っている（席を外す前の版が予約した）。取り下げて、圧縮を通す。
+  const withdrawn = seat && existing && RETRYABLE_STATES.has(existing.state);
+  if (withdrawn) withdrawRecord(sessionId, dir);
   // 引き継ぎが進んでいる会話は、設定が後から変わっても圧縮させない。
-  if (existing) {
+  if (existing && !withdrawn) {
     return { status: 'already_requested', block: true, sessionId, projectPath, handoffId: existing.handoff_id };
   }
   if (!claudeAutoHandoffEnabledFor(config, projectPath)) {
@@ -386,6 +408,9 @@ export function requestClaudeAutoHandoff({
   }
   if (unsupportedEntrypoint(env)) {
     return { status: 'skipped', block: false, reason: 'handoff_host_unsupported', sessionId, projectPath };
+  }
+  if (seat) {
+    return { status: 'skipped', block: false, reason: 'aiterm_seat', sessionId, projectPath };
   }
 
   // 後継は、最初の指示が運ぶ引き継ぎ ID からこの記録を引いて、この会話を前任として合流させる（ADR 0053）。
@@ -613,6 +638,12 @@ export async function launchClaudeAutoHandoffWorker(sessionId, { dir = claudeAut
   } finally { closeSync(log); }
 }
 
+/** 後継を立てる前の記録と、立ち上げの札を消す。その会話は、記録が無い会話と同じ扱いに戻る。 */
+function withdrawRecord(sessionId, dir) {
+  rmSync(recordPath(sessionId, dir), { force: true });
+  rmSync(join(dir, `${sessionId}.claim`), { force: true });
+}
+
 function stopOutput(record) {
   const reason = record.successor?.short_id
     ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
@@ -631,7 +662,8 @@ function stopOutput(record) {
 /**
  * PreToolUse hook の本体。引き継ぎの記録がある会話の道具を、実行させずに止める。
  * 最初に止めた hook だけが、止めた時点の依頼と設定を記録へ写し、後継を立てる worker を起動する。
- * 記録が無い会話と、subagent の中の道具には何もしない（null）。
+ * 記録が無い会話と、subagent の中の道具には何もしない（null）。Aiterm が起こした席の会話に、後継を立てる前の記録が
+ * 残っている時は、記録を取り下げて何もしない（ADR 0057）。
  *
  * @returns {Promise<object|null>} Claude Code へ返す hook 出力
  */
@@ -640,12 +672,18 @@ export async function stopClaudeTurnForHandoff({
   now = Date.now(),
   dir = claudeAutoHandoffDir(),
   launchWorker = launchClaudeAutoHandoffWorker,
+  env = process.env,
 }) {
   const sessionId = payload?.session_id;
   if (!validSessionId(sessionId) || payload.agent_id) return null;
   let record = readClaudeAutoHandoff(sessionId, dir);
   if (!record) return null;
   if (RETRYABLE_STATES.has(record.state)) {
+    // 席の会話は引き継がない（ADR 0057）。席を外す前の版が残した、後継を立てる前の記録は取り下げ、道具を通す。
+    if (isAitermSeatConversation(env, sessionId)) {
+      withdrawRecord(sessionId, dir);
+      return null;
+    }
     // 同じ応答に並んだ道具の hook は同時に走る。立ち上げは1回だけ。
     const claim = join(dir, `${sessionId}.claim`);
     if (record.state === 'failed') rmSync(claim, { force: true });

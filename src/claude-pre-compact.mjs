@@ -8,7 +8,8 @@
  * 圧縮を止める。Claude Code は PreCompact の exit code 2 を「圧縮を止める」と解釈する。
  * 止めた後の会話は圧縮されないまま続き、次の道具の hook（PreToolUse）が作業を止める。
  *
- * 手動の /compact、無効な project、subagent の中の圧縮では、何も止めずに exit code 0 で終わる。
+ * 手動の /compact、無効な project、subagent の中の圧縮、Aiterm が起こした席の会話（ADR 0057）では、何も止めずに
+ * exit code 0 で終わる。
  * この hook 自身が失敗した時は exit code 1 で終わり、圧縮は止めない。
  */
 

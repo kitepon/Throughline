@@ -21,6 +21,7 @@ import {
   runClaudeDesktopOpen,
   findClaudeAutoContinuationSource,
   resolveClaudeAutoHandoffSuccessor,
+  isAitermSeatConversation,
 } from './claude-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
@@ -180,6 +181,93 @@ test('PreCompact: 手動・無効・対象外のproject・scriptから起動し�
     assert.deepEqual(listClaudeAutoHandoffs({ dir }), [], reason);
   }
   assert.equal(request(dir, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } }).result.status, 'requested');
+}));
+
+test('席の判定: 起動の印があり、環境の会話 ID がこの会話と同じ時だけ席と数える', () => {
+  const OTHER = 'cccccccc-1111-4222-8333-444444444444';
+  for (const [env, expected, label] of [
+    [{}, false, '印なし（人の端末、Desktop）'],
+    [{ AITERM_SESSION_ID: 't1', AITERM_STATE_BASE: '/tmp' }, false, 'Aiterm の素の端末で人が起こした claude'],
+    [{ AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_KIND: 'claude' }, false, '会話 ID を出さない版の Aiterm の席。印だけでは決めない'],
+    [{ AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: '' }, false, '空の会話 ID'],
+    [{ AITERM_AGENT_VENDOR_SESSION_ID: SESSION }, false, '起動の印が無い'],
+    [{ AITERM_AGENT_LAUNCH_ID: '', AITERM_AGENT_VENDOR_SESSION_ID: SESSION }, false, '空の印'],
+    [{ AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_KIND: 'claude', AITERM_AGENT_VENDOR_SESSION_ID: SESSION }, true, '席の会話'],
+    [{ AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_KIND: 'claude', AITERM_AGENT_VENDOR_SESSION_ID: OTHER }, false,
+      '席の印を継いだ別の会話（席が起こした子、席の中から起きた常駐が立てた裏の会話）'],
+  ]) assert.equal(isAitermSeatConversation(env, SESSION), expected, label);
+  assert.equal(isAitermSeatConversation(undefined, SESSION), false);
+  assert.equal(isAitermSeatConversation({ AITERM_AGENT_LAUNCH_ID: 'abc' }, undefined), false);
+});
+
+const SEAT = { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_KIND: 'claude', AITERM_AGENT_VENDOR_SESSION_ID: SESSION };
+// 席の印を継いだだけの、別の会話の環境
+const SEAT_DESCENDANT = { ...SEAT, AITERM_AGENT_VENDOR_SESSION_ID: SUCCESSOR };
+
+test('PreCompact: Aiterm の席の会話は引き継がない。圧縮を止めず、記録も残さない', () => withDir(dir => {
+  for (const env of [SEAT, { ...SEAT, CLAUDE_CODE_ENTRYPOINT: 'cli' }]) {
+    const { result, db } = request(dir, { env });
+    assert.deepEqual([result.status, result.block, result.reason], ['skipped', false, 'aiterm_seat']);
+    assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
+    assert.deepEqual(listClaudeAutoHandoffs({ dir }), []);
+  }
+  // 自動継続が無効な端末の席は、今までどおり「無効」で終わる
+  assert.equal(request(dir, { env: SEAT, config: { enabled: false, projects: [] } }).result.reason, 'auto_handoff_disabled');
+  // 席の印を継いだ別の会話と、会話 ID を出さない版の Aiterm の席は、今までどおり引き継ぐ
+  for (const env of [SEAT_DESCENDANT, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_KIND: 'claude' }]) {
+    assert.equal(request(dir, { env }).result.status, 'requested');
+    rmSync(join(dir, `${SESSION}.json`));
+  }
+}));
+
+test('PreCompact: 席の会話に残っていた、後継を立てる前の記録は取り下げる。後継を立てた後の記録は保つ', () => withDir(dir => {
+  // 席を外す前の版（か、会話 ID を出さない版の Aiterm の時）に予約した記録
+  assert.equal(request(dir).result.status, 'requested');
+  writeFileSync(join(dir, `${SESSION}.claim`), '');
+  const withdrawn = request(dir, { env: SEAT }).result;
+  assert.deepEqual([withdrawn.status, withdrawn.block, withdrawn.reason], ['skipped', false, 'aiterm_seat']);
+  assert.equal(readClaudeAutoHandoff(SESSION, dir), null);
+  assert.equal(existsSync(join(dir, `${SESSION}.claim`)), false);
+
+  // もう後継へ引き継いだ席の会話は、今までどおり圧縮させない（続きは後継にある）
+  const { result } = request(dir);
+  const path = join(dir, `${SESSION}.json`);
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), state: 'sent',
+    successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }));
+  const kept = request(dir, { env: SEAT }).result;
+  assert.deepEqual([kept.status, kept.block, kept.handoffId], ['already_requested', true, result.handoffId]);
+  assert.equal(readClaudeAutoHandoff(SESSION, dir).state, 'sent');
+}));
+
+test('PreToolUse: 席の会話は止めない。後継を立てる前の記録は取り下げ、道具を通す', () => withDir(async dir => {
+  const payload = { session_id: SESSION, cwd: '/work/app', tool_name: 'Read', tool_use_id: 'toolu_2' };
+  const launched = [];
+  const launchWorker = async sessionId => { launched.push(sessionId); };
+
+  for (const state of ['requested', 'failed']) {
+    request(dir);
+    const path = join(dir, `${SESSION}.json`);
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), state }));
+    writeFileSync(join(dir, `${SESSION}.claim`), '');
+    assert.equal(await stopClaudeTurnForHandoff({ payload, dir, launchWorker, env: SEAT }), null, state);
+    assert.equal(readClaudeAutoHandoff(SESSION, dir), null, state);
+    assert.equal(existsSync(join(dir, `${SESSION}.claim`)), false, state);
+  }
+  assert.deepEqual(launched, [], '後継は立てない');
+
+  // 席の印を継いだ別の会話は、今までどおり止めて後継を立てる
+  request(dir);
+  const child = await stopClaudeTurnForHandoff({ payload, dir, launchWorker, env: SEAT_DESCENDANT });
+  assert.equal(child.continue, false);
+  assert.deepEqual(launched, [SESSION]);
+
+  // もう後継へ引き継いだ席の会話の道具は、今までどおり止めて後継を案内する
+  const path = join(dir, `${SESSION}.json`);
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), state: 'sent',
+    successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }));
+  const stopped = await stopClaudeTurnForHandoff({ payload, dir, launchWorker, env: SEAT });
+  assert.equal(stopped.continue, false);
+  assert.match(stopped.stopReason, new RegExp(`claude attach ${SUCCESSOR.slice(0, 8)}`));
 }));
 
 test('PreCompact: 手動の/compactは止める前の記録を取り下げ、subagentの圧縮は親の記録に触らない', () => withDir(dir => {
@@ -1453,6 +1541,36 @@ test('hook: 自動継続が無効な時、自動圧縮を止めず、何も残�
   assert.deepEqual([pre.status, pre.stdout, pre.stderr], [0, '', '']);
   assert.equal(existsSync(join(home, '.throughline', 'claude-auto-handoff')), false);
   assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false, '無効な時は DB も開かない');
+}));
+
+test('hook: Aiterm の席の会話は、自動継続が有効でも自動圧縮を止めず、道具も止めない', () => withDir(home => {
+  const project = join(home, 'project');
+  mkdirSync(project, { recursive: true });
+  const seat = { AITERM_AGENT_LAUNCH_ID: '4c83fc1dd27459a9', AITERM_AGENT_KIND: 'claude', AITERM_SESSION_ID: 'seat-1',
+    AITERM_AGENT_VENDOR_SESSION_ID: SESSION };
+  const payload = { session_id: SESSION, cwd: project, transcript_path: join(home, 'transcript.jsonl') };
+  assert.equal(cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--json']).status, 0);
+
+  const pre = cli(home, ['pre-compact'], JSON.stringify({ ...payload, hook_event_name: 'PreCompact', trigger: 'auto' }), seat);
+  assert.deepEqual([pre.status, pre.stdout, pre.stderr], [0, '', '']);
+  const tool = cli(home, ['pre-tool-use'], JSON.stringify({ ...payload, hook_event_name: 'PreToolUse', tool_name: 'Read', tool_use_id: 'toolu_1' }), seat);
+  assert.deepEqual([tool.status, tool.stdout, tool.stderr], [0, '', '']);
+  assert.deepEqual(JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs, []);
+  const decisions = readFileSync(join(home, '.throughline', 'logs', 'inheritance-decision.log'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(decisions.filter(entry => entry.phase === 'pre-compact').map(entry => [entry.auto_continuation, entry.skip_reason]),
+    [['skipped', 'aiterm_seat']]);
+
+  // 席の印を継いだだけの別の会話（会話 ID が違う）と、印の無い会話は、今までどおり止める
+  const OTHER = 'cccccccc-1111-4222-8333-444444444444';
+  const descendant = cli(home, ['pre-compact'], JSON.stringify({ ...payload, session_id: OTHER, hook_event_name: 'PreCompact', trigger: 'auto' }), seat);
+  assert.equal(descendant.status, 2);
+  assert.equal(cli(home, ['pre-compact'], JSON.stringify({ ...payload, hook_event_name: 'PreCompact', trigger: 'manual', session_id: OTHER }), seat).status, 0);
+  const plain = cli(home, ['pre-compact'], JSON.stringify({ ...payload, hook_event_name: 'PreCompact', trigger: 'auto' }));
+  assert.equal(plain.status, 2);
+  // その記録が残った席の会話（席を外す前の版が予約した形）は、次の道具で取り下げる
+  const next = cli(home, ['pre-tool-use'], JSON.stringify({ ...payload, hook_event_name: 'PreToolUse', tool_name: 'Read', tool_use_id: 'toolu_2' }), seat);
+  assert.deepEqual([next.status, next.stdout], [0, '']);
+  assert.deepEqual(JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs, []);
 }));
 
 test('hook: 自分の失敗では圧縮も道具も止めず（exit code 1）、理由を端末に残す', () => withDir(home => {

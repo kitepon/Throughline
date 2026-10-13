@@ -10,6 +10,36 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.27] — 2026-10-13
+
+### 修正
+
+- **Aitermが起こしたClaude Codeの席の会話が、自動継続で裏の後継へ引き継がれ、呼び手の文が後継へ届かなくなっていた**（[ADR 0057](docs/adr/0057-claude-aiterm-seat-conversation-is-not-handed-off.md)）。Windowsの実機で2026-10-13に起きた（10-11にも1回）。
+  - Aitermの席は、起こした時の会話に結び付いている。後継は別の会話なので、呼び手が席へ送った文は旧い会話へ入り、後継の答えも呼び手へ戻らなかった。
+  - 直した後は、席の会話では自動圧縮を止めず、後継も立てない。席は同じ画面のまま続く。理由は判定のログに`aiterm_seat`で残る。
+  - 席と数えるのは、hookの環境に`AITERM_AGENT_LAUNCH_ID`があり、`AITERM_AGENT_VENDOR_SESSION_ID`がその会話のIDと同じ時だけ。起動の印だけでは外さない。裏の会話（`claude --bg`）はClaude Codeの常駐のprocessの環境を継ぐので、席の中から常駐が起きると、関係の無い裏の会話も席の印を持つ（Linux、Claude Code 2.1.296で実測）。
+  - **効くのは、`AITERM_AGENT_VENDOR_SESSION_ID`を出す版のAiterm（0.59.0の次の版）が起こした席から。** それまでの席は、今までどおり裏の後継へ引き継がれる。
+  - 席の会話に、後継を立てる前の引き継ぎの記録が残っている時は、記録を取り下げて圧縮と道具を通す。もう後継へ引き継いだ席の会話は、今までどおり後継を案内する。
+
+### 変わる動き
+
+- 効いた後の席では、文脈が一杯になるとClaude Codeの自動圧縮が走る。席の同じ画面で新しい会話へ替える形（圧縮なし）は、Aitermと合わせて次に作る。
+- Aitermの席でない会話（端末・Claude Desktopで直接使う会話、その後継）の引き継ぎは変わらない。
+
+### 対応の範囲
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Claude Code（Aitermの席） | 直した。単体試験と、実機で候補の版の本物のhookの入口（`pre-compact`・`pre-tool-use`）へ、席・席の印を継いだだけの会話・印の無い会話の環境を通した。本物の席での通しは、会話IDを出す版のAitermが出てから | 直した。macOSと同じ確認（2台）。裏の会話が常駐の環境を継ぐ事は、ここで見た | 直した。起きた端末。macOSと同じ確認。本物の席での通しは、会話IDを出す版のAitermが出てから |
+| Codex | 変更なし（自動継続はCodex Desktopだけ。Aitermの席のCLIは対象外） | 同じ | 同じ |
+| Grok | 変更なし（自動継続が無い） | 同じ | 同じ |
+| Cursor | 変更なし（自動継続が無い） | 同じ | 同じ |
+
+### 確かめていない事
+
+- 会話IDを出す版のAitermが起こした本物の席で、本物の自動圧縮が起きた時の動き。その版はまだ出ていない。
+- macOSとWindowsで、裏の会話が常駐の環境を継ぐか。
+
 ## [0.16.26] — 2026-10-12
 
 ### 修正
@@ -2492,7 +2522,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.26...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.27...HEAD
+[0.16.27]: https://github.com/kitepon/Throughline/compare/v0.16.26...v0.16.27
 [0.16.26]: https://github.com/kitepon/Throughline/compare/v0.16.25...v0.16.26
 [0.16.25]: https://github.com/kitepon/Throughline/compare/v0.16.24...v0.16.25
 [0.16.24]: https://github.com/kitepon/Throughline/compare/v0.16.23...v0.16.24
