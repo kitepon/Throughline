@@ -17,6 +17,9 @@
  *                                  Claude Code は、裏で動いている会話を Desktop へ移さない。ほかの会話から届いた文を
  *                                  保留している後継も、ターンが終わっていれば移す（ADR 0050）。
  *
+ * Aiterm が起こした席の会話は、裏の後継を立てない（ADR 0057）。席が同じ画面で会話を替える口を持つ時は、3 の代わりに
+ * Aiterm の口（`aiterm-seat-handoff`）を1回呼び、Aiterm が席の端末へ `/clear` と継続の指示を打つ（ADR 0058）。
+ *
  * 旧い会話は止めるだけで、空にしない。手動の /compact と subagent の中の圧縮は対象にしない。
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
  */
@@ -152,6 +155,8 @@ export function publicClaudeAutoHandoff(record) {
     // 後継をリモートコントロール付きで立てる引き継ぎか（null は対象外）。requested は指定を付けて立てた、unavailable は付けずに立て直した。
     // 付けて立てた後に、Claude Code がリモートへつなげたかまでは見ていない。
     remote_control_state: record.remote_control?.wanted ? (record.remote_control.state ?? 'waiting') : null,
+    // Aiterm の席の同じ画面で、新しい会話へ替える引き継ぎか（ADR 0058）。false は裏の後継（`claude --bg`）。
+    in_place: Boolean(record.seat),
     requested_at, updated_at };
 }
 
@@ -201,7 +206,7 @@ function removeStale(dir, now) {
       throw error;
     }
     for (const name of names) {
-      if (!/\.(json|claim|log|accepted)$/.test(name)) continue;
+      if (!/\.(json|claim|log|accepted|seat-switch|prompt)$/.test(name)) continue;
       const path = join(folder, name);
       let modifiedAt;
       try { modifiedAt = statSync(path).mtimeMs; }
@@ -260,22 +265,92 @@ function unsupportedEntrypoint(env) {
   return typeof env.CLAUDE_CODE_ENTRYPOINT === 'string' && env.CLAUDE_CODE_ENTRYPOINT.startsWith('sdk-');
 }
 
-// Aiterm が席の Claude に付ける印（ADR 0057）。名前と意味は Aiterm の担当と合わせてある。変える時は先に知らせ合う。
-// 起動の印と、席の Claude を起こした時の会話 ID（`--session-id` の値。席の途中で変わらない）。
+// Aiterm が席の Claude に付ける印（ADR 0057・0058）。名前と意味は Aiterm の担当と合わせてある。変える時は先に知らせ合う。
+// 起動の印と、席の Claude を起こした時の会話 ID（`--session-id` の値。席の process の環境なので、途中で変わらない）。
 const AITERM_LAUNCH_ENV = 'AITERM_AGENT_LAUNCH_ID';
 const AITERM_SEAT_SESSION_ENV = 'AITERM_AGENT_VENDOR_SESSION_ID';
+// 席の今の会話 ID を Aiterm が書く file（絶対 path。中身は ID の1行）。席の会話が替わると、Aiterm が書き換える。
+const AITERM_SEAT_SESSION_FILE_ENV = 'AITERM_AGENT_VENDOR_SESSION_FILE';
+// 同じ画面で会話を替えられる席の印（Aiterm への合図の file の絶対 path）と、席の端末の名前。
+const AITERM_HANDOFF_MARK_ENV = 'AITERM_AGENT_HANDOFF_MARK';
+const AITERM_TERMINAL_ENV = 'AITERM_SESSION_ID';
+// 席の端末へ `/clear` と継続の指示を打つ、Aiterm の口。
+const AITERM_SEAT_HANDOFF_COMMAND = 'aiterm-seat-handoff';
+const AITERM_SEAT_HANDOFF_SCHEMA = 'aiterm.seat-handoff.v1';
+// 口の中の上限は 150 秒（Aiterm の側）。これは、口の process が固まった時の備え。
+const SEAT_HANDOFF_TIMEOUT_MS = 180_000;
+// やり直しても通らない失敗。1回で、その会話では替える事をあきらめる。
+const SEAT_SWITCH_FATAL_CODES = new Set(['SEAT_NOT_FOUND', 'SEAT_MISMATCH', 'PROMPT_INVALID',
+  'handoff_aiterm_cli_unavailable', 'handoff_seat_mark_unwritable']);
+// 少し後なら通る失敗（席が番の最中など）は、次の自動圧縮でやり直す。この回数だけ失敗したら、あきらめる。
+const SEAT_SWITCH_ATTEMPTS = 3;
+
+const isAbsolutePath = value => typeof value === 'string' && (posix.isAbsolute(value) || win32.isAbsolute(value));
+
+/** Aiterm が書いた、席の今の会話 ID。変数が無い（0.59.x の Aiterm）・読めない・ID の形でない時は null。 */
+function readAitermSeatSessionFile(env) {
+  const path = env?.[AITERM_SEAT_SESSION_FILE_ENV];
+  if (!isAbsolutePath(path)) return null;
+  let id;
+  try { id = readFileSync(path, 'utf8').trim(); }
+  catch { return null; }
+  return CLAUDE_SESSION_ID_PATTERN.test(id) ? id : null;
+}
 
 /**
- * Aiterm が起こした席の会話か（ADR 0057）。席は起こした時の会話に結び付いていて、呼び手はその会話の番の終わりを待っている。
- * 裏の後継へ引き継ぐと、呼び手の文は後継へ届かず、後継の答えも呼び手へ戻らない。席の会話は引き継がない。
+ * Aiterm が起こした席の会話か（ADR 0057）。席は会話に結び付いていて、呼び手はその会話の番の終わりを待っている。
+ * 裏の後継へ引き継ぐと、呼び手の文は後継へ届かず、後継の答えも呼び手へ戻らない。席の会話は、裏の後継へ引き継がない。
  *
- * 席と数えるのは、環境の会話 ID がこの会話の ID と同じ時だけ。起動の印だけでは決めない。印は席の Claude が起こした子へ
+ * 席と数えるのは、席の今の会話 ID がこの会話の ID と同じ時だけ。起動の印だけでは決めない。印は席の Claude が起こした子へ
  * 継がれ、裏の会話（`claude --bg`）は常駐の process の環境を継ぐ。席の中から常駐が起きると、その後に立つ裏の会話は、
  * 席と関係が無くても席の印を持つ（Linux、Claude Code 2.1.296 で実測）。印だけで外すと、利用者の会話の後継まで外れる。
+ *
+ * 席の今の会話 ID は、Aiterm が書く file から読む（ADR 0058）。席の会話は `/clear` で替わるが、環境の ID は席を起こした時の
+ * ままなので、環境だけでは替えた後の会話を席と数えられない。file の変数が無い・読めない時は、環境の ID と比べる。
  * 会話 ID を出さない版の Aiterm が起こした席は、見分けられないので、今までどおり引き継ぐ。
+ *
+ * `SessionStart` の hook からは呼ばない。Aiterm の hook と並んで走るので、その時点の file は旧い ID の事がある。
  */
 export function isAitermSeatConversation(env, sessionId) {
-  return Boolean(env?.[AITERM_LAUNCH_ENV]) && typeof sessionId === 'string' && env[AITERM_SEAT_SESSION_ENV] === sessionId;
+  if (!env?.[AITERM_LAUNCH_ENV] || typeof sessionId !== 'string') return false;
+  return (readAitermSeatSessionFile(env) ?? env[AITERM_SEAT_SESSION_ENV]) === sessionId;
+}
+
+/**
+ * 同じ画面で会話を替えられる席が持つ値（ADR 0058）。合図の file の場所と席の端末の名前が無い席は null
+ * （この口を持たない版の Aiterm。ADR 0057 のとおり圧縮を通す）。席の会話だと決めた後でだけ呼ぶ。
+ */
+function aitermSeatSwitchTarget(env) {
+  const markPath = env[AITERM_HANDOFF_MARK_ENV];
+  const terminalSessionId = env[AITERM_TERMINAL_ENV];
+  if (!isAbsolutePath(markPath) || typeof terminalSessionId !== 'string' || !terminalSessionId) return null;
+  return { launch_id: env[AITERM_LAUNCH_ENV], terminal_session_id: terminalSessionId, mark_path: markPath };
+}
+
+// 同じ画面で替える事に失敗した会話の控え（ADR 0058）。記録とは別の file にして、記録を取り下げた後も残す。
+const seatSwitchPath = (sessionId, dir) => join(dir, `${sessionId}.seat-switch`);
+
+function readSeatSwitch(sessionId, dir) {
+  try { return readJson(seatSwitchPath(sessionId, dir)); }
+  catch { return null; }
+}
+
+/** この会話で、同じ画面で替える事をあきらめたか。あきらめた会話は、次からの自動圧縮を通す。 */
+function seatSwitchGivenUp(sessionId, dir) {
+  return readSeatSwitch(sessionId, dir)?.gave_up === true;
+}
+
+/**
+ * 同じ画面で替える事に失敗した。記録を取り下げ、失敗を数える。その会話は、記録が無い会話と同じ扱いに戻る
+ * （道具は通り、呼び手が送り直した文はそのまま続く）。やり直しても通らない失敗と、回数を使い切った時は、あきらめる。
+ */
+function withdrawSeatSwitch(record, code, { dir, now = Date.now() }) {
+  const sessionId = record.source_session_id;
+  const attempts = (readSeatSwitch(sessionId, dir)?.attempts ?? 0) + 1;
+  const gaveUp = SEAT_SWITCH_FATAL_CODES.has(code) || attempts >= SEAT_SWITCH_ATTEMPTS;
+  writeJsonPrivate(seatSwitchPath(sessionId, dir), { handoff_id: record.handoff_id, code, attempts, gave_up: gaveUp, updated_at: now });
+  withdrawRecord(sessionId, dir);
+  return { ...record, state: 'withdrawn', error_code: code, updated_at: now };
 }
 
 /** transcript の最後の行が持つ出どころ（`cli`、`claude-desktop` など）。読めなければ null。 */
@@ -396,8 +471,13 @@ export function requestClaudeAutoHandoff({
     return { status: 'skipped', block: false, reason: 'manual_compact', sessionId, projectPath };
   }
   const seat = isAitermSeatConversation(env, sessionId);
-  // 席の会話に、後継を立てる前の記録が残っている（席を外す前の版が予約した）。取り下げて、圧縮を通す。
-  const withdrawn = seat && existing && RETRYABLE_STATES.has(existing.state);
+  // 席の会話は、同じ画面で替えられる時だけ引き継ぐ（ADR 0058）。替えられない席は、圧縮を通す（ADR 0057）。
+  const seatTarget = seat ? aitermSeatSwitchTarget(env) : null;
+  const seatGivenUp = Boolean(seatTarget) && seatSwitchGivenUp(sessionId, dir);
+  const inPlace = Boolean(seatTarget) && !seatGivenUp;
+  // 席の会話に、裏の後継を立てる前の記録が残っている（席を外す前の版が予約した）。取り下げる。
+  // 同じ画面で替える予約（`seat` を持つ記録）は、替えられる間は保つ。
+  const withdrawn = seat && existing && RETRYABLE_STATES.has(existing.state) && !(existing.seat && inPlace);
   if (withdrawn) withdrawRecord(sessionId, dir);
   // 引き継ぎが進んでいる会話は、設定が後から変わっても圧縮させない。
   if (existing && !withdrawn) {
@@ -409,8 +489,8 @@ export function requestClaudeAutoHandoff({
   if (unsupportedEntrypoint(env)) {
     return { status: 'skipped', block: false, reason: 'handoff_host_unsupported', sessionId, projectPath };
   }
-  if (seat) {
-    return { status: 'skipped', block: false, reason: 'aiterm_seat', sessionId, projectPath };
+  if (seat && !inPlace) {
+    return { status: 'skipped', block: false, reason: seatGivenUp ? 'aiterm_seat_inplace_unavailable' : 'aiterm_seat', sessionId, projectPath };
   }
 
   // 後継は、最初の指示が運ぶ引き継ぎ ID からこの記録を引いて、この会話を前任として合流させる（ADR 0053）。
@@ -440,9 +520,12 @@ export function requestClaudeAutoHandoff({
     successor: null,
     error_code: null,
     accepted_at: null,
-    desktop: { wanted: openInDesktopWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir, platform }),
+    // 席の同じ画面で替える引き継ぎは、後継が席の画面にある。Desktop へ移さず、リモートコントロールも付けない。
+    desktop: { wanted: !seatTarget && openInDesktopWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir, platform }),
       state: null, error_code: null, opened_at: null },
-    remote_control: { wanted: remoteControlWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir }), state: null },
+    remote_control: { wanted: !seatTarget && remoteControlWanted({ sessionId, transcriptPath: payload.transcript_path, env, dir }), state: null },
+    // 同じ画面で替える席（ADR 0058）。null は裏の後継を立てる引き継ぎ。
+    seat: seatTarget,
   });
   return { status: 'requested', block: true, sessionId, projectPath, handoffId };
 }
@@ -644,8 +727,14 @@ function withdrawRecord(sessionId, dir) {
   rmSync(join(dir, `${sessionId}.claim`), { force: true });
 }
 
+function seatStopReason(record) {
+  return record.successor?.session_id
+    ? `この会話はThroughlineが、同じ席の新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは席の今の会話（${record.successor.session_id}）にあります。`
+    : `Throughlineが、自動圧縮の代わりに、同じ席の画面で新しい会話へ替えます（引き継ぎID: ${record.handoff_id}）。席はこのまま使えます。`;
+}
+
 function stopOutput(record) {
-  const reason = record.successor?.short_id
+  const reason = record.seat ? seatStopReason(record) : record.successor?.short_id
     ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
     : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
       (record.desktop?.wanted
@@ -662,8 +751,9 @@ function stopOutput(record) {
 /**
  * PreToolUse hook の本体。引き継ぎの記録がある会話の道具を、実行させずに止める。
  * 最初に止めた hook だけが、止めた時点の依頼と設定を記録へ写し、後継を立てる worker を起動する。
- * 記録が無い会話と、subagent の中の道具には何もしない（null）。Aiterm が起こした席の会話に、後継を立てる前の記録が
- * 残っている時は、記録を取り下げて何もしない（ADR 0057）。
+ * 記録が無い会話と、subagent の中の道具には何もしない（null）。Aiterm が起こした席の会話に、裏の後継を立てる前の記録が
+ * 残っている時は、記録を取り下げて何もしない（ADR 0057）。同じ画面で替える席（`seat` を持つ記録）は、止める直前に
+ * Aiterm への合図の file を書く（ADR 0058）。
  *
  * @returns {Promise<object|null>} Claude Code へ返す hook 出力
  */
@@ -679,8 +769,9 @@ export async function stopClaudeTurnForHandoff({
   let record = readClaudeAutoHandoff(sessionId, dir);
   if (!record) return null;
   if (RETRYABLE_STATES.has(record.state)) {
-    // 席の会話は引き継がない（ADR 0057）。席を外す前の版が残した、後継を立てる前の記録は取り下げ、道具を通す。
-    if (isAitermSeatConversation(env, sessionId)) {
+    // 席の会話は、裏の後継へ引き継がない（ADR 0057）。席を外す前の版が残した、裏の後継を立てる前の記録は取り下げ、道具を通す。
+    // 同じ画面で替える予約（`seat` を持つ記録）が、席でなくなった会話に残っている時も取り下げる（席を閉じた後に開き直した会話）。
+    if (isAitermSeatConversation(env, sessionId) !== Boolean(record.seat)) {
       withdrawRecord(sessionId, dir);
       return null;
     }
@@ -692,6 +783,15 @@ export async function stopClaudeTurnForHandoff({
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
       claimed = false;
+    }
+    if (claimed && record.seat) {
+      // 止める前に、Aiterm への合図を書く（ADR 0058）。hook で止めたターンは Stop が走らないので、Aiterm はこの file で
+      // 「このターンの終わりは、呼び手へ返す答えではない」と知る。書けない席では替えられない。あきらめて、道具を通す。
+      try { writeFileSync(record.seat.mark_path, `${record.handoff_id}\n`, { mode: 0o600 }); }
+      catch {
+        withdrawSeatSwitch(record, 'handoff_seat_mark_unwritable', { dir, now });
+        return null;
+      }
     }
     if (claimed) {
       // 依頼とモデルは worker が transcript から読む。hook の時点では、直前の発言がまだ書かれていないことがある。
@@ -758,6 +858,20 @@ export function findClaudeAutoContinuationSource({ prompt, successorSessionId, d
 }
 
 /**
+ * 最初の UserPromptSubmit から呼ぶ。この会話が、席の同じ画面で替えた先の会話で、継続の指示がまだ受け付けられていない時、
+ * その引き継ぎの前任の session id を返す（ADR 0058）。Aiterm が `/clear` は打てたが指示を打てなかった時、新しい会話は
+ * 空で始まり、次に届いた入力が最初の入力になる。その入力にも、止めた時点の依頼とここまでにした事を入れる。
+ *
+ * @returns {string|null}
+ */
+export function findClaudeSeatSwitchSource({ successorSessionId, dir = claudeAutoHandoffDir() }) {
+  if (!validSessionId(successorSessionId)) return null;
+  const record = listClaudeAutoHandoffs({ dir }).find(item => item.seat && !item.accepted_at &&
+    SUCCESSOR_STATES.has(item.state) && item.successor?.session_id === successorSessionId);
+  return record && record.source_session_id !== successorSessionId ? record.source_session_id : null;
+}
+
+/**
  * 最初の UserPromptSubmit（前任の合流）から呼ぶ。前任がこの後継へ自動で引き継いだ会話なら、
  * 止めた時点の依頼を返す。届いた指示がこの引き継ぎの配送なら、受領を記録する。
  *
@@ -817,6 +931,82 @@ function successorEnv(env) {
   return next;
 }
 
+const SEAT_HANDOFF_TYPED = new Set(['none', 'clear', 'clear_and_prompt']);
+
+/**
+ * Aiterm の口の返り（標準出力の1行の JSON）を読む。渡した席・旧い会話と同じ物への返りだけを受ける。
+ * 読めない返り（時間切れ、引数の誤りで JSON が出ない、形が違う）は null。
+ */
+function parseSeatHandoffReply(stdout, { record, sessionId }) {
+  const line = `${stdout ?? ''}`.split('\n').map(text => text.trim()).filter(Boolean).at(-1);
+  let reply;
+  try { reply = JSON.parse(line); }
+  catch { return null; }
+  if (reply?.schema !== AITERM_SEAT_HANDOFF_SCHEMA || !['continued', 'failed'].includes(reply.outcome) ||
+      !SEAT_HANDOFF_TYPED.has(reply.typed)) return null;
+  if (reply.session_id !== record.seat.terminal_session_id || reply.launch_id !== record.seat.launch_id ||
+      reply.from_vendor_session_id !== sessionId) return null;
+  const newId = validSessionId(reply.vendor_session_id) && reply.vendor_session_id !== sessionId ? reply.vendor_session_id : null;
+  return { outcome: reply.outcome, typed: reply.typed, code: typeof reply.code === 'string' && reply.code ? reply.code : null,
+    vendorSessionId: newId };
+}
+
+/**
+ * 席の同じ画面で、新しい会話へ替える（ADR 0058）。継続の指示を file へ書き、Aiterm の口を1回だけ呼ぶ。
+ * Aiterm が席の端末へ `/clear` と指示を打ち、新しい会話の最初の指示が受領を残す。
+ *
+ * 新しい会話の ID が分かった時だけ、記録を残す。分からない時は記録を取り下げる（旧い会話は、記録が無い会話に戻る）。
+ */
+async function switchSeatConversation(sessionId, { record, update, dir, env, spawn, acceptTimeoutMs, pollMs, seatTimeoutMs }) {
+  const { seat } = record;
+  const promptPath = join(dir, `${sessionId}.prompt`);
+  let called;
+  try {
+    writeFileSync(promptPath, claudeContinuationInput(record), { mode: 0o600 });
+    called = spawn(AITERM_SEAT_HANDOFF_COMMAND, ['--session', seat.terminal_session_id, '--launch', seat.launch_id,
+      '--from', sessionId, '--handoff', record.handoff_id, '--prompt-file', promptPath, '--json'],
+    { cwd: record.project_path, env, encoding: 'utf8', timeout: seatTimeoutMs, stdio: ['ignore', 'pipe', 'pipe'] });
+  } finally { rmSync(promptPath, { force: true }); }
+
+  // 口が無い端末では、何も打たれていない。
+  if (called.error?.code === 'ENOENT') return withdrawSeatSwitch(record, 'handoff_aiterm_cli_unavailable', { dir });
+  const reply = parseSeatHandoffReply(called.stdout, { record, sessionId });
+  let typed = reply?.typed ?? null;
+  let successorId = reply?.vendorSessionId ?? null;
+  if (!reply) {
+    // 理由を端末内の worker のログに残す（口の出力だけ。指示や記憶は含まれない）。
+    process.stderr.write(`[auto-handoff] ${AITERM_SEAT_HANDOFF_COMMAND} exit=${called.status ?? called.error?.code ?? 'unknown'} ` +
+      `stdout=${JSON.stringify(`${called.stdout ?? ''}`.slice(0, 500))} stderr=${JSON.stringify(`${called.stderr ?? ''}`.slice(0, 500))}\n`);
+    // 返りを読めない時は、席の今の会話 ID の file で、会話が替わったかを見る。
+    const current = readAitermSeatSessionFile(env);
+    if (current === sessionId) typed = 'none';
+    else if (current) successorId = current;
+  }
+  const failureCode = reply?.code ?? (reply ? 'handoff_seat_switch_failed' : 'handoff_seat_reply_unreadable');
+  if (reply?.outcome !== 'continued' && typed === 'none') return withdrawSeatSwitch(record, failureCode, { dir });
+
+  if (successorId) update({ state: 'launched', successor: { short_id: successorId.slice(0, 8), session_id: successorId } });
+  // 指示を打てなかったと分かっている時は、受領を待たない。
+  const promptTyped = reply?.outcome === 'continued' || typed !== 'clear';
+  for (const deadline = Date.now() + (promptTyped ? acceptTimeoutMs : 0); ;) {
+    const acceptance = readAcceptance(sessionId, record.handoff_id, dir);
+    if (acceptance) {
+      rmSync(acceptancePath(sessionId, dir), { force: true });
+      if (successorId && successorId !== acceptance.successor_session_id) {
+        process.stderr.write(`[auto-handoff] seat successor mismatch: reply=${successorId} accepted=${acceptance.successor_session_id}\n`);
+      }
+      return update({ state: 'sent', error_code: null, accepted_at: acceptance.accepted_at,
+        successor: { short_id: acceptance.successor_session_id.slice(0, 8), session_id: acceptance.successor_session_id } });
+    }
+    if (Date.now() >= deadline) break;
+    await delay(pollMs);
+  }
+  // 新しい会話の ID が分からないまま、受領も無い。席がどちらの会話かは分からない。
+  if (!successorId) return withdrawSeatSwitch(record, failureCode, { dir });
+  return update({ state: 'unknown',
+    error_code: reply?.outcome === 'continued' ? 'handoff_delivery_unconfirmed' : 'handoff_seat_prompt_not_delivered' });
+}
+
 /**
  * 継続の指示を付けて後継を立て、後継の最初の指示が受領を残すのを待つ。失敗は固定の理由を記録して止まる。
  * 受領を確かめられない時も、後継を立て直さない（同じ指示を持った会話を2つ作らない）。
@@ -829,6 +1019,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   transcriptTimeoutMs = 5_000,
   acceptTimeoutMs = 60_000,
   pollMs = 200,
+  seatTimeoutMs = SEAT_HANDOFF_TIMEOUT_MS,
 } = {}) {
   let record = readClaudeAutoHandoff(sessionId, dir);
   if (!record) throw new ClaudeHandoffError('handoff_not_found');
@@ -849,6 +1040,10 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
       effort: record.settings?.effort ?? (record.transcript_path ? readLatestEffort(record.transcript_path) : null) },
     in_flight: inFlight,
   });
+  // 席の同じ画面で替える引き継ぎは、後継を立てない。Aiterm が席の端末へ `/clear` と継続の指示を打つ（ADR 0058）。
+  if (record.seat) {
+    return switchSeatConversation(sessionId, { record, update, dir, env, spawn, acceptTimeoutMs, pollMs, seatTimeoutMs });
+  }
   const launch = remoteControl => spawn('claude', successorArgs(record, { remoteControl }), {
     cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'],
   });

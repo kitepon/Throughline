@@ -269,7 +269,18 @@ hook で止めたターンでは Stop hook が走らない（ADR 0033）。Aiter
 - Throughline が Aiterm の CLI を呼ぶ依存が1つ増える。口が無い端末では、何も打たれずに 0.16.27 の動きへ戻る。
 - `PreToolUse` の速い道（記録の file が無ければ終わる）は変えない。あきらめた印は `PreCompact` だけが読む。
 
-## 確かめる範囲（作った後）
+## 確かめた範囲（Throughline の側を作った時点。2026-10-13）
+
+- 単体試験と、本物の CLI の入口（`pre-compact`・`pre-tool-use`・worker・`session-start`・`prompt-submit`）を仮の HOME で
+  動かす試験。Aiterm の口は偽物（PATH の先頭に置いた `aiterm-seat-handoff`。席の端末へ打つ代わりに、新しい会話の
+  `SessionStart` と `UserPromptSubmit` の hook を本物の CLI で呼ぶ）。通した場面: 替えて記憶が入る、席が番の最中で
+  取り下げてやり直す、指示を打てずに空で始まった会話の最初の入力へ記憶が入る、替えた後の会話がまた替わる予約になる、
+  旧い会話は今までどおり止まる、席の印を継いだだけの会話は裏の後継へ引き継ぐ。
+- Windows では、口を npm が置く shim の組（`.cmd` と `.ps1`）の `.ps1` の側から `pwsh` で呼ぶ（`claude` と同じ道）。
+- **本物の Aiterm の口と、本物の席では、まだ何も通していない**（Aiterm の側が出来ていない）。下の範囲を通すまで、
+  main へ入れず、公開しない。
+
+## 確かめる範囲（Aiterm の側が出来た後）
 
 - 3OS（macOS・Linux・Windows）の本物の席（Aiterm の `agent_launch`）で、本物の自動圧縮を起こして通す。
   見る物: 圧縮の記録が無い事、止めた道具が実行されていない事、新しい会話へ記憶と現在地が入った事、

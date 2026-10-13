@@ -16,7 +16,7 @@ import { consumePendingHandoff } from './pending-handoff.mjs';
 import { mergeSpecificPredecessor, resolveMergeTarget } from './session-merger.mjs';
 import { backfillBodies, deriveTranscriptPath, logBackfill } from './turn-backfill.mjs';
 import { buildBudgetedResumeContext, buildAutoContinuationContext } from './resume-context.mjs';
-import { acceptClaudeAutoContinuation, findClaudeAutoContinuationSource } from './claude-auto-handoff.mjs';
+import { acceptClaudeAutoContinuation, findClaudeAutoContinuationSource, findClaudeSeatSwitchSource } from './claude-auto-handoff.mjs';
 import { readAllSessionStates } from './state-file.mjs';
 
 /**
@@ -49,7 +49,9 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
 
   // 自動継続の後継は、最初の指示が運ぶ引き継ぎ ID で前任を決める (ADR 0053)。project ごとに1つの印は見ない
   // (同じ project の別の会話のための印を、後継が取らない)。
-  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId });
+  // 席の同じ画面で替えた先の会話は、継続の指示が打たれなかった時も、引き継ぎの記録から前任を決める (ADR 0058)。
+  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId }) ??
+    findClaudeSeatSwitchSource({ successorSessionId: sessionId });
   // baton 適格性はセッション誕生時刻 (pending.createdAt) 基準。
   // 誕生後に書かれたバトンは future_baton として残置される (本来の後継のもの)。
   const baton = continuationSourceId ? null : consumeBaton(db, { projectPath, now, bornAt: pending.createdAt });
