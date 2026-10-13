@@ -504,3 +504,63 @@ test('captureInFlightTurn: 発言が1つも無いターンは、user の行と�
   );
 });
 
+
+// --- ADR 0060: host が書いた meta の行でターンを区切っていた頃の行と、途中で届いた入力 ---
+
+test('backfillBodies: meta の行で区切っていた頃に保存したターンは、群がまとまっても重ねて入れない', () => {
+  const meta = { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'skill の本文' }] } };
+  const human = (text) => entry('user', text, undefined, { origin: { kind: 'human' } });
+  const seeded = (turns) => {
+    const db = makeDb();
+    const insert = db.prepare(`INSERT INTO bodies (session_id, origin_session_id, turn_number, role, text, created_at) VALUES (?, ?, ?, ?, ?, 1)`);
+    for (const [turn, user] of turns) {
+      insert.run('target', 'origin', turn, 'user', user);
+      insert.run('target', 'origin', turn, 'assistant', 'saved');
+    }
+    return db;
+  };
+  const run = (db, entries) => withData(entries, (path) =>
+    backfillBodies(db, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 }));
+
+  // 前の版: [依頼, 途中の報告] と [skill の本文, 最終回答] の2群。今の版: 1群（断片 1 と 3）。
+  const both = seeded([[1, '依頼'], [3, 'skill の本文']]);
+  const split = [human('依頼'), entry('assistant', '途中の報告'), meta, entry('assistant', '最終回答')];
+  assert.deepEqual(pick(run(both, split)), { groups: 1, insertedTurns: 0, skippedExisting: 1 });
+  assert.equal(both.prepare('SELECT COUNT(*) AS n FROM bodies').get().n, 4);
+
+  // 前の版: 依頼は本文の無い群で消え、[skill の本文, 最終回答] だけが入っていた。
+  const lost = seeded([[2, 'skill の本文']]);
+  assert.deepEqual(pick(run(lost, [human('依頼'), meta, entry('assistant', '最終回答')])),
+    { groups: 1, insertedTurns: 0, skippedExisting: 1 });
+
+  // 新しい会話では、依頼が user の行になる。
+  const fresh = makeDb();
+  assert.deepEqual(pick(run(fresh, [human('依頼'), meta, entry('assistant', '最終回答')])),
+    { groups: 1, insertedTurns: 1, skippedExisting: 0 });
+  assert.deepEqual(fresh.prepare('SELECT turn_number, role, text, turn_start FROM bodies ORDER BY role DESC').all().map((r) => ({ ...r })), [
+    { turn_number: 2, role: 'user', text: '依頼', turn_start: 'prompt' },
+    { turn_number: 2, role: 'assistant', text: '最終回答', turn_start: null },
+  ]);
+});
+
+function pick(result) {
+  return { groups: result.groups, insertedTurns: result.insertedTurns, skippedExisting: result.skippedExisting };
+}
+
+test('backfillBodies / captureInFlightTurn: ターンの途中で届いた入力は、依頼の行へ入る', () => {
+  const steer = (prompt) => ({ type: 'attachment', attachment: { type: 'queued_command', prompt, origin: { kind: 'human' } } });
+  const entries = [
+    entry('user', '依頼', undefined, { origin: { kind: 'human' } }),
+    steer('追加の指示'),
+    entry('assistant', '回答'),
+  ];
+  const done = makeDb();
+  withData(entries, (path) => backfillBodies(done, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 }));
+  assert.equal(done.prepare(`SELECT text FROM bodies WHERE role = 'user'`).get().text, '依頼\n\n（作業の途中で届いた入力）\n追加の指示');
+
+  const stopped = makeDb();
+  stopped.exec(`CREATE TABLE details (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, origin_session_id TEXT, turn_number INTEGER,
+    tool_name TEXT, input_text TEXT, output_text TEXT, token_count INTEGER, created_at INTEGER, kind TEXT, source_id TEXT)`);
+  withData(entries.slice(0, 2), (path) => captureInFlightTurn(stopped, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 }));
+  assert.equal(stopped.prepare(`SELECT text FROM bodies WHERE role = 'user'`).get().text, '依頼\n\n（作業の途中で届いた入力）\n追加の指示');
+});

@@ -552,3 +552,162 @@ test('sliceInFlightTurnEntries: 最後の user 本文から末尾まで。最後
   assert.deepEqual(sliceInFlightTurnEntries([entries[1]]), []);
 });
 
+
+// --- ADR 0060: Claude Code の、ターンの途中で届いた入力・host が書く meta の行・続けて届いた待ち入力 ---
+
+function humanEntry(text, extra = {}) {
+  return { type: 'user', origin: { kind: 'human' }, promptSource: 'typed', message: { role: 'user', content: text }, ...extra };
+}
+function queuedCommandEntry(prompt, extra = {}) {
+  return {
+    type: 'attachment',
+    attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: 'human' }, humanTurn: true, ...extra },
+  };
+}
+/** skill を読んだ時などに Claude Code が書く行。origin が無い。 */
+function hostMetaEntry(text) {
+  return { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text }] } };
+}
+
+test('readTranscript: ターンの途中で届いた人の入力は、そのターンの依頼へ届いた順に足す。番号は進めない', () => {
+  const path = writeTranscript([
+    humanEntry('最初の依頼'),
+    asstToolUseEntry('toolu_1', 'Read', { file_path: '/a' }),
+    queuedCommandEntry('途中の追加1'),
+    userToolResultEntry('toolu_1', 'ok'),
+    asstTextEntry('途中の報告'),
+    queuedCommandEntry([{ type: 'text', text: '途中の追加2' }, { type: 'image', source: {} }]),
+    asstTextEntry('最終回答'),
+    humanEntry('次の依頼'),
+    asstTextEntry('次の回答'),
+  ]);
+  const turns = readTranscript(path);
+  assert.deepEqual(turns.map((t) => [t.role, t.turn_number]), [
+    ['user', 0], ['assistant', 1], ['assistant', 2], ['user', 3], ['assistant', 4],
+  ]);
+  assert.equal(turns[0].content,
+    '最初の依頼\n\n（作業の途中で届いた入力）\n途中の追加1\n\n（作業の途中で届いた入力）\n途中の追加2');
+  assert.equal(turns[0].start, 'prompt');
+  assert.equal(turns[3].content, '次の依頼');
+  const groups = getLogicalTurnGroups(path);
+  assert.equal(groups[0].representative.index, 2);
+  assert.equal(groups[0].user.content.startsWith('最初の依頼\n\n（作業の途中で届いた入力）\n途中の追加1'), true);
+});
+
+test('readTranscript: 途中で届いた完了通知と、subagent の中の入力は依頼へ足さない。別の会話からの文は注意書きを落として足す', () => {
+  const path = writeTranscript([
+    humanEntry('依頼'),
+    queuedCommandEntry('<task-notification>\n<status>completed</status>\n</task-notification>',
+      { commandMode: 'task-notification', origin: { kind: 'task-notification' }, humanTurn: undefined }),
+    { ...queuedCommandEntry('subagent への入力'), isSidechain: true },
+    queuedCommandEntry('印の無い入力', { origin: undefined }),
+    queuedCommandEntry('Another Claude session sent a message:\n本文\n\nThis came from another Claude session, not a human.',
+      { origin: { kind: 'peer' } }),
+    asstTextEntry('回答'),
+  ]);
+  assert.equal(readTranscript(path)[0].content,
+    '依頼\n\n（作業の途中で届いた入力）\nAnother Claude session sent a message:\n本文');
+});
+
+test('readTranscript: 依頼より前に書かれた途中の入力は、足す先が無いので捨てる', () => {
+  const path = writeTranscript([queuedCommandEntry('宙に浮いた入力'), asstTextEntry('回答')]);
+  assert.deepEqual(readTranscript(path).map((t) => [t.role, t.content]), [['assistant', '回答']]);
+});
+
+test('readTranscript: host が書いた meta の行（origin なし）は返さず、ターンも区切らない。番号は詰めない', () => {
+  const path = writeTranscript([
+    humanEntry('依頼'),
+    asstToolUseEntry('toolu_1', 'Skill', { skill: 'x' }),
+    userToolResultEntry('toolu_1', 'Launching skill: x'),
+    hostMetaEntry('Base directory for this skill: /x\n\n手順…'),
+    asstTextEntry('最終回答'),
+  ]);
+  assert.deepEqual(readTranscript(path).map((t) => [t.role, t.content, t.turn_number]), [
+    ['user', '依頼', 0],
+    ['assistant', '最終回答', 2],
+  ]);
+  const groups = getLogicalTurnGroups(path);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].user.content, '依頼');
+  assert.equal(groups[0].representative.index, 2);
+  assert.equal(readLatestUserGroup(path).user.content, '依頼');
+});
+
+test('readTranscript: origin を持つ meta の行（別の会話から届いた発言）は、今までどおりターンの始まり', () => {
+  const path = writeTranscript([
+    humanEntry('依頼'),
+    asstTextEntry('回答'),
+    { type: 'user', isMeta: true, origin: { kind: 'peer', from: 'x' },
+      message: { role: 'user', content: 'Another Claude session sent a message:\n本文\n\nThis came from another Claude session.' } },
+    asstTextEntry('返事'),
+  ]);
+  assert.deepEqual(getLogicalTurnGroups(path).map((g) => [g.user.content, g.user.start]), [
+    ['依頼', 'prompt'],
+    ['Another Claude session sent a message:\n本文', 'unknown'],
+  ]);
+});
+
+test('readTranscript: ターンの終わりに続けて届いた待ち入力（同じ promptIndex）は、1つの依頼にまとめる', () => {
+  const queued = (text, promptIndex, id) => humanEntry(text,
+    { promptSource: 'queued', promptId: id, turnPosition: { promptIndex, turnIndex: promptIndex } });
+  const path = writeTranscript([
+    humanEntry('前の依頼', { promptId: 'p0', turnPosition: { promptIndex: 8, turnIndex: 8 } }),
+    asstTextEntry('前の回答'),
+    queued('待っていた1通目', 9, 'p1'),
+    { type: 'attachment', attachment: { type: 'hook_success', hookEvent: 'UserPromptSubmit', content: '' } },
+    queued('待っていた2通目', 9, 'p2'),
+    asstTextEntry('回答'),
+    queued('別の番の入力', 10, 'p3'),
+    asstTextEntry('次の回答'),
+  ]);
+  const turns = readTranscript(path);
+  assert.deepEqual(turns.map((t) => [t.role, t.content, t.turn_number]), [
+    ['user', '前の依頼', 0],
+    ['assistant', '前の回答', 1],
+    ['user', '待っていた1通目\n\n待っていた2通目', 2],
+    ['assistant', '回答', 4],
+    ['user', '別の番の入力', 5],
+    ['assistant', '次の回答', 6],
+  ]);
+  assert.equal(turns[2].prompt_id, 'p1');
+  assert.equal(getLogicalTurnGroups(path)[1].representative.index, 4);
+});
+
+test('readTranscript: promptIndex が違う・印が無い・間に本文がある user 行は、まとめない', () => {
+  const at = (promptIndex) => ({ turnPosition: { promptIndex, turnIndex: promptIndex } });
+  assert.deepEqual(readTranscript(writeTranscript([
+    humanEntry('止められた依頼', at(1)), humanEntry('打ち直した依頼', at(2)), asstTextEntry('回答'),
+  ])).map((t) => t.content), ['止められた依頼', '打ち直した依頼', '回答']);
+  assert.deepEqual(readTranscript(writeTranscript([
+    userEntry('印の無い行'), userEntry('印の無い行2'), asstTextEntry('回答'),
+  ])).map((t) => t.content), ['印の無い行', '印の無い行2', '回答']);
+  // 端末で打った命令の行（origin なし）は、同じ promptIndex を持っていても人の入力とまとめない
+  assert.deepEqual(readTranscript(writeTranscript([
+    { type: 'user', message: { role: 'user', content: '<local-command-stdout>x</local-command-stdout>' }, ...at(3) },
+    humanEntry('依頼', at(3)), asstTextEntry('回答'),
+  ])).map((t) => t.content), ['<local-command-stdout>x</local-command-stdout>', '依頼', '回答']);
+});
+
+test('sliceCurrentTurnEntries / sliceInFlightTurnEntries: host が書いた meta の行で区切らず、その前の道具も同じターンに含める', () => {
+  const entries = [
+    humanEntry('前の依頼'),
+    asstTextEntry('前の回答'),
+    humanEntry('今の依頼'),
+    asstToolUseEntry('toolu_1', 'Read', { file_path: '/a' }),
+    userToolResultEntry('toolu_1', 'before skill'),
+    asstToolUseEntry('toolu_2', 'Skill', { skill: 'x' }),
+    userToolResultEntry('toolu_2', 'Launching skill: x'),
+    hostMetaEntry('skill の本文'),
+    asstToolUseEntry('toolu_3', 'Write', { file_path: '/b' }),
+    userToolResultEntry('toolu_3', 'after skill'),
+  ];
+  const inFlight = sliceInFlightTurnEntries(entries);
+  assert.equal(inFlight[0].message.content, '今の依頼');
+  assert.deepEqual(
+    extractDetailBlocks(inFlight).filter((d) => d.kind === DETAIL_KIND.TOOL_INPUT).map((d) => d.tool_name),
+    ['Read', 'Skill', 'Write'],
+  );
+  const done = sliceCurrentTurnEntries([...entries, asstTextEntry('最終回答')]);
+  assert.equal(done[0].message.content, '今の依頼');
+  assert.equal(done.length, 9);
+});

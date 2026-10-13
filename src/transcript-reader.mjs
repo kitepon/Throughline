@@ -5,7 +5,9 @@
  * 実際のフォーマット（確認済み）:
  *   {type: "user",      message: {role: "user",      content: [{type:"text", text:"..."}]}, ...}
  *   {type: "assistant", message: {role: "assistant", content: [{type:"text", text:"..."}, {type:"thinking", ...}]}, ...}
- *   他に queue-operation, attachment, file-history-snapshot 等があるが無視する
+ *   {type: "attachment", attachment: {type: "queued_command", prompt, origin: {kind}}, ...}
+ *     ターンの途中で届いた入力。届いた先のターンの依頼へ足す (ADR 0060)
+ *   他に queue-operation, file-history-snapshot, ほかの attachment 等があるが、本文としては無視する
  */
 
 import { readFileSync, existsSync } from 'fs';
@@ -32,6 +34,59 @@ function entryKind(entry) {
  */
 export function isCompactSummaryEntry(entry) {
   return entry?.isCompactSummary === true;
+}
+
+/**
+ * Claude Code が自分で書く meta の user 行か（ADR 0060）。skill を読んだ時の本文、端末で打った命令の注意書きなど。
+ * type は user だが、人の発言でも、外から届いた入力でもない。ターンの始まりにも本文にもしない。
+ * 別の会話から届いた発言も `isMeta: true` だが、`origin.kind` を持つ。届いた入力なので、ここには入れない。
+ * @param {object} entry
+ */
+export function isClaudeHostWrittenMetaEntry(entry) {
+  return entry?.type === 'user'
+    && entry.message !== null && typeof entry.message === 'object'
+    && entry.isMeta === true
+    && typeof entry.origin?.kind !== 'string';
+}
+
+/** ターンの始まりにも本文にもしない user 行か。圧縮の要約（ADR 0032）と、host が書いた meta の行（ADR 0060）。 */
+function isHostWrittenClaudeUserEntry(entry) {
+  return isCompactSummaryEntry(entry) || isClaudeHostWrittenMetaEntry(entry);
+}
+
+// ターンの途中で届いた入力のうち、依頼へ足す物。人が打った文と、別の会話から届いた発言。
+// 裏の作業の完了通知（task-notification）は、そのターン自身の作業の結果なので足さない。
+const CLAUDE_MID_TURN_INPUT_ORIGINS = Object.freeze(['human', 'peer']);
+
+/** ターンの途中で届いた入力を、依頼の後ろへ足す時の見出し。記憶を読む側が、最初の依頼と見分けられる様にする。 */
+export const MID_TURN_INPUT_MARK = '（作業の途中で届いた入力）';
+
+/**
+ * Claude Code が、動いているターンへ届けた入力の本文（ADR 0060）。当たらない行は null。
+ * 手すきの時に届けば user 行になる入力が、ターンの途中では `attachment` の `queued_command` で書かれる。
+ * @param {object} entry transcript JSONL の 1 行
+ * @returns {string|null}
+ */
+function claudeMidTurnInputText(entry) {
+  if (entry?.type !== 'attachment' || entry.isSidechain === true) return null;
+  const attachment = entry.attachment;
+  if (attachment?.type !== 'queued_command') return null;
+  if (!CLAUDE_MID_TURN_INPUT_ORIGINS.includes(attachment.origin?.kind)) return null;
+  if (typeof attachment.prompt !== 'string' && !Array.isArray(attachment.prompt)) return null;
+  const text = normalizeTerminalText(compactClaudePeerMessage(extractText(attachment.prompt)));
+  return text ? text : null;
+}
+
+/**
+ * ターンの終わりに、待っていた入力が続けて user 行になった物か（ADR 0060）。Claude Code は、同じ番へ届けた
+ * user 行に同じ `turnPosition.promptIndex` を付ける。両方が `origin.kind` を持つ（届いた入力である）時だけ当たる。
+ */
+function isSameClaudePromptDelivery(previous, entry) {
+  const index = entry.turnPosition?.promptIndex;
+  return Number.isSafeInteger(index)
+    && previous?.promptIndex === index
+    && typeof entry.origin?.kind === 'string'
+    && previous.hasOrigin === true;
 }
 
 const GROK_HOST_WRITTEN_SYNTHETIC_REASONS = Object.freeze(['compaction_meta', 'system_reminder']);
@@ -72,9 +127,14 @@ export function readTranscript(transcriptPath) {
   const raw = readFileSync(transcriptPath, 'utf8');
 
   const turns = [];
-  // turn_number は transcript 内の本文行の通し番号。圧縮の要約行は返さないが番号は進める。
-  // 番号を詰めると、要約行を数えていた頃に保存した bodies の turn_number と食い違う。
+  // turn_number は transcript 内の本文行の通し番号。圧縮の要約行と host が書いた meta の行は返さないが、番号は進める。
+  // 番号を詰めると、その行を数えていた頃に保存した bodies の turn_number と食い違う。
   let position = 0;
+  // 直前に返した user の行。ターンの途中で届いた入力と、続けて届いた待ち入力を、この行の本文へ足す (ADR 0060)。
+  let currentUser = null;
+  // currentUser の後に assistant の本文が出たか。出た後の user 行は、次のターンの始まり。
+  let currentUserAnswered = false;
+  let currentUserDelivery = null;
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -83,6 +143,13 @@ export function readTranscript(transcriptPath) {
     try {
       entry = JSON.parse(trimmed);
     } catch {
+      continue;
+    }
+
+    // ターンの途中で届いた入力。本文行ではないので、番号は進めない。
+    const midTurnInput = claudeMidTurnInputText(entry);
+    if (midTurnInput !== null) {
+      if (currentUser) currentUser.content += `\n\n${MID_TURN_INPUT_MARK}\n${midTurnInput}`;
       continue;
     }
 
@@ -113,10 +180,18 @@ export function readTranscript(transcriptPath) {
     if (isCompactSummaryEntry(entry)) continue;
     // Grok の合成行も host が書いた行。番号は進める（数えていた頃に保存した turn_number と食い違わせない）。
     if (isGrokHostWrittenUserEntry(entry)) continue;
+    // Claude Code の meta の行も host が書いた行。ここで区切ると、その前の依頼が本文の無い群になって消える。
+    if (isClaudeHostWrittenMetaEntry(entry)) continue;
+
+    if (role === 'user' && currentUser && !currentUserAnswered && isSameClaudePromptDelivery(currentUserDelivery, entry)) {
+      // 待っていた入力が、同じ番へ続けて届いた。1つの依頼にまとめる。別の行にすると、手前の入力が本文の無い群になって消える。
+      currentUser.content += `\n\n${text}`;
+      continue;
+    }
 
     const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
     // grok chat_history.jsonl は Claude の message 包みを持たず type/content 直置き。
-    turns.push({
+    const turn = {
       role,
       content: text,
       turn_number: turnNumber,
@@ -128,7 +203,18 @@ export function readTranscript(transcriptPath) {
             prompt_id: typeof entry.promptId === 'string' ? entry.promptId : null,
           }
         : {}),
-    });
+    };
+    turns.push(turn);
+    if (role === 'user') {
+      currentUser = turn;
+      currentUserAnswered = false;
+      currentUserDelivery = {
+        promptIndex: entry.turnPosition?.promptIndex,
+        hasOrigin: typeof entry.origin?.kind === 'string',
+      };
+    } else {
+      currentUserAnswered = true;
+    }
   }
 
   return turns;
@@ -403,8 +489,8 @@ export function sliceCurrentTurnEntries(entries) {
   for (let i = lastAssistantTextIdx - 1; i >= 0; i--) {
     const e = entries[i];
     if (entryKind(e) !== 'user') continue;
-    // 圧縮の要約行はターンの始まりではない。圧縮より前の tool 入出力も同じターンに含める。
-    if (isCompactSummaryEntry(e)) continue;
+    // 圧縮の要約行と host が書いた meta の行は、ターンの始まりではない。その前の tool 入出力も同じターンに含める。
+    if (isHostWrittenClaudeUserEntry(e)) continue;
     const blocks = e.message?.content;
     if (Array.isArray(blocks)) {
       if (blocks.some((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)) {
@@ -433,7 +519,7 @@ export function sliceCurrentTurnEntries(entries) {
 export function sliceInFlightTurnEntries(entries) {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
-    if (entryKind(e) !== 'user' || isCompactSummaryEntry(e)) continue;
+    if (entryKind(e) !== 'user' || isHostWrittenClaudeUserEntry(e)) continue;
     const blocks = e.message?.content;
     const hasText = Array.isArray(blocks)
       ? blocks.some((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)

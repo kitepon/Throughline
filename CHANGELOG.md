@@ -10,6 +10,24 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.29] — 2026-10-14
+
+### 修正
+
+- **Claude Codeで、作業中に届いた入力が、会話の記録（L2）に残っていなかった**（[ADR 0060](docs/adr/0060-claude-mid-turn-input-and-host-meta-rows.md)）。Claude Codeは、ターンが動いている間に届いた入力を、user行ではなく`attachment`の`queued_command`で書く。この製品はその行を読んでいなかった。Linuxの実機の4日ぶんの記録で、人の入力のuser行1,402に対して、途中で届いた人の入力は833通あり、記録に入っていたのは3通だった。
+  - 直した後は、途中で届いた入力を、届いた先のターンの依頼へ、届いた順に足す。前に見出しの1行（`（作業の途中で届いた入力）`）を置く。人が打った文と、別の会話から届いた発言が当たる。裏の作業の完了通知は足さない。
+  - 引き継ぎの記憶と、自動継続で後継へ運ぶ依頼にも入る。
+- **Claude Codeがskillを読んだ時などに書く行を、利用者の発言として記録していた**（同じADR）。`isMeta: true`で`origin`の無いuser行。この行でターンを区切っていたので、その前に本文が無いと、元の依頼が記録から消え、skillの本文が利用者の発言として残った。道具の入出力（L3）も、その行より前の分が入らなかった。自動継続で止めたターンでは、後継へ運ぶ依頼がskillの本文になっていた。
+  - 直した後は、この行をターンの始まりにも本文にもしない。別の会話から届いた発言（`origin`を持つ）は、今までどおり。
+- **Claude Codeで、ターンの終わりに待ち入力が2通以上続けて届いた時、最後の1通だけが記録されていた**（同じADR）。同じ番へ続けて届いたuser行（`turnPosition.promptIndex`が同じ）を、1つの依頼にまとめる。
+
+### 変わる動き
+
+- Claude Codeの会話で、利用者の発言の行に、作業中に届いた入力が見出しつきで足される。見出しの1行は、この製品が足した文。
+- skillの本文は、利用者の発言として記録されなくなる。道具の入出力には残る。
+- 前の版が記録したターンは書き直さない。直しが効くのは、この版が取り込むターンから。行の番号は変わらないので、前の版の行と重なって増える事は無い。
+- Codex・Grok・Cursorの記録の読み方は変えていない。
+
 ## [0.16.28] — 2026-10-14
 
 ### 修正
@@ -2558,7 +2576,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.28...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.29...HEAD
+[0.16.29]: https://github.com/kitepon/Throughline/compare/v0.16.28...v0.16.29
 [0.16.28]: https://github.com/kitepon/Throughline/compare/v0.16.27...v0.16.28
 [0.16.27]: https://github.com/kitepon/Throughline/compare/v0.16.26...v0.16.27
 [0.16.26]: https://github.com/kitepon/Throughline/compare/v0.16.25...v0.16.26
