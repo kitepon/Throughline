@@ -1,6 +1,6 @@
 # ADR 0058: Aiterm が起こした席の Claude の会話は、同じ画面で新しい会話へ替えて引き継ぐ
 
-- Status: Proposed（口の形は Aiterm の担当と合った。2026-10-13。失敗の code の一覧は Aiterm の担当が作る前に送る。コードはまだ無い）
+- Status: Proposed（口の形と失敗の code は Aiterm の担当と合った。2026-10-13。Aiterm の側はまだ出来ていない。本物の席で通してから Accepted にする）
 - Date: 2026-10-13
 
 ## Context
@@ -152,18 +152,21 @@ hook で止めたターンでは Stop hook が走らない（ADR 0033）。Aiter
 あきらめた印は、記録の置き場に会話ごとの file で残す（引き継ぎ ID、理由、失敗の回数、時刻。24 時間で掃除）。
 印がある会話は、次からの自動圧縮を通す（0.16.27 と同じ）。印が無いと、圧縮のたびにターンを止めては失敗する事を繰り返す。
 
-**席が番の最中だった失敗（`TURN_NOT_STOPPED`）だけは、1回ではあきらめない。** 記録を取り下げて回数を数え、次の自動圧縮で
-もう一度替える。同じ会話で3回続けて失敗した時に、あきらめる。理由は下の「止めた後に、旧い会話で次の番が始まる時」。
+**何も打たれなかった失敗（`typed: none`）のうち、少し後なら通る物は、1回ではあきらめない。** 記録を取り下げて回数を数え、
+次の自動圧縮でもう一度替える。同じ会話で3回失敗した時に、あきらめる。理由は下の「止めた後に、旧い会話で次の番が
+始まる時」。1回であきらめるのは、やり直しても通らない物だけ: 席が無い（`SEAT_NOT_FOUND`）、席と合わない
+（`SEAT_MISMATCH`）、指示の file を読めない（`PROMPT_INVALID`）、口が無い（`ENOENT`）、合図の file を書けない。
+一覧に無い code は、`typed` と新しい会話の ID の有無だけで扱う（`typed: none` なら、やり直す側）。
 
 | Aiterm の返り | 席の画面 | Throughline の扱い |
 |---|---|---|
 | `continued` | 新しい会話が継続の指示で動いている | `launched` → 受領を 60 秒待つ → `sent`。残らなければ `unknown`（`handoff_delivery_unconfirmed`） |
-| `failed`・`typed: none`（`TURN_NOT_STOPPED`） | 旧い会話のまま。次の番が動いている | 記録を取り下げ、失敗の回数を数える。3回目であきらめる |
-| `failed`・`typed: none`（ほかの code） | 旧い会話のまま。ターンは止まっている | 記録を取り下げ、あきらめた印を残す。理由は返りの `code` |
+| `failed`・`typed: none`（`TURN_NOT_STOPPED`・`SEAT_BUSY`・`SEAT_NOT_READY`・`HANDOFF_MARK_MISMATCH`・一覧に無い code） | 旧い会話のまま | 記録を取り下げ、失敗の回数を数える。3回目であきらめる |
+| `failed`・`typed: none`（`SEAT_NOT_FOUND`・`SEAT_MISMATCH`・`PROMPT_INVALID`） | 旧い会話のまま。ターンは止まっている | 記録を取り下げ、あきらめた印を残す。理由は返りの `code` |
 | `failed`・`typed: clear` | 新しい会話が空で始まっている | 返りに新しい会話の ID があれば `unknown`（`handoff_seat_prompt_not_delivered`）で残す。無ければ（`/clear` の後の `SessionStart` が Aiterm へ届かなかった時）取り下げる |
 | `failed`・`typed: clear_and_prompt` | 新しい会話に指示を打ったが、Aiterm が確かめられなかった | 受領を 60 秒待つ。残れば `sent`。残らなければ、返りに ID があれば `unknown`、無ければ取り下げる |
 | 口が無い（`ENOENT`） | 旧い会話のまま | `typed: none` と同じ。理由は `handoff_aiterm_cli_unavailable` |
-| 時間切れ・読めない返り | 分からない | 受領があれば `sent`。無ければ席の今の会話 ID の file を読み、旧い ID のままなら `typed: none` と同じ、替わっていればその ID で `unknown`。file を読めなければ取り下げる |
+| 時間切れ・読めない返り（引数が足りない時の終了コード 2 も） | 分からない | 受領があれば `sent`。無ければ席の今の会話 ID の file を読み、旧い ID のままなら `typed: none` と同じ、替わっていればその ID で `unknown`。file を読めなければ取り下げる |
 
 - **`typed: none` で止まったターン**は、Throughline からは再開できない（席の端末へ打てない）。Aiterm が呼び手の待ちを
   `error` で返し、呼び手が送り直す。旧い会話は残っていて、記録は無いので、送り直した文はそのまま旧い会話で続く。
@@ -172,7 +175,10 @@ hook で止めたターンでは Stop hook が走らない（ADR 0033）。Aiter
   記録には、止めた時に行列に入っていた文が無かった）。動く時は、次のようになる。
   - その番の道具は、記録がある間は断られ、番は止まる（引き継ぎ済みの会話と同じ。同じ日の記録で、止めた後に届いた文の番が
     最初の道具で止まった事を見ている）。
-  - Aiterm の口は、席が番の最中と見て、何も打たずに `typed: none`・`TURN_NOT_STOPPED` で返す。worker は記録を取り下げる。
+  - Aiterm の口は、何も打たずに `typed: none`・`TURN_NOT_STOPPED` で返す。worker は記録を取り下げる。
+    `TURN_NOT_STOPPED` の意味は「合図の後に、旧い会話で次の番が始まっている」。番が動いている最中の時（画面で見て、
+    短く待ってから返す）と、その番も hook で止まって画面が入力待ちに見える時（旧い会話の記録に、合図の file の時刻より
+    後の利用者の入力の行がある）の両方を含む。
   - 行列の文は旧い会話が読んでいて、新しい会話へ運ぶ記憶（止めた時点の依頼）には入っていない。ここで `/clear` を打つと
     その文が落ちるので、打たない形が正しい。
   - 文脈は一杯のままなので、旧い会話の次の番でまた自動圧縮が起き、同じ順で替える。この時は、その番の依頼が
@@ -226,7 +232,31 @@ hook で止めたターンでは Stop hook が走らない（ADR 0033）。Aiter
 4. `continued` を返した後、呼び手の待ちは、続きのターンの終わりまで続く（普通のターンと同じ）。受領の 60 秒と競る時計は、
    Aiterm の側に無い。
 
-名前と意味は、ADR 0057 と同じ扱いにする（変える時は、先に知らせ合う）。失敗の code の一覧は、Aiterm の担当が作る前に送る。
+名前と意味は、ADR 0057 と同じ扱いにする（変える時は、先に知らせ合う）。
+
+### 口の返り（Aiterm の担当の一覧。2026-10-13）
+
+標準出力へ1行: `{ "schema": "aiterm.seat-handoff.v1", "outcome", "session_id", "launch_id", "from_vendor_session_id",
+"vendor_session_id", "typed", "code", "message" }`。`outcome` は `continued`（終了コード 0、`code` は null）か
+`failed`（終了コード 1）。引数が足りない時は終了コード 2 で、JSON は出ない。`vendor_session_id` は新しい会話の ID で、
+分からない時は null。
+
+| `typed` | code | 起きる時 | 新しい会話の ID |
+|---|---|---|---|
+| `none` | `TURN_NOT_STOPPED` | 合図の後に、旧い会話で次の番が始まっている | null |
+| `none` | `SEAT_BUSY` | 席ごとの送信の行列の順番が、口の上限のうちに来ない | null |
+| `none` | `SEAT_NOT_READY` | 番は動いていないが、席が入力待ちにならない（選ぶ画面や確かめの画面、画面を読めない） | null |
+| `none` | `HANDOFF_MARK_MISMATCH` | 合図の file が無い（180 秒を過ぎて Aiterm が消した）か、中身が `--handoff` と違う | null |
+| `none` | `SEAT_NOT_FOUND` | その名前の席が無い | null |
+| `none` | `SEAT_MISMATCH` | 起動の ID、旧い会話の ID、harness のどれかが、席の今と合わない | null |
+| `none` | `PROMPT_INVALID` | 指示の file を読めない、空、64KiB を越える | null |
+| `clear` | `CLEAR_NOT_CONFIRMED` | 新しい会話の `SessionStart` を上限のうちに受けていない | null |
+| `clear` | `PROMPT_NOT_TYPED` | 新しい会話は始まったが、入力待ちにならず、指示を打てていない | 入る |
+| `clear_and_prompt` | `PROMPT_NOT_ACCEPTED` | 指示を打ったが、新しい会話が受け付けたのを確かめられない | 入る |
+| どれでも | `INTERNAL_ERROR` | 上に無い失敗。`typed` はそこまでに打った所 | 分かっていれば入る |
+
+呼び手の待ち: `typed: none` と `typed: clear` の失敗、合図から 180 秒過ぎた時は、Aiterm が `error` で返す。
+`PROMPT_NOT_ACCEPTED` は待ちを残す（指示が受け付けられていれば、続きのターンの終わりが呼び手へ届く）。
 
 ## Consequences
 
@@ -257,7 +287,6 @@ hook で止めたターンでは Stop hook が走らない（ADR 0033）。Aiter
   見ていない。
 - 席で `/resume` して別の会話へ移った時（`source: resume`）に、Aiterm が席の会話を替えるか。Aiterm の担当が実物を
   見てから決める。替えない間は、移った先の会話は席と数えられず、裏の後継へ引き継がれる（ADR 0057 と同じ）。
-- 失敗の code の一覧（Aiterm の担当が、作る前に送る）。`TURN_NOT_STOPPED` のほかに、やり直してよい code があるか。
 
 ## 採らなかった形
 
