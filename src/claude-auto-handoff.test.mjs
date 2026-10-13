@@ -22,6 +22,8 @@ import {
   findClaudeAutoContinuationSource,
   resolveClaudeAutoHandoffSuccessor,
   isAitermSeatConversation,
+  redirectClaudeHandedOffPrompt,
+  readRunningBackgroundTasks,
 } from './claude-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
@@ -583,6 +585,7 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
     earlier_steps: null,
     stopped_tools: [{ name: 'Read', target: '' }],
     stopped_tools_total: 1,
+    background: { tasks: [], total: 0 },
     turn: null,
   }, '止めた道具の直前の発言まで出そろってから写す');
 
@@ -603,6 +606,7 @@ test('worker: 止めた時点の依頼とモデルを transcript から写し、
     earlier_steps: null,
     stopped_tools: [{ name: 'Read', target: '' }],
     stopped_tools_total: 1,
+    background: { tasks: [], total: 0 },
     turn: null,
   });
   assert.equal(second.calls[0][1], first.calls[0][1], '引き継ぎを重ねても、project 名と印は積み重ならない');
@@ -1582,4 +1586,106 @@ test('hook: 自分の失敗では圧縮も道具も止めず（exit code 1）、
   assert.match(log, /HOOK_PRE_COMPACT_FAILED/);
   assert.match(log, /Missing session_id in PreCompact payload/);
   assert.match(log, /HOOK_PRE_TOOL_USE_FAILED/);
+}));
+
+// ---- 引き継ぎ済みの会話へ届いた入力 (ADR 0062) ----
+
+test('引き継ぎ済みの会話へ届いた入力: 後継が残っている時だけ、モデルを動かさずに止めて、今の続きの場所を返す', () => withDir(async dir => {
+  const projects = join(dir, 'claude', 'projects', '-work-app');
+  mkdirSync(projects, { recursive: true });
+  const a = 'aaaaaaaa-0000-4000-8000-000000000031', b = 'bbbbbbbb-0000-4000-8000-000000000032', c = 'cccccccc-0000-4000-8000-000000000033';
+  const record = (id, fields) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2',
+    handoff_id: `h-${id.slice(0, 8)}`, source_session_id: id, project_path: '/work/app', transcript_path: join(projects, `${id}.jsonl`),
+    requested_at: 1_000, updated_at: 2_000, error_code: null, ...fields }));
+  const submit = (id, prompt, extra = {}, env = {}) => redirectClaudeHandedOffPrompt({ payload: { session_id: id, prompt, ...extra }, now: 5_000, dir, env });
+  const redirects = () => existsSync(join(dir, 'redirects.jsonl'))
+    ? readFileSync(join(dir, 'redirects.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
+
+  assert.equal(submit(a, '依頼'), null, '記録が無い会話');
+  for (const state of ['requested', 'stopped', 'launching', 'failed']) {
+    record(a, { state, successor: null });
+    assert.equal(submit(a, '依頼'), null, `後継がまだ立っていない（${state}）`);
+  }
+  record(a, { state: 'sent', successor: { short_id: 'bbbbbbbb', session_id: b } });
+  assert.equal(submit(a, '依頼'), null, '後継の transcript が無い（後継が消された）会話は止めない');
+  assert.deepEqual(redirects(), []);
+
+  writeFileSync(join(projects, `${b}.jsonl`), '');
+  const human = submit(a, '旧い会話へ打った文');
+  assert.deepEqual(human, { output: { decision: 'block',
+    reason: 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。続きは後継の会話で行ってください: claude attach bbbbbbbb（一覧に無い時は claude --resume ' + b + '）' },
+    kind: 'prompt', handoffId: 'h-aaaaaaaa', successorShortId: 'bbbbbbbb' });
+  assert.equal(submit(a, '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>').kind, 'task-notification');
+  assert.equal(submit(a, '依頼', { agent_id: 'agent-1' }), null, 'subagent の中の入力');
+  assert.equal(submit('../escape', '依頼'), null);
+  assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: a }), null, 'Aiterm の席の会話は止めない');
+  assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: b }).kind, 'prompt', '席の印だけを継いだ会話は止める');
+  assert.deepEqual(redirects(), [
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt' },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'task-notification' },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt' },
+  ], '止めた記録に入力の本文は書かない');
+
+  // 後継がさらに引き継がれている時は、その先を示す。道具を断る時の文も同じ
+  record(b, { state: 'unknown', successor: { short_id: 'cccccccc', session_id: null } });
+  writeFileSync(join(projects, `${c}.jsonl`), '');
+  assert.match(submit(a, '依頼').output.reason, /claude attach cccccccc（一覧に無い時は claude --resume cccccccc-0000-4000-8000-000000000033）$/);
+  assert.match(submit(b, '依頼').output.reason, /引き継ぎID: h-bbbbbbbb.*claude attach cccccccc（一覧に無い時は claude --resume cccccccc-0000-4000-8000-000000000033）$/);
+  const denied = await stopClaudeTurnForHandoff({ payload: { session_id: a, cwd: '/work/app' }, dir,
+    launchWorker: async () => { throw new Error('must not launch'); } });
+  assert.match(denied.stopReason, /引き継ぎID: h-aaaaaaaa.*claude attach cccccccc（一覧に無い時は claude --resume cccccccc-0000-4000-8000-000000000033）$/);
+  // 今の続きの会話（記録が無い）は止めない
+  assert.equal(submit(c, '依頼'), null);
+}));
+
+test('公開CLI: prompt-submit は、引き継ぎ済みの会話の入力を止める出力を返す。ほかの会話には何も返さない', () => withDir(home => {
+  const dir = join(home, '.throughline', 'claude-auto-handoff');
+  const projects = join(home, '.claude', 'projects', '-work-app');
+  mkdirSync(dir, { recursive: true }); mkdirSync(projects, { recursive: true });
+  writeFileSync(join(projects, `${SUCCESSOR}.jsonl`), '');
+  writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: 'h-1',
+    source_session_id: SESSION, project_path: '/work/app', transcript_path: join(projects, `${SESSION}.jsonl`), state: 'sent',
+    requested_at: 1_000, updated_at: 2_000, error_code: null, successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }));
+  const submit = (sessionId, prompt) => cli(home, ['prompt-submit'], JSON.stringify({ session_id: sessionId, cwd: home,
+    hook_event_name: 'UserPromptSubmit', prompt, transcript_path: join(projects, `${sessionId}.jsonl`) }), fakeClaudePath(home));
+
+  const blocked = submit(SESSION, '旧い会話へ打った文');
+  assert.equal(blocked.status, 0, blocked.stderr);
+  assert.deepEqual(JSON.parse(blocked.stdout), { decision: 'block',
+    reason: `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-1）。続きは後継の会話で行ってください: claude attach ${SUCCESSOR.slice(0, 8)}（一覧に無い時は claude --resume ${SUCCESSOR}）` });
+  assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false, '止める時は DB を開かない');
+  const logged = readFileSync(join(home, '.throughline', 'logs', 'inheritance-decision.log'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(logged.map(row => [row.phase, row.session_id, row.handoff_id, row.successor_short_id, row.input_kind]),
+    [['prompt-redirect', SESSION, 'h-1', SUCCESSOR.slice(0, 8), 'prompt']]);
+  assert.equal(JSON.stringify(logged).includes('旧い会話へ打った文'), false, '判定の記録に本文は書かない');
+
+  const passed = submit(SUCCESSOR, '後継へ打った文');
+  assert.equal(passed.status, 0, passed.stderr);
+  assert.equal(passed.stdout, '', '記録が無い会話の入力は、今までどおり通す');
+}));
+
+test('裏で動いている作業: 起こした道具から、終わった通知が届いた物を除く（user 行でも、途中の入力でも）', () => withDir(dir => {
+  const transcript = join(dir, 't.jsonl');
+  const started = (toolUseId, taskId, output) => ({ type: 'user', toolUseResult: { stdout: '', stderr: '', backgroundTaskId: taskId },
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId,
+      content: `Command running in background with ID: ${taskId}. Output is being written to: ${output}. You will be notified when it completes.` }] } });
+  const notice = (taskId, status) => `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>x</tool-use-id>\n<output-file>/o</output-file>\n` +
+    (status ? `<status>${status}</status>\n` : '<event>tick</event>\n') + '<summary>s</summary>\n</task-notification>';
+  writeFileSync(transcript, jsonl([
+    user('依頼', '2026-10-14T00:00:00.000Z', { origin: { kind: 'human' } }),
+    toolUse('t1', 'Bash', { command: 'npm run build', run_in_background: true }), started('t1', 'b1', '/tmp/tasks/b1.output'),
+    toolUse('t2', 'Bash', { command: 'npm test', run_in_background: true }), started('t2', 'b2', 'C:\\Users\\k\\AppData\\Local\\Temp\\claude tasks\\b2.output'),
+    toolUse('t3', 'Bash', { command: 'sleep 600', run_in_background: true }), started('t3', 'b3', '/tmp/tasks/b3.output'),
+    toolUse('t4', 'Monitor', { description: 'CI を見る' }), started('t4', 'b4', '/tmp/tasks/b4.output'),
+    toolUse('t5', 'Read', { file_path: '/work/app/a.mjs' }), toolResult('t5', 'ok'),
+    user(notice('b1', 'completed'), '2026-10-14T00:01:00.000Z', { origin: { kind: 'task-notification' } }),
+    { type: 'attachment', attachment: { type: 'queued_command', prompt: notice('b3', 'failed'), origin: { kind: 'task-notification' } } },
+    user(notice('b4', null), '2026-10-14T00:02:00.000Z', { origin: { kind: 'task-notification' } }),
+    { ...started('t9', 'b9', '/tmp/tasks/b9.output'), isSidechain: true },
+  ]));
+  assert.deepEqual(readRunningBackgroundTasks(transcript, '/work/app'), { total: 2, tasks: [
+    { task_id: 'b4', name: 'Monitor', target: 'CI を見る', output_file: '/tmp/tasks/b4.output' },
+    { task_id: 'b2', name: 'Bash', target: 'npm test', output_file: 'C:\\Users\\k\\AppData\\Local\\Temp\\claude tasks\\b2.output' },
+  ] }, '途中の知らせ（status なし）が来ただけの作業は、まだ動いている');
+  assert.deepEqual(readRunningBackgroundTasks(join(dir, 'none.jsonl')), { tasks: [], total: 0 });
 }));

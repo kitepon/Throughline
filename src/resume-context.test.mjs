@@ -968,6 +968,23 @@ test('buildAutoContinuationContext: 長い依頼は先頭と末尾を残し、�
   assert.match(result.text, /throughline recall --l2 --session S /);
 });
 
+test('buildAutoContinuationContext: 前の会話が裏で動かしていた作業を、出力の場所つきで現在地に載せる', () => {
+  const db = makeDb();
+  const inFlight = { user: { content: '今の依頼', timestamp: 3_000 }, last_fragment: null, steps: [], earlier_steps: null,
+    stopped_tools: [], stopped_tools_total: 0, turn: null };
+  const withTasks = buildAutoContinuationContext(db, { sessionId: 'S', inFlight: { ...inFlight, background: { total: 3, tasks: [
+    { task_id: 'b2', name: 'Bash', target: 'npm test', output_file: '/tmp/tasks/b2.output' },
+    { task_id: 'b1', name: 'Monitor', target: '', output_file: null },
+  ] } } });
+  assert.match(withTasks.text, new RegExp(
+    '\\*\\*前の会話が裏で動かしていた作業（止めた時点で、終わった通知が来ていなかった物）\\*\\*: ' +
+    '終わった通知は、この会話へは届きません。結果が要る時は、出力のファイルを読んで確かめてください。（ほか 1 件）\\n' +
+    '- Bash npm test（ID b2） → 出力: /tmp/tasks/b2\\.output\\n- Monitor（ID b1）\\n'));
+  for (const background of [undefined, { tasks: [], total: 0 }]) {
+    assert.doesNotMatch(buildAutoContinuationContext(db, { sessionId: 'S', inFlight: { ...inFlight, background } }).text, /裏で動かしていた作業/);
+  }
+});
+
 test('buildAutoContinuationContext: 止めたターンでここまでにしたことと、実行されなかった道具を現在地に載せ、そのターンをL2に重ねない', () => {
   const db = makeDb();
   insertBody(db, { session: 'S', origin: 'P0', turn: 1, role: 'user', text: '前の依頼', createdAt: 1_000 });

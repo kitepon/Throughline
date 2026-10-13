@@ -21,7 +21,7 @@
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
  */
 
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -575,6 +575,60 @@ function readInFlightSteps(transcriptPath, stoppedToolUseId, projectPath) {
   };
 }
 
+const BACKGROUND_TASKS_KEPT = 10;
+const TASK_NOTIFICATION_HEAD = /^\s*<task-notification>/;
+const BACKGROUND_OUTPUT_FILE = /Output is being written to: (.+?)(?:\. |\.$|$)/m;
+
+/**
+ * 会話が裏で起こして、終わった通知がまだ来ていない作業（新しい順）(ADR 0062)。
+ *
+ * 裏で起こした道具は、結果の行に host が `toolUseResult.backgroundTaskId` を書く。終わると、完了通知
+ * （`<task-notification>` に `<task-id>` と `<status>`）が、user 行か、ターンの途中なら `queued_command` で届く。
+ * 引き継いだ後は、その通知が旧い会話へ届く。後継は、出力のファイルを読めば結果を確かめられる。
+ *
+ * @returns {{tasks: Array<{task_id: string, name: string, target: string, output_file: string|null}>, total: number}}
+ */
+export function readRunningBackgroundTasks(transcriptPath, projectPath = null) {
+  const toolById = new Map();
+  const started = new Map();
+  const finished = new Set();
+  const noteFinished = (text) => {
+    if (typeof text !== 'string' || !TASK_NOTIFICATION_HEAD.test(text) || !/<status>[^<]+<\/status>/.test(text)) return;
+    const id = /<task-id>([^<]+)<\/task-id>/.exec(text)?.[1];
+    if (id) finished.add(id.trim());
+  };
+  for (const entry of readRawEntries(transcriptPath)) {
+    if (entry?.isSidechain === true) continue;
+    if (entry?.type === 'attachment') {
+      if (entry.attachment?.type === 'queued_command') noteFinished(entry.attachment.prompt);
+      continue;
+    }
+    const content = entry?.message?.content;
+    if (entry?.type === 'assistant' && Array.isArray(content)) {
+      for (const block of content) {
+        if (block?.type === 'tool_use' && typeof block.id === 'string') {
+          toolById.set(block.id, { name: block.name ?? 'unknown', target: toolTarget(block.input, projectPath) });
+        }
+      }
+    } else if (entry?.type === 'user') {
+      if (typeof content === 'string') { noteFinished(content); continue; }
+      if (!Array.isArray(content)) continue;
+      const taskId = entry.toolUseResult?.backgroundTaskId;
+      for (const block of content) {
+        if (block?.type === 'text') noteFinished(block.text);
+        if (block?.type !== 'tool_result' || typeof taskId !== 'string' || !taskId) continue;
+        const text = typeof block.content === 'string' ? block.content
+          : Array.isArray(block.content) ? block.content.map(part => (typeof part?.text === 'string' ? part.text : '')).join('') : '';
+        const tool = toolById.get(block.tool_use_id) ?? { name: 'unknown', target: '' };
+        started.set(taskId, { task_id: taskId, name: tool.name, target: tool.target,
+          output_file: BACKGROUND_OUTPUT_FILE.exec(text)?.[1]?.trim() || null });
+      }
+    }
+  }
+  const running = [...started.values()].filter(task => !finished.has(task.task_id)).reverse();
+  return { tasks: running.slice(0, BACKGROUND_TASKS_KEPT), total: running.length };
+}
+
 /**
  * 止めた時点の作業途中のターン。後継の会話が止められた時は、最後の user 発言が前の引き継ぎの
  * 継続の指示になっている。その時は、前の引き継ぎが運んだ元の依頼を引き続き運ぶ。
@@ -592,6 +646,7 @@ function snapshotInFlight(record, dir) {
     user: carried ?? { content: latest.user.content, timestamp: latest.user.timestamp },
     last_fragment: lastFragment ? { content: lastFragment.content, timestamp: lastFragment.timestamp } : null,
     ...readInFlightSteps(record.transcript_path, record.stopped_tool_use_id, record.project_path),
+    background: readRunningBackgroundTasks(record.transcript_path, record.project_path),
     turn: null,
   };
 }
@@ -644,9 +699,37 @@ function withdrawRecord(sessionId, dir) {
   rmSync(join(dir, `${sessionId}.claim`), { force: true });
 }
 
-function stopOutput(record) {
+/**
+ * 引き継ぎ済みの会話から見た、今の続きの会話。後継がさらに引き継がれていれば、その先を返す。
+ * たどれない時は、記録にある直接の後継。
+ *
+ * @returns {{shortId: string|null, sessionId: string|null}}
+ */
+function currentSuccessor(record, dir) {
+  try {
+    const resolved = resolveClaudeAutoHandoffSuccessor(record.source_session_id, { dir });
+    if (resolved.handed_off && resolved.current_session_id !== record.source_session_id) {
+      return { shortId: resolved.current_session_id.slice(0, 8), sessionId: resolved.current_session_id };
+    }
+  } catch { /* 記録を読めない時は、直接の後継を示す */ }
+  return { shortId: record.successor?.short_id ?? null,
+    sessionId: validSessionId(record.successor?.session_id) ? record.successor.session_id : null };
+}
+
+/**
+ * 引き継ぎ済みの会話で、道具を断る時と入力を止める時に見せる文。
+ * `claude rm` で一覧から消した後継は `claude attach` では開けない（記録は残る）。その時に開ける命令も添える。
+ */
+function handedOffReason(record, dir) {
+  const { shortId, sessionId } = currentSuccessor(record, dir);
+  return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+    `続きは後継の会話で行ってください: claude attach ${shortId}` +
+    (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
+}
+
+function stopOutput(record, dir) {
   const reason = record.successor?.short_id
-    ? `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。続きは後継の会話で行ってください: claude attach ${record.successor.short_id}`
+    ? handedOffReason(record, dir)
     : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
       (record.desktop?.wanted
         ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。'
@@ -657,6 +740,39 @@ function stopOutput(record) {
     stopReason: reason,
     hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
   };
+}
+
+/** 引き継ぎ済みの会話へ届いた入力を止めた記録。入力の本文は書かない。 */
+function recordClaudeRedirect(entry, dir) {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    appendFileSync(join(dir, 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+  } catch { /* 記録を書けなくても、入力は止める */ }
+}
+
+/**
+ * UserPromptSubmit hook から呼ぶ (ADR 0062)。引き継ぎ済みで、後継が残っている会話へ届いた入力を、モデルを動かさずに止める。
+ *
+ * 作業は後継が持っている。旧い会話は道具を使えないので、届いた入力に文で答える事しかできない。人が打った文は、
+ * 後継の場所と一緒に打った人へ返す（Claude Code が、止めた理由と元の文を見せる）。裏の作業の完了通知も、ここで止める。
+ * 止めないと、文脈がほぼ一杯の旧い会話で、通知のたびにモデルが1回動く。
+ *
+ * 記録が無い会話、後継がまだ立っていない会話（予約・立ち上げ中・失敗）、後継が無くなった会話、subagent の中の入力には
+ * 何もしない（null）。Aiterm が起こした席の会話（ADR 0057）も止めない。席を外す前の版が引き継いだ席が残っていても、
+ * 呼び手は席の番の終わりを待っている。止めると番が始まらず、呼び手は答えを受け取れない。
+ *
+ * @returns {{output: {decision: 'block', reason: string}, kind: 'prompt'|'task-notification', handoffId: string, successorShortId: string|null}|null}
+ */
+export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir = claudeAutoHandoffDir(), env = process.env }) {
+  const sessionId = payload?.session_id;
+  if (!validSessionId(sessionId) || payload.agent_id || isAitermSeatConversation(env, sessionId)) return null;
+  const record = readClaudeAutoHandoff(sessionId, dir);
+  if (!record || !successorRemains(record)) return null;
+  const successorShortId = currentSuccessor(record, dir).shortId;
+  const kind = typeof payload.prompt === 'string' && /^\s*<task-notification>/.test(payload.prompt) ? 'task-notification' : 'prompt';
+  recordClaudeRedirect({ at: new Date(now).toISOString(), source_session_id: sessionId, handoff_id: record.handoff_id,
+    successor_short_id: successorShortId, kind }, dir);
+  return { output: { decision: 'block', reason: handedOffReason(record, dir) }, kind, handoffId: record.handoff_id, successorShortId };
 }
 
 /**
@@ -712,7 +828,7 @@ export async function stopClaudeTurnForHandoff({
       }
     }
   }
-  return stopOutput(record);
+  return stopOutput(record, dir);
 }
 
 /**

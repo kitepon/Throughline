@@ -42,6 +42,10 @@ import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
+import { CLAUDE_HOST } from './hosts/identity.mjs';
+
+// 記録のファイル名に使える session id だけを見る（claude-auto-handoff.mjs と同じ形）。
+const CLAUDE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 // Phase 0-5 spike marker (SessionStart の spike-inject.flag とは別)
 const PROMPT_SPIKE_MARKER_PATH = join(homedir(), '.throughline', 'spike-prompt.flag');
@@ -156,6 +160,29 @@ export async function run() {
   const payload = parseHookPayload(raw, { env: process.env });
   const { session_id, cwd, prompt } = payload;
   const hostAdapter = hostAdapterForSessionId(session_id);
+
+  // 引き継ぎ済みの Claude の会話へ届いた入力は、モデルを動かさずに止めて、後継の場所を返す (ADR 0062)。
+  // 記録のファイルが無い会話（ほとんどの会話）では、何も読み込まずに先へ進む。
+  if (hostAdapter.host === CLAUDE_HOST && typeof session_id === 'string' && CLAUDE_SESSION_ID_PATTERN.test(session_id) &&
+      existsSync(join(homedir(), '.throughline', 'claude-auto-handoff', `${session_id}.json`))) {
+    const { redirectClaudeHandedOffPrompt } = await import('./claude-auto-handoff.mjs');
+    const now = Date.now();
+    const redirect = redirectClaudeHandedOffPrompt({ payload, now });
+    if (redirect) {
+      logDecision({
+        ts: new Date(now).toISOString(),
+        phase: 'prompt-redirect',
+        session_id,
+        project_path: cwd ?? process.cwd(),
+        handoff_id: redirect.handoffId,
+        successor_short_id: redirect.successorShortId,
+        input_kind: redirect.kind,
+      });
+      process.stdout.write(`${JSON.stringify(redirect.output)}\n`);
+      process.exit(0);
+      return;
+    }
+  }
 
   // VSCode 新規プロジェクトへの tasks.json 自動プロビジョニング。
   // SessionStart/Stop に加えここでも呼ぶことで、どれか 1 つでも発火すれば初回メッセージ送信で

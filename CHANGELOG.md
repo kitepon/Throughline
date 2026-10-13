@@ -10,6 +10,26 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.31] — 2026-10-14
+
+### 修正
+
+- **Claude Codeの自動継続で引き継いだ後も、旧い会話へ届いた入力でモデルが動いていた**（[ADR 0062](docs/adr/0062-claude-handed-off-conversation-blocks-input.md)）。旧い会話が裏で起こした作業の完了通知や、旧い会話へ打った文が届くたびに、文脈がほぼ一杯の旧い会話でモデルが1回動き、文だけで答えていた。届いた入力は後継へ渡らなかった。Windowsの実機の1日で191行あった（完了通知171、人の入力の形19、ほかの会話からの文1）。
+  - 直した後は、引き継ぎ済みで後継が残っている会話へ届いた入力を、モデルを動かさずに止める。人が打った時は、理由（引き継ぎIDと後継を開く命令）と元の文が返る。
+  - 後継がまだ立っていない間の入力、後継の記録が無くなった会話、Aitermが起こした席の会話、subagentの中の入力は止めない。
+  - 止めた回は`~/.throughline/claude-auto-handoff/redirects.jsonl`に1行残す（入力の本文は書かない）。
+- **引き継いだ後の会話で道具を断る時の文が、古い後継を指す事があった**（同じADR）。後継がさらに引き継がれている時は、今の続きの会話を示す。`claude rm`で一覧から消した後継は`claude attach`で開けないので、`claude --resume <会話ID>`も添える。
+
+### 追加
+
+- **引き継ぐ時に、前の会話が裏で動かしていた作業の一覧を、後継の最初の指示へ載せる**（同じADR）。終わった通知がまだ来ていない作業の、道具の名前・対象・ID・出力のファイルの場所。新しい順に10件まで。完了通知は旧い会話で止まり後継へは届かないので、後継は出力のファイルで結果を確かめる。
+
+### 変わる動き
+
+- 引き継ぎ済みのClaudeの会話へ文を打つと、モデルは答えず、「この会話はThroughlineが新しい会話へ引き継ぎ済みです…」と元の文が返る。後継で打ち直す。旧い会話へ届いた入力を後継へ自動で届ける形は、この版には入っていない。
+- `claude -p --resume <旧い会話>`のようにscriptから送った入力も止まる（標準出力に理由と元の文、終了code 0）。
+- Codex・Grok・Cursorは変えていない。
+
 ## [0.16.30] — 2026-10-14
 
 ### 修正
@@ -2589,7 +2609,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.30...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.31...HEAD
+[0.16.31]: https://github.com/kitepon/Throughline/compare/v0.16.30...v0.16.31
 [0.16.30]: https://github.com/kitepon/Throughline/compare/v0.16.29...v0.16.30
 [0.16.29]: https://github.com/kitepon/Throughline/compare/v0.16.28...v0.16.29
 [0.16.28]: https://github.com/kitepon/Throughline/compare/v0.16.27...v0.16.28

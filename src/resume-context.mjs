@@ -886,6 +886,7 @@ function renderInFlightSteps(inFlight, detailClock) {
  *     earlier_steps?: {texts: number, tools: Record<string, number>} | null,
  *     stopped_tools?: Array<{name: string, target: string}>,
  *     stopped_tools_total?: number,
+ *     background?: {tasks: Array<{task_id: string, name: string, target: string, output_file: string|null}>, total: number},
  *     turn?: {origin_session_id: string, turn_number: number, user_at: number, assistant_at: number|null} | null,
  *   } | null,
  *   projectPath?: string | null,  前の会話の作業ディレクトリ。依頼の中の相対的な場所の基準として渡す
@@ -922,6 +923,19 @@ export function buildAutoContinuationContext(
         `**止める直前に呼ぼうとして、実行されなかった道具**: ` +
           stoppedTools.map((tool) => `${tool.name}${tool.target ? ` ${tool.target}` : ''}`).join('、') +
           (more > 0 ? `（ほか ${more} 件）` : ''),
+      );
+    }
+    // 前の会話が裏で起こした作業は、前の会話の process の下で動き続ける。終わった通知は前の会話へ届くので、ここで知らせる (ADR 0062)。
+    const background = inFlight.background?.tasks ?? [];
+    if (background.length > 0) {
+      const more = (inFlight.background.total ?? background.length) - background.length;
+      anchorLines.push(
+        '**前の会話が裏で動かしていた作業（止めた時点で、終わった通知が来ていなかった物）**: ' +
+          '終わった通知は、この会話へは届きません。結果が要る時は、出力のファイルを読んで確かめてください。' +
+          (more > 0 ? `（ほか ${more} 件）` : ''),
+        ...background.map((task) =>
+          `- ${task.name}${task.target ? ` ${task.target}` : ''}（ID ${task.task_id}）` +
+            (task.output_file ? ` → 出力: ${task.output_file}` : '')),
       );
     }
   }
