@@ -95,6 +95,11 @@ export function threadStartSettings(settings) {
     ...permissions, config: { model_reasoning_effort: settings.effort } };
 }
 
+// Codex が自分でターンへ入れる文脈の頭（`codex-rs/core/src/context/internal_model_context.rs` の `CONTEXT_START_MARKER`）。
+const CODEX_INTERNAL_CONTEXT_PATTERN = /^\s*<codex_internal_context[\s>]/;
+// Codex がターンの途中で足す環境の知らせ（日付や作業フォルダが変わった時）。入力の出どころには数えない。
+const CODEX_ENVIRONMENT_CONTEXT_PATTERN = /^\s*<environment_context>/;
+
 export function readCodexHandoffState(path, { threadId = null, turnId = null, deliveryText = null } = {}) {
   const rows = decodeRows(path);
   let meta = null, rawSettings = null, preparedSettings = null, context = null, latestTurnId = null;
@@ -110,6 +115,15 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   // activity はモデルの発言・道具の呼び出し・圧縮・完了のどれかがあったか。入力を受けただけで止まった turn は activity が false。
   const laterTurns = [];
   let sourceSeen = false, later = null;
+  // 見ている turn（turnId を指定した時はその turn、しない時は最後の turn）の入力の出どころ。Codex が自分で入れる文脈
+  // （ゴールの続行の指示など。`<codex_internal_context …>` で始まる）と、それ以外の入力（人やほかの製品が送った物）を分ける。
+  const inputKinds = { turn: { internal: false, other: false }, pending: { internal: false, other: false } };
+  const noteInput = text => {
+    if (CODEX_ENVIRONMENT_CONTEXT_PATTERN.test(text)) return;
+    const watched = !turnId || latestTurnId === turnId;
+    const kinds = turnOpen ? (watched ? inputKinds.turn : null) : inputKinds.pending;
+    if (kinds) kinds[CODEX_INTERNAL_CONTEXT_PATTERN.test(text) ? 'internal' : 'other'] = true;
+  };
   for (const row of rows) {
     const payload = row.payload;
     if (later && (row.type === 'compacted' || row.type === 'token_usage_record')) later.activity = true;
@@ -126,6 +140,8 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
       if (turnId && latestTurnId === turnId) sourceSeen = true;
       else if (turnId && sourceSeen) { later = { turnId: latestTurnId, closed: false, activity: false }; laterTurns.push(later); }
       hasTurnInput = pendingUser != null;
+      if (!turnId || latestTurnId === turnId) inputKinds.turn = inputKinds.pending;
+      inputKinds.pending = { internal: false, other: false };
       if (!turnId || latestTurnId === turnId) {
         turnStartAt = Date.parse(row.timestamp); pendingCalls.clear(); completedTools = 0;
         stoppedAt = null; stoppedReason = null; completedAt = null;
@@ -158,6 +174,7 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
         const text = (payload.content ?? []).filter(c => typeof c.text === 'string').map(c => c.text).join('\n');
         const input = text.trim() && !text.startsWith('# AGENTS.md instructions') && !text.startsWith('<hook_prompt');
         if (input) {
+          noteInput(text);
           if (turnOpen) hasTurnInput = true;
           else pendingUser = text;
         }
@@ -193,6 +210,7 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
       else pendingUser = payload.message;
     }
     if (row.type === 'event_msg' && payload?.type === 'user_message') {
+      noteInput(typeof payload.message === 'string' ? payload.message : '');
       if (turnOpen) hasTurnInput = true;
       else pendingUser = payload.message;
     }
@@ -218,5 +236,7 @@ export function readCodexHandoffState(path, { threadId = null, turnId = null, de
   return { meta, settings, rawSettings, preparedSettings, context, latestTurnId, turnStartAt, stoppedAt, stoppedReason,
     completedAt, correlatedTurnId, hasTurnInput, progress, completedTools, pendingCallCount: pendingCalls.size,
     pendingNativeSessionCount: nativeSessions.size, inheritedThroughlineMemory, inheritedThroughlineMemoryText, laterTurns,
+    // 見ている turn の入力が、Codex が自分で入れた文脈だけだった（人の入力ではない）。
+    internalInputOnly: inputKinds.turn.internal && !inputKinds.turn.other,
     compactedRows: rows.filter(r => r.type === 'compacted').length };
 }

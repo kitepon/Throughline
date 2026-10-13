@@ -5,7 +5,8 @@ import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from '../db.mjs';
 import { listAutoHandoffs, getAutoHandoff } from '../codex-auto-handoff-store.mjs';
 import { renderFrozenDetail } from '../codex-auto-handoff-memory.mjs';
 import { readAutoHandoffConfig, writeAutoHandoffConfig } from '../codex-auto-handoff-config.mjs';
-import { autoHandoffDeliveryProfile, runAutoHandoffWorker, markAutoHandoffSources, resolveAutoHandoffSuccessor } from '../codex-auto-handoff.mjs';
+import { autoHandoffDeliveryProfile, runAutoHandoffWorker, markAutoHandoffSources, resolveAutoHandoffSuccessor,
+  settleAutoHandoffSourceGoal } from '../codex-auto-handoff.mjs';
 import { installCodexAutoHandoffHook, installClaudeAutoHandoffHooks, removeClaudeAutoHandoffHooks,
   claudeAutoHandoffHooksRegistered } from './install.mjs';
 import { sameProjectPath } from '../project-path.mjs';
@@ -19,9 +20,9 @@ const CLAUDE_ACTIONS = ['enable', 'disable', 'status', 'worker', 'desktop-open',
 
 export function parseAutoHandoffArgs(args) {
   const out = { action: args[0] ?? 'status', host: 'codex', operation: null, project: null, origin: null, turn: null, database: null, thread: null, json: false, dryRun: false };
-  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources', 'successor'].includes(out.action)) throw Error('auto_handoff_action_invalid');
+  if (!['enable', 'disable', 'status', 'resume', 'detail', 'worker', 'desktop-open', 'mark-sources', 'successor', 'settle-goal'].includes(out.action)) throw Error('auto_handoff_action_invalid');
   const allowed = ['host', ...{ enable: ['project'], disable: [], status: ['project', 'operation'],
-    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], successor: ['thread'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
+    resume: ['operation'], worker: ['operation'], 'desktop-open': ['operation'], 'mark-sources': [], successor: ['thread'], 'settle-goal': ['operation', 'thread'], detail: ['operation', 'origin', 'turn', 'database'] }[out.action]];
   const seen = new Set();
   for (let i = 1; i < args.length; i++) {
     if (seen.has(args[i])) throw Error('auto_handoff_argument_invalid');
@@ -36,8 +37,8 @@ export function parseAutoHandoffArgs(args) {
   if (out.host === 'claude' ? !CLAUDE_ACTIONS.includes(out.action) : out.action === 'desktop-open') throw Error('auto_handoff_action_unsupported');
   if (out.project && !isAbsolute(out.project)) out.project = resolve(out.project);
   if (out.project && out.operation) throw Error('auto_handoff_argument_invalid');
-  if (['worker', 'resume', 'detail', 'desktop-open'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
-  if (out.action === 'successor' && !out.thread) throw Error('auto_handoff_thread_required');
+  if (['worker', 'resume', 'detail', 'desktop-open', 'settle-goal'].includes(out.action) && !out.operation) throw Error('auto_handoff_operation_required');
+  if (['successor', 'settle-goal'].includes(out.action) && !out.thread) throw Error('auto_handoff_thread_required');
   if (out.action === 'detail') {
     out.turn = Number(out.turn);
     if (!out.origin || !Number.isSafeInteger(out.turn) || out.turn < 1) throw Error('auto_handoff_detail_identity_required');
@@ -146,6 +147,9 @@ export async function run(args = []) {
       // 0.16.9 までの版が引き継いだ分の名前を付け直す（名前の無い後継へ名前、旧タスクへ引き継ぎ済みの印）。何度流しても同じ結果になる。
       const db = getDb();
       result = { status: 'ok', dry_run: parsed.dryRun, ...await markAutoHandoffSources(db, { dryRun: parsed.dryRun }) };
+    } else if (parsed.action === 'settle-goal') {
+      // 引き継ぎ済みの旧タスクに動いたまま残ったゴールを止めて、今の後継へ運ぶ（hook が起こす。ADR 0059）。
+      result = await settleAutoHandoffSourceGoal(getDb(), { operationId: parsed.operation, threadId: parsed.thread });
     } else if (parsed.action === 'worker') {
       result = publicOperation(await runAutoHandoffWorker(parsed.operation));
     } else if (parsed.action === 'resume') {

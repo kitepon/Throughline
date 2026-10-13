@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, closeSync, writeFileSync, appendFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, writeFileSync, appendFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -73,6 +73,30 @@ export async function launchAutoHandoffWorker(id, { resume = false } = {}) {
   } finally { closeSync(log); }
 }
 
+// 同じ旧タスクのゴールを確かめる process を起こす間隔。ゴールの続行は1〜2秒おきに来るので、来るたびには起こさない。
+const GOAL_SETTLE_INTERVAL_MS = 30_000;
+
+/**
+ * 引き継ぎ済みの旧タスクにゴールが動いたまま残っていないかを、別の process に確かめさせる（hook は待たない）。
+ * 同じ旧タスクへは GOAL_SETTLE_INTERVAL_MS に1回まで。
+ * @returns {Promise<boolean>} 起こしたか
+ */
+export async function launchAutoHandoffGoalSettle(threadId, operation, { now = Date.now(), spawn = spawnPortable } = {}) {
+  const dir = join(stateRoot(), 'goal-settle');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const marker = join(dir, threadId);
+  try { if (now - statSync(marker).mtimeMs < GOAL_SETTLE_INTERVAL_MS) return false; } catch { /* まだ1回も起こしていない */ }
+  writeFileSync(marker, '', { mode: 0o600 });
+  const log = openSync(join(stateRoot(), `${operation.handoff_id}.log`), 'a', 0o600);
+  try {
+    const child = spawn(process.execPath, [CLI_PATH, 'auto-handoff', 'settle-goal', '--operation', operation.handoff_id,
+      '--thread', threadId, '--json'], { detached: true, stdio: ['ignore', log, log], windowsHide: true });
+    await new Promise((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); });
+    child.unref();
+    return true;
+  } finally { closeSync(log); }
+}
+
 function liveSuccessors(db, threadId, options, seen) {
   const found = [];
   for (const operation of listDeliveredAutoHandoffsForSource(db, threadId)) {
@@ -144,6 +168,12 @@ function recordAutoHandoffRedirect(entry) {
   appendFileSync(join(stateRoot(), 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
+/** 引き継ぎ済みの旧タスクに残っていたゴールを片付けた記録。会話の本文も、ゴールの目標の文も書かない。 */
+function recordGoalSettle(entry) {
+  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  appendFileSync(join(stateRoot(), 'goal-settles.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
+
 // workerを起動してから、workerが自分のprocessを記録へ名乗るまでの間。この間の引き継ぎは、進んでいる物として扱う。
 const WORKER_START_GRACE_MS = 15_000;
 // workerが1回の引き継ぎに掛ける時間の上限（各段の待ち時間の合計より長い）。process一覧を読めない時だけ使う。
@@ -192,6 +222,7 @@ function settleUndeliveredAutoHandoff(db, threadId, { rolloutPath, processes, re
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
   findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
+  settleGoal = launchAutoHandoffGoalSettle,
   recordInternalCompaction = recordInternalCompactionStop, recordUnrecordedCompaction = recordUnrecordedCompactionPass,
   processes = readRuntimeProcesses, readTarget = targetState, now = Date.now() } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
@@ -229,9 +260,16 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const sameTurn = findAutoHandoffForTurn(actualDb, threadId, turnId);
   const successor = sameTurn ? null : findLiveAutoHandoffSuccessor(actualDb, threadId, { findThread });
   if (successor) {
-    const opened = openThread(successor);
+    // Codex が自分で起こしたターン（ゴールの続行など）では、後継を開かない。人が入力していないのに、画面が後継へ
+    // 切り替わり続ける（2026-10-13、Windows。旧タスクに残ったゴールが1〜2秒おきにターンを起こし、約2,000回）。
+    const internal = state.internalInputOnly === true;
+    const opened = internal ? false : openThread(successor);
+    // 旧タスクにゴールが動いたまま残っていると、止めてもすぐ次のターンが来る。別の process で止めて、後継へ運ぶ (ADR 0059)。
+    let goalSettle = false;
+    try { goalSettle = await settleGoal(threadId, successor, { now }); } catch { /* 起こせなくても、このターンは止める */ }
     recordRedirect({ at: new Date().toISOString(), source_thread_id: threadId, source_turn_id: turnId,
-      handoff_id: successor.handoff_id, target_thread_id: successor.target_thread_id, opened });
+      handoff_id: successor.handoff_id, target_thread_id: successor.target_thread_id, opened,
+      ...(internal ? { internal: true } : {}), ...(goalSettle ? { goal_settle: true } : {}) });
     return { status: 'ok', operationId: successor.handoff_id, inserted: false, redirected: true,
       targetThreadId: successor.target_thread_id, opened, continue: false,
       stopReason: `このタスクはThroughlineが新しいタスクへ引き継ぎ済みです（引き継ぎID: ${successor.handoff_id}）。` +
@@ -446,6 +484,88 @@ export async function carryAutoHandoffQueue(db, operation, runtime, { connect = 
   return summary();
 }
 
+// Codex のゴール（`/goal`。目標が終わるまで、タスクが手すきになるたびに Codex が自分で次のターンを起こす）のうち、
+// 後継へ運ぶ状態。動いている物と、利用者が止めている物だけ。完了した物と、Codex が上限や行き詰まりで止めた物は運ばない。
+const CARRIED_GOAL_STATUSES = new Set(['active', 'paused']);
+
+/**
+ * 旧タスクのゴールを一時停止にする。動いたままのゴールは、hook が止めたターンの直後から、Codex が次のターンを
+ * 起こし続ける。ゴールは消さない（後継へ運ぶ元にする。旧タスクで続けたい時は、利用者が再開できる）。
+ * ゴールを扱えなくても引き継ぎは止めない（理由は worker のログに残す）。
+ * @returns {Promise<'paused'|'idle'|'none'|'failed'>} idle は動いていないゴールがある、none はゴールが無い
+ */
+export async function pauseAutoHandoffSourceGoal(operation, runtime, { connect = withCodexReceiver } = {}) {
+  const threadId = operation.source_thread_id;
+  try {
+    return await connect(autoHandoffDeliveryProfile, { thread_id: threadId, codex_home: operation.codex_home }, async request => {
+      const goal = (await request('thread/goal/get', { threadId })).goal;
+      if (!goal) return 'none';
+      if (goal.status !== 'active') return 'idle';
+      await request('thread/goal/set', { threadId, status: 'paused' });
+      return 'paused';
+    }, runtime);
+  } catch (cause) {
+    process.stderr.write(`[auto-handoff] source goal pause failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
+    return 'failed';
+  }
+}
+
+/**
+ * 旧タスクのゴールを後継へ運ぶ。目標の文と、予算の残りを写す。旧タスクで動いていたゴールは後継でも動かし、
+ * 利用者が止めていたゴールは止めたまま運ぶ。後継にもうゴールがあれば書き換えない。旧タスクのゴールは消さない。
+ * 運べなくても引き継ぎは止めない（後継はもう作業を続けている。理由は worker のログに残す）。
+ * @param {{wasActive?: boolean, onlyActive?: boolean, sourceThreadId?: string}} [options] wasActive は、引き継ぎの初めに
+ *   この製品が一時停止にしたゴール（後継では動かす）。onlyActive は、今も動いているゴールだけを運ぶ（止まっている物には触らない）。
+ * @returns {Promise<'active'|'paused'|'kept'|'none'|'failed'>} active・paused は後継へ付けた状態、kept は後継にもうゴールがある
+ */
+export async function carryAutoHandoffGoal(operation, runtime, { connect = withCodexReceiver, wasActive = false,
+  onlyActive = false, sourceThreadId = operation.source_thread_id } = {}) {
+  const targetId = operation.target_thread_id;
+  try {
+    return await connect(autoHandoffDeliveryProfile, { thread_id: sourceThreadId, codex_home: operation.codex_home }, async request => {
+      const goal = (await request('thread/goal/get', { threadId: sourceThreadId })).goal;
+      if (!goal || !CARRIED_GOAL_STATUSES.has(goal.status) || typeof goal.objective !== 'string') return 'none';
+      let active = wasActive;
+      if (goal.status === 'active') {
+        // 初めの一時停止が効かなかった、または引き継いだ後で動き出した。旧タスクを先に止める。
+        await request('thread/goal/set', { threadId: sourceThreadId, status: 'paused' });
+        active = true;
+      } else if (onlyActive) return 'none';
+      if ((await request('thread/goal/get', { threadId: targetId })).goal) return 'kept';
+      const status = active ? 'active' : 'paused';
+      // 予算は、旧タスクで使った分を引いた残りを渡す（使い切ったゴールは Codex が budgetLimited にするので、ここへ来ない）。
+      const budget = Number.isSafeInteger(goal.tokenBudget)
+        ? Math.max(1, goal.tokenBudget - (Number.isSafeInteger(goal.tokensUsed) ? goal.tokensUsed : 0)) : null;
+      await request('thread/goal/set', { threadId: targetId, objective: goal.objective, status,
+        ...(budget == null ? {} : { tokenBudget: budget }) });
+      return status;
+    }, runtime);
+  } catch (cause) {
+    process.stderr.write(`[auto-handoff] goal carry failed: ${cause?.delivery_code ?? cause?.code ?? 'unknown'}\n`);
+    return 'failed';
+  }
+}
+
+/**
+ * 引き継ぎ済みの旧タスクにゴールが動いたまま残っていた時の片付け（hook が起こす）。旧タスクのゴールを一時停止にし、
+ * 今の後継にゴールが無ければ運ぶ。0.16.27 までの版が引き継いだ旧タスクと、引き継いだ後で利用者が再開したゴールが当たる。
+ * @returns {Promise<{status: 'settled'|'skipped', goal?: string, reason?: string}>}
+ */
+export async function settleAutoHandoffSourceGoal(db, { operationId, threadId }, { executable = () => platformDesktopFinder()(),
+  carryGoal = carryAutoHandoffGoal, findThread = findCodexThreadCandidate, record = recordGoalSettle } = {}) {
+  if (!CODEX_NATIVE_ID_PATTERN.test(threadId ?? '')) throw error('handoff_thread_id_invalid');
+  // 起こされてからここまでの間に、後継がさらに引き継いでいる事がある。今の一番先の後継へ運ぶ。
+  const successor = findLiveAutoHandoffSuccessor(db, threadId, { findThread });
+  if (!successor || !getAutoHandoff(db, operationId)) return { status: 'skipped', reason: 'handoff_successor_unavailable' };
+  const goal = await carryGoal(successor, { executable: executable(), timeout_ms: 30_000 }, { sourceThreadId: threadId, onlyActive: true });
+  if (goal !== 'none') {
+    record({ at: new Date().toISOString(), source_thread_id: threadId, handoff_id: successor.handoff_id,
+      target_thread_id: successor.target_thread_id, goal });
+    process.stderr.write(`[auto-handoff] goal settled: ${goal}\n`);
+  }
+  return { status: 'settled', goal };
+}
+
 // 受け取った記憶をそのまま運ぶ上限。超えた分は切り、切った事を記録する（後継の記憶に出す）。
 const INHERITED_MEMORY_MAX_CHARS = 120_000;
 
@@ -606,6 +726,7 @@ export function showAutoHandoffFailure(operation) {
 <p><a href="codex://threads/${escape(operation.source_thread_id)}">旧タスクを開く</a>${operation.target_thread_id ? ` / <a href="codex://threads/${escape(operation.target_thread_id)}">後継タスクを開く</a>` : ''}</p>
 <p>理由: <code>${escape(operation.error_code)}</code></p><p>引き継ぎID: <code>${escape(operation.handoff_id)}</code></p>
 ${operation.error_code === 'handoff_summarizer_backend_failed' ? '<p>記憶の要約に使うCodex CLIが失敗しました。通信の断、利用上限、認証切れなどで起きます。会話の記録と入力は失われていません。Codex CLIが使える様になった後、旧タスクへ入力すると、引き継ぎをもう一度始めます。</p>' : ''}
+${operation.runtime?.goalCarry?.paused ? '<p>旧タスクのゴール（/goal）は、同じターンが繰り返されない様に一時停止にしてあります。引き継ぎを再開して後継が動けば、ゴールは後継へ運ばれます。旧タスクのまま続ける時は、旧タスクでゴールを再開してください。</p>' : ''}
 <p>状態: ${escape(operation.state)} / 停止した工程: ${escape(operation.resume_state)}</p>
 <p>確認: <code>throughline auto-handoff status --operation ${escape(operation.handoff_id)}</code></p>
 <p>原因を解消した後の再開: <code>throughline auto-handoff resume --operation ${escape(operation.handoff_id)}</code></p>
@@ -618,7 +739,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
   const deps = { processes: readRuntimeProcesses, readSource: sourceState,
     nativeState: sourceNativeState, capture: captureCodexRolloutToDb, summaries: ensureAutoHandoffSummaries,
     createTarget, readTarget: targetState, openTarget, verify: verifyCodexParent, markSource: markAutoHandoffSource,
-    carryQueue: carryAutoHandoffQueue,
+    carryQueue: carryAutoHandoffQueue, pauseGoal: pauseAutoHandoffSourceGoal, carryGoal: carryAutoHandoffGoal,
     submit: submitCodexParentAnswer, notify: showAutoHandoffFailure, wait: waitForHandoff,
     executable: () => platformDesktopFinder()(), liveSuccessor: findLiveAutoHandoffSuccessor, ...dependencies };
   let operation = getAutoHandoff(db, id);
@@ -644,6 +765,13 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       throw error('handoff_mutation_outcome_unknown');
     }
     const runtime = { executable: deps.executable(), timeout_ms: 30_000 };
+    // 旧タスクのゴールを先に止める。動いたままだと、止めたターンの直後から Codex が次のターンを起こし続ける。
+    // 同じ旧タスクの前の引き継ぎ（途中で止まった物）が止めていたゴールは、動いていた物として後継へ運ぶ (ADR 0059)。
+    if (!operation.runtime?.goalCarry) {
+      const paused = await deps.pauseGoal(operation, runtime) === 'paused' ||
+        listUndeliveredAutoHandoffsForSource(db, operation.source_thread_id).some(other => other.runtime?.goalCarry?.paused);
+      update({ runtime_json: { ...(operation.runtime ?? {}), goalCarry: { paused } } });
+    }
     if (operation.state === 'requested') {
       const state = await deps.wait(() => {
         const state = deps.readSource(operation);
@@ -663,7 +791,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       }
       const native = await deps.nativeState(operation, runtime);
       update({ state: 'source_stopped', settings_json: state.settings,
-        runtime_json: { ...native, databasePath: DB_PATH, ...(inheritedMemory ? { inheritedMemory } : {}) } });
+        runtime_json: { ...(operation.runtime ?? {}), ...native, databasePath: DB_PATH, ...(inheritedMemory ? { inheritedMemory } : {}) } });
     }
     // 最中に来た入力のturnが止まり切るまでの間は、境界がまだ見えない。短く待ってから判定する。
     const confirmSourceBoundary = () => deps.wait(() => sourceBoundary(operation, deps.readSource(operation)) || null,
@@ -737,6 +865,10 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         return target.correlatedTurnId && target.progress ? target : null;
       }, { timeoutMs: 180_000, timeoutCode: 'handoff_target_progress_unconfirmed' });
       update({ state: 'continued', started_turn_id: target.correlatedTurnId, resume_state: null, error_code: null });
+      // 旧タスクのゴールを後継へ運ぶ。後継の最初のターンが動いている間に付けると、そのターンの後から Codex が続ける。
+      const goal = await deps.carryGoal(operation, runtime, { wasActive: operation.runtime?.goalCarry?.paused === true });
+      update({ runtime_json: { ...(getAutoHandoff(db, id).runtime ?? {}), goalCarry: { ...(operation.runtime?.goalCarry ?? {}), carried: goal } } });
+      if (goal !== 'none') globalThis.process.stderr.write(`[auto-handoff] goal carried: ${goal}\n`);
       // 旧タスクの順番待ちに残った入力を後継へ運ぶ。後継の最初のターン（継続の指示）が始まった後なので、順番は変わらない。
       await deps.carryQueue(db, operation, runtime);
       // 後継が作業を続けたのを確かめてから付ける。途中で止まった引き継ぎの旧タスクには付けない。

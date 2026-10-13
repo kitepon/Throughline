@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
 import { testTempDir } from './test-temp-dir.mjs';
 import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemory,
   claimAutoHandoff, continuationInput } from './codex-auto-handoff-store.mjs';
@@ -16,7 +17,8 @@ import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePrepa
 import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
-  untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape } from './codex-auto-handoff.mjs';
+  untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
+  pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 async function withDb(fn) {
@@ -118,6 +120,10 @@ function workerDependencies(db, settings, submit, counters) {
     readTarget: operation => ({ settings, latestTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null,
       correlatedTurnId: ['submitted', 'unknown'].includes(operation.state) ? 'new-turn' : null, progress: true }),
     openTarget: () => {}, verify: async () => {}, submit,
+    pauseGoal: async operation => { (counters.goal ??= []).push(`pause:${operation.state}`); return counters.goalPause ?? 'none'; },
+    carryGoal: async (operation, runtime, options) => {
+      (counters.goal ??= []).push(`carry:${operation.state}:${options.wasActive}`); return counters.goalCarry ?? 'none';
+    },
     carryQueue: async (db, operation) => { (counters.carried ??= []).push(`${operation.source_thread_id}:${operation.state}`); return { moved: 0, unknown: 0, left: 0 }; },
     markSource: async (operation, runtime, options) => {
       (counters.marked ??= []).push(`${operation.source_thread_id}:${operation.state}`);
@@ -446,7 +452,7 @@ test('引き継ぎ済みの旧タスクへ新しい入力が来ても後継を�
   const payload = desktopSource(home, thread, '33333333-3333-3333-3333-333333333333');
   const config = { enabled: true, projects: [home], openHost: 'desktop' };
   const seen = { launched: 0, opened: [], recorded: [], asked: [] };
-  const args = { db, config, payload, launchWorker: async () => { seen.launched++; },
+  const args = { db, config, payload, launchWorker: async () => { seen.launched++; }, settleGoal: async () => false,
     findThread: query => { seen.asked.push(query); return { mtimeMs: 1 }; },
     openThread: operation => { seen.opened.push(operation.target_thread_id); return true; },
     recordRedirect: entry => { seen.recorded.push(entry); } };
@@ -1026,3 +1032,248 @@ test('要約のbackendが使えない時、workerは固定の理由で止まり�
     assert.equal(counters.carried, undefined, '途中で止まった引き継ぎでは、順番待ちを動かさない');
   }
 }));
+
+// Codex のゴールの口の代わり。goals は thread id ごとの今のゴール（無ければ null）。
+function goalReceiver(goals, sent, fail = null) {
+  return async (profile, parent, action) => action(async (method, params) => {
+    sent.push([method, params]);
+    if (method === fail) throw Object.assign(new Error('rejected'), { delivery_code: 'CODEX_RECEIVER_REJECTED' });
+    if (method === 'thread/goal/get') return { goal: goals[params.threadId] ?? null };
+    if (method === 'thread/goal/set') {
+      const { threadId, ...fields } = params;
+      goals[threadId] = { tokenBudget: null, tokensUsed: 0, ...(goals[threadId] ?? {}), ...fields };
+      return { goal: goals[threadId] };
+    }
+    throw new Error(`想定していない要求: ${method}`);
+  });
+}
+
+test('旧タスクの動いているゴールを一時停止にし、止まっているゴールと無いゴールには触らない。扱えなくても引き継ぎは止めない', async () => {
+  const operation = { source_thread_id: 'S', codex_home: '/home' };
+  let sent = []; let goals = { S: { status: 'active', objective: '目標' } };
+  assert.equal(await pauseAutoHandoffSourceGoal(operation, {}, { connect: goalReceiver(goals, sent) }), 'paused');
+  assert.deepEqual(sent, [['thread/goal/get', { threadId: 'S' }], ['thread/goal/set', { threadId: 'S', status: 'paused' }]]);
+  assert.equal(goals.S.objective, '目標', '目標の文は消さない');
+
+  for (const [goal, expected] of [[null, 'none'], [{ status: 'paused', objective: '目標' }, 'idle'], [{ status: 'complete', objective: '目標' }, 'idle']]) {
+    sent = [];
+    assert.equal(await pauseAutoHandoffSourceGoal(operation, {}, { connect: goalReceiver({ S: goal }, sent) }), expected);
+    assert.equal(sent.length, 1, '読むだけ');
+  }
+  // ゴールの口が無い版の Codex、口が断った時。
+  assert.equal(await pauseAutoHandoffSourceGoal(operation, {}, { connect: goalReceiver({}, [], 'thread/goal/get') }), 'failed');
+  assert.equal(await pauseAutoHandoffSourceGoal(operation, {}, { connect: goalReceiver({ S: { status: 'active', objective: 'x' } }, [], 'thread/goal/set') }), 'failed');
+});
+
+test('旧タスクのゴールを後継へ運ぶ。動いていた物は動かし、利用者が止めていた物は止めたまま運び、予算は残りを渡す', async () => {
+  const operation = { source_thread_id: 'S', target_thread_id: 'T', codex_home: '/home' };
+  // この製品が引き継ぎの初めに止めたゴール。後継では動かす。旧タスクのゴールは止めたまま残す。
+  let goals = { S: { status: 'paused', objective: '目標', tokenBudget: 1000, tokensUsed: 300 } }; let sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent), wasActive: true }), 'active');
+  assert.deepEqual(sent.at(-1), ['thread/goal/set', { threadId: 'T', objective: '目標', status: 'active', tokenBudget: 700 }]);
+  assert.equal(goals.S.status, 'paused'); assert.equal(goals.S.objective, '目標');
+
+  // 利用者が止めていたゴール。止めたまま運ぶ。予算の無いゴールは、予算を付けない。
+  goals = { S: { status: 'paused', objective: '目標', tokenBudget: null, tokensUsed: 300 } }; sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent) }), 'paused');
+  assert.deepEqual(sent.at(-1), ['thread/goal/set', { threadId: 'T', objective: '目標', status: 'paused' }]);
+
+  // 初めの一時停止が効いていなかった時は、ここで旧タスクを先に止めてから、後継で動かす。
+  goals = { S: { status: 'active', objective: '目標' } }; sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent) }), 'active');
+  assert.deepEqual(sent.map(([method, params]) => `${method}:${params.threadId}:${params.status ?? ''}`),
+    ['thread/goal/get:S:', 'thread/goal/set:S:paused', 'thread/goal/get:T:', 'thread/goal/set:T:active']);
+
+  // 後継にもうゴールがある時は書き換えない。
+  goals = { S: { status: 'paused', objective: '目標' }, T: { status: 'active', objective: '別の目標' } }; sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent), wasActive: true }), 'kept');
+  assert.equal(goals.T.objective, '別の目標'); assert.ok(!sent.some(([method]) => method === 'thread/goal/set'));
+
+  // ゴールが無い、完了した、Codex が上限や行き詰まりで止めた。運ばない。
+  for (const goal of [null, { status: 'complete', objective: '目標' }, { status: 'budgetLimited', objective: '目標' },
+    { status: 'usageLimited', objective: '目標' }, { status: 'blocked', objective: '目標' }]) {
+    sent = [];
+    assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver({ S: goal }, sent), wasActive: true }), 'none');
+    assert.equal(sent.length, 1, '読むだけ');
+  }
+  // 今も動いているゴールだけを運ぶ指定では、止まっているゴールに触らない。
+  goals = { S: { status: 'paused', objective: '目標' } }; sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent), onlyActive: true }), 'none');
+  assert.equal(sent.length, 1); assert.equal(goals.T, undefined);
+  // 別の旧タスク（後継のさらに前のタスク）を指定できる。
+  goals = { OLD: { status: 'active', objective: '目標' } }; sent = [];
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver(goals, sent), onlyActive: true, sourceThreadId: 'OLD' }), 'active');
+  assert.equal(goals.OLD.status, 'paused'); assert.equal(goals.T.status, 'active');
+  // 運べなくても例外にしない。
+  assert.equal(await carryAutoHandoffGoal(operation, {}, { connect: goalReceiver({ S: { status: 'paused', objective: 'x' } }, [], 'thread/goal/set') }), 'failed');
+});
+
+// 1つのDBで何度も引き継ぐ試験では、後継のIDを旧タスクごとに変える（後継のIDは一意）。
+function uniqueTarget(deps, source) {
+  const createTarget = deps.createTarget;
+  deps.createTarget = async (db, operation) => {
+    await createTarget(db, operation);
+    updateAutoHandoff(db, operation.handoff_id, { target_thread_id: `target-${source}` });
+  };
+}
+
+test('workerは、最初に旧タスクのゴールを止め、後継が作業を続けた後でゴールを運ぶ。順番待ちを運ぶより先', async () => withDb(async db => {
+  const run = async (source, counters, before = () => {}) => {
+    const operation = request(db, source, { now: 1 }).operation;
+    before(operation);
+    const deps = workerDependencies(db, {}, async () => ({ queued_submission_id: 'receipt' }), counters);
+    uniqueTarget(deps, source);
+    const order = []; const carryQueue = deps.carryQueue, carryGoal = deps.carryGoal;
+    deps.carryQueue = async (...args) => { order.push('queue'); return carryQueue(...args); };
+    deps.carryGoal = async (...args) => { order.push('goal'); return carryGoal(...args); };
+    return { result: await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps }), order };
+  };
+  // 動いているゴールがあった。
+  let counters = { created: 0, notified: 0, goalPause: 'paused', goalCarry: 'active' };
+  let { result, order } = await run('goal-active', counters);
+  assert.equal(result.state, 'continued');
+  assert.deepEqual(counters.goal, ['pause:requested', 'carry:continued:true']);
+  assert.deepEqual(order, ['goal', 'queue']);
+  assert.deepEqual(getAutoHandoff(db, result.handoff_id).runtime.goalCarry, { paused: true, carried: 'active' });
+  assert.equal(getAutoHandoff(db, result.handoff_id).runtime.targetPrepared, true, 'ゴールの記録で、ほかの記録を消さない');
+
+  // ゴールが無い・扱えない時も引き継ぎは進む。
+  for (const [index, goalPause] of ['none', 'idle', 'failed'].entries()) {
+    counters = { created: 0, notified: 0, goalPause, goalCarry: goalPause === 'idle' ? 'paused' : 'none' };
+    ({ result } = await run(`goal-${index}`, counters));
+    assert.equal(result.state, 'continued'); assert.equal(counters.notified, 0);
+    assert.deepEqual(counters.goal, ['pause:requested', 'carry:continued:false']);
+  }
+
+  // 途中で止まった引き継ぎをやり直す時は、ゴールをもう一度は読まず、最初に止めた事を覚えている。
+  counters = { created: 0, notified: 0, goalPause: 'paused', goalCarry: 'active' };
+  const operation = request(db, 'goal-resume', { now: 1 }).operation;
+  const deps = workerDependencies(db, {}, async () => ({ queued_submission_id: 'receipt' }), counters);
+  uniqueTarget(deps, 'goal-resume');
+  deps.summaries = () => { throw new Error('別の失敗'); };
+  const failed = await runAutoHandoffWorker(operation.handoff_id, { db, dependencies: deps });
+  assert.equal(failed.state, 'failed'); assert.deepEqual(failed.runtime.goalCarry, { paused: true });
+  assert.deepEqual(counters.goal, ['pause:requested'], '途中で止まった引き継ぎでは、ゴールを後継へ運ばない');
+  deps.summaries = () => {}; counters.goalPause = 'idle';
+  const resumed = await runAutoHandoffWorker(operation.handoff_id, { db, resume: true, dependencies: deps });
+  assert.equal(resumed.state, 'continued');
+  assert.deepEqual(counters.goal, ['pause:requested', 'carry:continued:true']);
+
+  // 同じ旧タスクの前の引き継ぎ（途中で止まった物）が止めていたゴールは、新しい引き継ぎでも動いていた物として運ぶ。
+  counters = { created: 0, notified: 0, goalPause: 'idle', goalCarry: 'active' };
+  ({ result } = await run('goal-earlier', counters, current => {
+    const earlier = requestAutoHandoff(db, { threadId: 'goal-earlier', turnId: 'earlier-turn', projectPath: '/project',
+      rolloutPath: '/codex/rollout.jsonl', codexHome: '/codex', openHost: 'desktop', now: 0 }).operation;
+    updateAutoHandoff(db, earlier.handoff_id, { state: 'failed', runtime_json: { goalCarry: { paused: true } } });
+    assert.notEqual(earlier.handoff_id, current.handoff_id);
+  }));
+  assert.deepEqual(counters.goal, ['pause:requested', 'carry:continued:true']);
+}));
+
+// Codex がゴールの続行で起こして、hook が止めたターンの実物の並び（Windows の Codex Desktop 0.162.0-alpha.17.2、2026-10-13）。
+function goalContinuation(turn, at) {
+  return [
+    { timestamp: `${at}.460Z`, type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
+    { timestamp: `${at}.782Z`, type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: '<codex_internal_context source="goal">\nContinue working toward the active thread goal.\n</codex_internal_context>' }] } },
+    { timestamp: `${at}.802Z`, type: 'event_msg', payload: { type: 'turn_aborted', turn_id: turn, reason: 'interrupted' } },
+  ];
+}
+
+test('rollout から、ターンの入力が Codex 自身の文脈だけだったかを読む', async () => withDb((db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const file = sourceRollout(home, thread, 'turn-a', [...goalContinuation('turn-goal', '2026-10-07T00:50:00'),
+    ...stoppedInput('turn-person', '2026-10-07T00:51:00')]);
+  const read = turnId => readCodexHandoffState(file, { threadId: thread, turnId }).internalInputOnly;
+  assert.equal(read('turn-goal'), true); assert.equal(read('turn-person'), false); assert.equal(read('turn-a'), false);
+  assert.equal(readCodexHandoffState(file, { threadId: thread }).internalInputOnly, false, 'turn を指定しない時は最後の turn');
+  // 入力が turn の開始より前に記録される並びでも同じ。
+  const [started, input, aborted] = goalContinuation('turn-goal-2', '2026-10-07T00:52:00');
+  const early = sourceRollout(home, '22222222-2222-2222-2222-222222222222', 'turn-a', [input, started, aborted]);
+  assert.equal(readCodexHandoffState(early, { threadId: '22222222-2222-2222-2222-222222222222', turnId: 'turn-goal-2' }).internalInputOnly, true);
+  // ターンの途中で Codex が足す環境の知らせ（日付が変わった時など）は、入力の出どころに数えない（macOS の Codex Desktop 0.162.0-alpha.17.2 の実物）。
+  const [started3, input3, aborted3] = goalContinuation('turn-goal-3', '2026-10-07T00:53:00');
+  const environment = { timestamp: '2026-10-07T00:53:00.790Z', type: 'response_item', payload: { type: 'message', role: 'user',
+    content: [{ type: 'input_text', text: '<environment_context>\n  <current_date>2026-10-08</current_date>\n</environment_context>' }] } };
+  const dated = sourceRollout(home, '33333333-3333-3333-3333-333333333333', 'turn-a', [started3, input3, environment, aborted3]);
+  assert.equal(readCodexHandoffState(dated, { threadId: '33333333-3333-3333-3333-333333333333', turnId: 'turn-goal-3' }).internalInputOnly, true);
+}));
+
+test('引き継ぎ済みの旧タスクへゴールの続行が来た時は、止めるが後継を開かず、ゴールの片付けを起こす', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turnA = '22222222-2222-2222-2222-222222222222';
+  const goalTurn = '33333333-3333-3333-3333-333333333333', personTurn = '44444444-4444-4444-4444-444444444444';
+  const first = delivered(db, home, thread, turnA, 'successor-1', 1);
+  const config = { enabled: true, projects: [home], openHost: 'desktop' };
+  const seen = { opened: [], recorded: [], settled: [] };
+  const args = { db, config, launchWorker: async () => { throw new Error('後継を増やしてはいけない'); }, findThread: () => ({ mtimeMs: 1 }),
+    openThread: operation => { seen.opened.push(operation.target_thread_id); return true; },
+    recordRedirect: entry => { seen.recorded.push(entry); },
+    settleGoal: async (threadId, operation) => { seen.settled.push([threadId, operation.handoff_id]); return seen.settled.length === 1; } };
+  const payload = (turn, later) => ({ trigger: 'auto', cwd: home, session_id: thread, turn_id: turn,
+    transcript_path: sourceRollout(home, thread, turnA, later) });
+
+  const goal = await requestCodexAutoHandoff({ ...args, payload: payload(goalTurn, goalContinuation(goalTurn, '2026-10-07T00:50:00')) });
+  assert.equal(goal.continue, false); assert.equal(goal.redirected, true); assert.equal(goal.opened, false);
+  assert.deepEqual(seen.opened, [], '人が入力していないターンでは、画面を後継へ切り替えない');
+  assert.deepEqual(seen.settled, [[thread, first.handoff_id]]);
+  assert.deepEqual({ ...seen.recorded[0], at: null }, { at: null, source_thread_id: thread, source_turn_id: goalTurn,
+    handoff_id: first.handoff_id, target_thread_id: 'successor-1', opened: false, internal: true, goal_settle: true });
+
+  // 人の入力では、今までどおり後継を開く。ゴールの片付けは、起こす側が間隔を空ける（ここでは2回めを起こさない）。
+  const person = await requestCodexAutoHandoff({ ...args, payload: payload(personTurn, stoppedInput(personTurn, '2026-10-07T00:51:00')) });
+  assert.equal(person.opened, true); assert.deepEqual(seen.opened, ['successor-1']);
+  assert.equal(seen.recorded[1].internal, undefined); assert.equal(seen.recorded[1].goal_settle, undefined);
+  // 片付けを起こせなくても、ターンは止める。
+  const broken = await requestCodexAutoHandoff({ ...args, settleGoal: async () => { throw new Error('起こせません'); },
+    payload: payload(goalTurn, goalContinuation(goalTurn, '2026-10-07T00:50:00')) });
+  assert.equal(broken.continue, false); assert.equal(broken.redirected, true);
+}));
+
+test('ゴールの片付けは、同じ旧タスクへは間隔を空けて1つだけ起こす', async () => withDb(async () => {
+  const spawned = [];
+  const spawn = (command, args, options) => {
+    spawned.push({ args, detached: options.detached });
+    const child = new EventEmitter(); child.unref = () => {}; child.pid = 1;
+    queueMicrotask(() => child.emit('spawn'));
+    return child;
+  };
+  const operation = { handoff_id: 'handoff-1' };
+  assert.equal(await launchAutoHandoffGoalSettle('thread-a', operation, { spawn }), true);
+  assert.deepEqual(spawned[0].args.slice(1), ['auto-handoff', 'settle-goal', '--operation', 'handoff-1', '--thread', 'thread-a', '--json']);
+  assert.equal(spawned[0].detached, true);
+  assert.equal(await launchAutoHandoffGoalSettle('thread-a', operation, { spawn }), false, '続けて来ても起こさない');
+  assert.equal(await launchAutoHandoffGoalSettle('thread-b', operation, { spawn }), true, '別の旧タスクは別に数える');
+  assert.equal(await launchAutoHandoffGoalSettle('thread-a', operation, { spawn, now: Date.now() + 31_000 }), true, '間隔が空けば、もう一度起こす');
+  assert.equal(spawned.length, 3);
+}));
+
+test('片付けは、旧タスクの動いているゴールを止めて、今の一番先の後継へ運び、記録を1行残す', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const first = delivered(db, home, thread, 'turn-a', 'successor-1', 1);
+  const second = delivered(db, home, 'successor-1', 'turn-b', 'successor-2', 2);
+  const seen = { carried: [], recorded: [] };
+  const options = goal => ({ executable: () => '公式Desktop試験fixture', findThread: () => ({ mtimeMs: 1 }),
+    carryGoal: async (operation, runtime, carry) => { seen.carried.push([operation.handoff_id, carry, runtime.executable]); return goal; },
+    record: entry => { seen.recorded.push(entry); } });
+  const settled = await settleAutoHandoffSourceGoal(db, { operationId: first.handoff_id, threadId: thread }, options('active'));
+  assert.deepEqual(settled, { status: 'settled', goal: 'active' });
+  assert.deepEqual(seen.carried, [[second.handoff_id, { sourceThreadId: thread, onlyActive: true }, '公式Desktop試験fixture']]);
+  assert.deepEqual({ ...seen.recorded[0], at: null }, { at: null, source_thread_id: thread, handoff_id: second.handoff_id,
+    target_thread_id: 'successor-2', goal: 'active' });
+  // 動いているゴールが無ければ、記録を増やさない。
+  assert.deepEqual(await settleAutoHandoffSourceGoal(db, { operationId: first.handoff_id, threadId: thread }, options('none')), { status: 'settled', goal: 'none' });
+  assert.equal(seen.recorded.length, 1);
+  // 後継が残っていない旧タスクは、今の続きなので触らない。
+  const gone = await settleAutoHandoffSourceGoal(db, { operationId: first.handoff_id, threadId: thread }, { ...options('active'), findThread: () => null });
+  assert.equal(gone.status, 'skipped'); assert.equal(seen.carried.length, 2);
+  await assert.rejects(settleAutoHandoffSourceGoal(db, { operationId: first.handoff_id, threadId: 'x y' }, options('active')), /handoff_thread_id_invalid/);
+}));
+
+test('公開CLIのsettle-goalは、引き継ぎIDと旧タスクのIDの両方を要る', () => {
+  const parsed = parseAutoHandoffArgs(['settle-goal', '--operation', 'id', '--thread', 'thread', '--json']);
+  assert.equal(parsed.action, 'settle-goal'); assert.equal(parsed.operation, 'id'); assert.equal(parsed.thread, 'thread');
+  for (const args of [['settle-goal', '--operation', 'id'], ['settle-goal', '--thread', 'thread'],
+    ['settle-goal', '--operation', 'id', '--thread', 'thread', '--host', 'claude']]) {
+    assert.throws(() => parseAutoHandoffArgs(args));
+  }
+});
