@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemory,
   claimAutoHandoff, continuationInput } from './codex-auto-handoff-store.mjs';
 import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoffMemory,
@@ -193,7 +194,7 @@ test('実行中の子がある時は後継を作らない', async () => withDb(a
 }));
 
 test('rollout の developer 記憶から、受け取った Throughline の記憶の本文を最初の1つだけ読む', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tl-inherited-'));
+  const dir = testTempDir('tl-inherited-');
   const file = join(dir, 'rollout.jsonl');
   const developer = text => ({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text }] } });
   const rows = [{ type: 'session_meta', payload: { id: 'T', cwd: '/project', originator: 'Codex Desktop', source: 'vscode' } },

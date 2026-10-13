@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { summarizeToL1, resolveL1Ratio } from './haiku-summarizer.mjs';
+import { testTempDir } from './test-temp-dir.mjs';
+
+// haiku-summarizer は import の時に homedir() から隔離 cwd の道を決める。
+// 試験が動かす利用者の本物の home へ ~/.throughline を作らないよう、先に home を差し替える。
+const TEST_HOME = testTempDir('tl-l1-home-');
+process.env.HOME = TEST_HOME;
+process.env.USERPROFILE = TEST_HOME;
+const { summarizeToL1, resolveL1Ratio } = await import('./haiku-summarizer.mjs');
 
 function makeBin(dir, name, body) {
   const script = join(dir, `${name}.mjs`);

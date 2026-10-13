@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -141,7 +141,7 @@ test('missing grok binary does not spawn', () => {
   assert.equal(spawned.length, 0);
 });
 
-test('successful continue spawn uses source project cwd and waits', () => {
+test('successful continue spawn uses source project cwd and waits', (t) => {
   const io = capture();
   const spawned = [];
   const uuid = '22222222-2222-4222-8222-222222222222';
@@ -164,6 +164,7 @@ test('successful continue spawn uses source project cwd and waits', () => {
   assert.equal(spawned.length, 1);
   assert.equal(io.out, `grok:${uuid}\n`);
   const { grokArgv, launchFile, cwd } = spawned[0];
+  t.after(() => rmSync(dirname(launchFile), { recursive: true, force: true }));
   assert.equal(cwd, REPO_ROOT);
   assert.equal(grokArgv.includes('--rules'), false);
   assert.ok(grokArgv.at(-1).includes(CONTEXT));
@@ -232,7 +233,11 @@ test('bin usage error is exit 2 without spawning a real grok', () => {
   const result = spawnSync(process.execPath, [BIN_PATH, 'grok-continue'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    env: { ...process.env, HOME: join(tmpdir(), 'tl-grok-continue-missing-home') },
+    env: {
+      ...process.env,
+      HOME: join(tmpdir(), 'tl-grok-continue-missing-home'),
+      USERPROFILE: join(tmpdir(), 'tl-grok-continue-missing-home'),
+    },
   });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Usage: throughline grok-continue --session <id>/);

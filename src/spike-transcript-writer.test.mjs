@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 import { spikeInject, generateSpikeTracer } from './spike-transcript-writer.mjs';
 
 function makeDb() {
@@ -76,7 +76,7 @@ function seedSession(db, { newSessionId = 'NEW', originId = 'ORIG' } = {}) {
 }
 
 function makeTempJsonl() {
-  const dir = mkdtempSync(join(tmpdir(), 'spike-writer-test-'));
+  const dir = testTempDir('spike-writer-test-');
   return join(dir, 'session.jsonl');
 }
 

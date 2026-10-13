@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess, { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 
 import {
   acknowledgeRuntimeErrors,
@@ -22,7 +22,7 @@ import { applyWindowsPrivateAcl, verifyWindowsPrivateAcl } from './os/windows-ac
 const TEST_PLATFORM = process.platform === 'win32' ? 'win32' : 'darwin';
 
 function sandbox() {
-  const root = mkdtempSync(join(tmpdir(), 'throughline-runtime-errors-'));
+  const root = testTempDir('throughline-runtime-errors-');
   const env = {
     HOME: root,
     USERPROFILE: root,

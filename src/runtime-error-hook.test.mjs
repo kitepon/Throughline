@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 import { fileURLToPath } from 'node:url';
 import { defaultRuntimeErrorConfigPath, defaultRuntimeErrorStorePath } from './runtime-error-store.mjs';
 import { applyWindowsPrivateAcl } from './os/windows-acl-test-helper.mjs';
@@ -12,7 +12,7 @@ import { applyWindowsPrivateAcl } from './os/windows-acl-test-helper.mjs';
 const BIN = fileURLToPath(new URL('../bin/throughline.mjs', import.meta.url));
 
 function createEnabledEnvironment(prefix) {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = testTempDir(prefix);
   const env = {
     ...process.env,
     HOME: root,

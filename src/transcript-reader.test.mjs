@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 import {
   normalizeTerminalText,
   normalizeToolResultContent,
@@ -36,7 +36,7 @@ test('normalizeTerminalText: CRLF を LF にし、行内 CR は最後の上書�
 });
 
 function writeTranscript(entries) {
-  const dir = mkdtempSync(join(tmpdir(), 'tl-transcript-'));
+  const dir = testTempDir('tl-transcript-');
   const path = join(dir, 't.jsonl');
   writeFileSync(path, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
   return path;

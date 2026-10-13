@@ -11,7 +11,8 @@ const bin = fileURLToPath(new URL('../bin/throughline.mjs', import.meta.url));
 test('公開CLIは部屋ごとの直近3発言を現在の発言まで返す', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-room-context-'));
   const run = (input) => spawnSync(process.execPath, [bin, 'room-context', '--json'], {
-    env: { ...process.env, HOME: home }, input: JSON.stringify(input), encoding: 'utf8',
+    // Windows は USERPROFILE で home を決める。HOME だけだと、動かす利用者の本物の DB を開く。
+    env: { ...process.env, HOME: home, USERPROFILE: home }, input: JSON.stringify(input), encoding: 'utf8',
   });
   const base = { projectPath: '/srv/bellteam', roomId: 'room-a', speaker: 'クオ', text: '発言' };
   try {

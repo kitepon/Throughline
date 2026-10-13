@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { testTempDir } from './test-temp-dir.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -37,7 +37,7 @@ const KEY_ID = 'test-host.throughline';
 const NOW = Date.parse('2026-10-03T08:00:00.000Z');
 
 function createEnvironment(prefix = 'throughline-report-') {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = testTempDir(prefix);
   const env = {
     ...process.env,
     HOME: root,

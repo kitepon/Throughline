@@ -1,9 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { testTempDir } from '../test-temp-dir.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { parseArgs, run } from './runtime-errors.mjs';
@@ -43,7 +42,7 @@ test('runtime-errors CLI: internal failure is fixed and does not reflect excepti
 });
 
 test('runtime-errors CLI: snapshot and diagnostics are JSON-only and contain no state path', () => {
-  const root = mkdtempSync(join(tmpdir(), 'throughline-runtime-cli-'));
+  const root = testTempDir('throughline-runtime-cli-');
   const env = {
     ...process.env,
     HOME: root,
