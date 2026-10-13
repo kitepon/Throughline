@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.30] — 2026-10-14
+
+### 修正
+
+- **Codexのゴール（`/goal`）で動くタスクで、Codexが自分で入れる続行の指示が、利用者の発言として会話の記録（L2）に残っていた**（[ADR 0061](docs/adr/0061-codex-internal-context-is-compacted-in-memory.md)）。続行のターンの入力は、`<codex_internal_context source="goal">`で始まる約6,300字の定型文で、利用者の発言としてrolloutに入る。Windowsの実機のタスクでは、利用者の発言15行のうち7行がこれで、字数の87%を占めていた。引き継ぎの記憶に入る直近のターンが同じ定型文で埋まり、利用者が打った依頼が押し出される形だった。
+  - 直した後は、開く印（`source`つき）・利用者が決めたゴールの文（`<objective>`）・閉じる印だけを残し、定型文を落とす。ターンは落とさない。
+  - 閉じる印が無い物と、発言の途中に印がある物は、触らない。
+
+### 変わる動き
+
+- ゴールで動くCodexのタスクで、続行のターンの利用者の発言が短い行になる。前の版が保存した長い行は、そのタスクの次の取り込みで置き換わる。
+- Claude Code・Grok・Cursorの記録の読み方は変えていない。
+
 ## [0.16.29] — 2026-10-14
 
 ### 修正
@@ -2576,7 +2589,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.29...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.30...HEAD
+[0.16.30]: https://github.com/kitepon/Throughline/compare/v0.16.29...v0.16.30
 [0.16.29]: https://github.com/kitepon/Throughline/compare/v0.16.28...v0.16.29
 [0.16.28]: https://github.com/kitepon/Throughline/compare/v0.16.27...v0.16.28
 [0.16.27]: https://github.com/kitepon/Throughline/compare/v0.16.26...v0.16.27

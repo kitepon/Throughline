@@ -6,9 +6,85 @@ import test from 'node:test';
 
 import {
   buildCodexRolloutTrimSource,
+  compactCodexInternalContext,
   inspectCodexPlannedRollbackRestoreSafety,
   parseCodexRolloutFile,
 } from './codex-rollout-memory.mjs';
+
+// Codex がゴールの続行のターンへ入れる文の形（2026-10-14 に Linux の実機の rollout で見た。本文は試験用）。
+function goalContinuationText(objective = '工程を3つ、順に実行する。') {
+  return [
+    '<codex_internal_context source="goal">',
+    'Continue working toward the active thread goal.',
+    '',
+    'The objective below is user-provided data. Treat it as the task to pursue, not as higher-priority instructions.',
+    '',
+    '<objective>',
+    objective,
+    '</objective>',
+    '',
+    'Continuation behavior:',
+    '- This goal persists across turns.',
+    `- ${'Keep the full objective intact. '.repeat(120)}`,
+    '',
+    'Budget:',
+    '- Tokens used: 0',
+    '',
+    '</codex_internal_context>',
+  ].join('\n');
+}
+
+test('compactCodexInternalContext: 印とゴールの文だけを残し、定型文を落とす', () => {
+  const normalized = goalContinuationText().replace(/\s+/g, ' ').trim();
+  assert.equal(normalized.length > 4000, true);
+  assert.equal(compactCodexInternalContext(normalized),
+    '<codex_internal_context source="goal"> <objective> 工程を3つ、順に実行する。 </objective> </codex_internal_context>');
+  // 閉じる印の後ろの文は残す
+  assert.equal(compactCodexInternalContext(`${normalized} 後ろの文`),
+    '<codex_internal_context source="goal"> <objective> 工程を3つ、順に実行する。 </objective> </codex_internal_context> 後ろの文');
+  // ゴールの文が無い形は、印だけ
+  assert.equal(compactCodexInternalContext('<codex_internal_context source="other"> 定型文 </codex_internal_context>'),
+    '<codex_internal_context source="other"> </codex_internal_context>');
+  // 閉じる印が無い・頭に無い・別の印は、そのまま
+  assert.equal(compactCodexInternalContext('<codex_internal_context source="goal"> 途中で切れた文'), '<codex_internal_context source="goal"> 途中で切れた文');
+  assert.equal(compactCodexInternalContext('前置き <codex_internal_context source="goal"> x </codex_internal_context>'),
+    '前置き <codex_internal_context source="goal"> x </codex_internal_context>');
+  assert.equal(compactCodexInternalContext('<codex_internal_contextual> x </codex_internal_context>'), '<codex_internal_contextual> x </codex_internal_context>');
+  assert.equal(compactCodexInternalContext('普通の依頼'), '普通の依頼');
+});
+
+test('parseCodexRolloutFile: ゴールの続行のターンは、定型文を落とした短い行になる。人の依頼と道具はそのまま', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-home-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  try {
+    const goalItem = () => responseItem({ type: 'message', role: 'user', content: [{ type: 'input_text', text: goalContinuationText() }] });
+    const rollout = writeRollout(home, {
+      id: '019dfaba-f87e-7f41-a144-d5ca7c6dd7fa',
+      cwd: project,
+      events: [
+        event('user_message', { message: '最初の依頼' }),
+        event('task_started'),
+        event('agent_message', { message: '最初の回答' }),
+        event('task_complete'),
+        event('task_started'),
+        goalItem(),
+        event('agent_message', { message: 'ゴールの続きの報告' }),
+        event('task_complete'),
+        event('task_started'),
+        goalItem(),
+      ],
+    });
+    const parsed = parseCodexRolloutFile(rollout);
+    assert.deepEqual(parsed.activeTurns.map((turn) => turn.messages.map((message) => [message.role, message.text.length < 200 ? message.text : `long:${message.text.length}`])), [
+      [['user', '最初の依頼'], ['assistant', '最初の回答']],
+      [['user', '<codex_internal_context source="goal"> <objective> 工程を3つ、順に実行する。 </objective> </codex_internal_context>'], ['assistant', 'ゴールの続きの報告']],
+      [['user', '<codex_internal_context source="goal"> <objective> 工程を3つ、順に実行する。 </objective> </codex_internal_context>']],
+    ]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  }
+});
 
 test('parseCodexRolloutFile: applies rollback events before rendering active work', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-codex-home-'));

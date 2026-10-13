@@ -383,7 +383,7 @@ function compactedPayloadToUserMessages(payload, timestamp) {
     .map((item) => ({
       time: timestamp ?? null,
       role: 'user',
-      text: normalizeMessageText(messageContentToText(item.content)),
+      text: normalizeUserMessageText(messageContentToText(item.content)),
     }))
     .filter((message) => message.text.length > 0);
 }
@@ -485,7 +485,7 @@ function removeRolledBackTurns(activeTurns, count) {
 
 function eventPayloadToMemoryMessage(payload, timestamp) {
   if (payload.type === 'user_message') {
-    const text = normalizeMessageText(payload.message);
+    const text = normalizeUserMessageText(payload.message);
     if (!text || shouldSkipUserMessage(text)) return null;
     return {
       time: timestamp ?? null,
@@ -509,7 +509,8 @@ function eventPayloadToMemoryMessage(payload, timestamp) {
 
 function responseItemToConversationMessage(payload, timestamp) {
   if (payload?.type !== 'message' || !['user', 'assistant', 'developer'].includes(payload.role)) return null;
-  const text = normalizeMessageText(messageContentToText(payload.content));
+  const rawText = messageContentToText(payload.content);
+  const text = payload.role === 'user' ? normalizeUserMessageText(rawText) : normalizeMessageText(rawText);
   if (!text) return null;
   if (payload.role === 'developer' && !isThroughlineInjectedDeveloperMemory(text)) return null;
   if (payload.role === 'user' && shouldSkipUserMessage(text)) return null;
@@ -549,6 +550,35 @@ function shouldSkipUserMessage(text) {
 function normalizeMessageText(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/\s+/g, ' ').trim();
+}
+
+/** user の発言の正規化。空白をまとめた後、Codex が自分で書いた文脈の定型文を落とす (ADR 0061)。 */
+function normalizeUserMessageText(value) {
+  return compactCodexInternalContext(normalizeMessageText(value));
+}
+
+const CODEX_INTERNAL_CONTEXT_OPEN = /^<codex_internal_context(?:\s[^>]*)?>/;
+const CODEX_INTERNAL_CONTEXT_CLOSE = '</codex_internal_context>';
+const CODEX_INTERNAL_OBJECTIVE = /<objective>[\s\S]*?<\/objective>/;
+
+/**
+ * Codex が自分で起こしたターンの入力（ゴールの続行の指示など）は、`<codex_internal_context …>` で包まれて
+ * user の発言として rollout に入る。中身は毎回ほぼ同じ約 6,000 字の定型文で、人の発言ではない。記憶には、
+ * 開く印（`source` が何のターンかを表す）、利用者が決めたゴールの文（`<objective>`）、閉じる印だけを残す。
+ * 閉じる印の後ろに文があれば、それは残す。閉じる印が無い時は、形が分からないので何も落とさない。
+ * @param {string} text 空白をまとめた後の user の発言
+ * @returns {string}
+ */
+export function compactCodexInternalContext(text) {
+  if (typeof text !== 'string') return text;
+  const open = CODEX_INTERNAL_CONTEXT_OPEN.exec(text);
+  if (!open) return text;
+  const close = text.indexOf(CODEX_INTERNAL_CONTEXT_CLOSE, open[0].length);
+  if (close < 0) return text;
+  const objective = CODEX_INTERNAL_OBJECTIVE.exec(text.slice(open[0].length, close))?.[0] ?? null;
+  const tail = text.slice(close + CODEX_INTERNAL_CONTEXT_CLOSE.length).trim();
+  const block = [open[0], objective, CODEX_INTERNAL_CONTEXT_CLOSE].filter(Boolean).join(' ');
+  return tail ? `${block} ${tail}` : block;
 }
 
 function incrementTextMap(map, text) {
