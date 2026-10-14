@@ -7,6 +7,10 @@
  *   {type: "assistant", message: {role: "assistant", content: [{type:"text", text:"..."}, {type:"thinking", ...}]}, ...}
  *   {type: "attachment", attachment: {type: "queued_command", prompt, origin: {kind}}, ...}
  *     ターンの途中で届いた入力。届いた先のターンの依頼へ足す (ADR 0060)
+ *   {type: "attachment", attachment: {type: "hook_additional_context", content: [...]}, ...}
+ *   {type: "attachment", attachment: {type: "hook_success", hookEvent: "UserPromptSubmit", content: "..."}, ...}
+ *     hook が足した文脈（道具の前の hook は前者、入力の hook の stdout は後者）。引き継ぎ前の会話から運んだ
+ *     利用者の入力 (ADR 0063) だけを、依頼へ足す
  *   他に queue-operation, file-history-snapshot, ほかの attachment 等があるが、本文としては無視する
  */
 
@@ -14,6 +18,7 @@ import { readFileSync, existsSync } from 'fs';
 import { DETAIL_KIND } from './constants.mjs';
 import { compactClaudePeerMessage, compactClaudeTaskNotification } from './hosts/claude.mjs';
 import { classifyTurnStart } from './turn-start.mjs';
+import { claudeForwardCarriesHumanInput, unwrapClaudeForwardedDelivery } from './claude-forward.mjs';
 
 function entryKind(entry) {
   if (typeof entry?.type === 'string' && entry.type.length > 0) return entry.type;
@@ -70,9 +75,22 @@ export const MID_TURN_INPUT_MARK = '（作業の途中で届いた入力）';
 function claudeMidTurnInputText(entry) {
   if (entry?.type !== 'attachment' || entry.isSidechain === true) return null;
   const attachment = entry.attachment;
+  // 引き継ぎ前の会話へ届いた利用者の入力を、Throughline の hook が文脈として運んだ物 (ADR 0063)。
+  // 完了通知だけを運んだ分は、ターン自身の作業の結果と同じ扱いで、足さない。
+  // 道具の前の hook が返した文脈は `hook_additional_context`、入力の hook が stdout へ出した文脈は `hook_success` で書かれる。
+  if (attachment?.type === 'hook_additional_context' || attachment?.type === 'hook_success') {
+    const content = (Array.isArray(attachment.content) ? attachment.content.filter(part => typeof part === 'string').join('\n')
+      : typeof attachment.content === 'string' ? attachment.content : '').trim();
+    if (!claudeForwardCarriesHumanInput(content)) return null;
+    const forwarded = normalizeTerminalText(content);
+    return forwarded ? forwarded : null;
+  }
   if (attachment?.type !== 'queued_command') return null;
-  if (!CLAUDE_MID_TURN_INPUT_ORIGINS.includes(attachment.origin?.kind)) return null;
   if (typeof attachment.prompt !== 'string' && !Array.isArray(attachment.prompt)) return null;
+  // 待つ hook が、次の番の作業中に運んだ入力（ADR 0063）。Claude Code が通知の形で順番待ちへ入れる。
+  const forwarded = unwrapClaudeForwardedDelivery(extractText(attachment.prompt));
+  if (forwarded !== null) return claudeForwardCarriesHumanInput(forwarded) ? (normalizeTerminalText(forwarded) || null) : null;
+  if (!CLAUDE_MID_TURN_INPUT_ORIGINS.includes(attachment.origin?.kind)) return null;
   const text = normalizeTerminalText(compactClaudePeerMessage(extractText(attachment.prompt)));
   return text ? text : null;
 }
@@ -170,8 +188,10 @@ export function readTranscript(transcriptPath) {
     const extracted = extractText(rawContent);
     // user 発言には端末の生出力 (貼り付け・Claude の task 通知) や、別の会話から届いた発言の
     // 定型の注意書きが入る。記憶には制御文字と定型文を落とした本文だけを残す。
+    // 引き継ぎ前の会話から運んだ入力 (ADR 0063) は、Claude Code が付けた通知の包みを外して、運んだ文だけを残す。
     const text = role === 'user'
-      ? normalizeTerminalText(compactClaudePeerMessage(compactClaudeTaskNotification(extracted)))
+      ? normalizeTerminalText(unwrapClaudeForwardedDelivery(extracted)
+        ?? compactClaudePeerMessage(compactClaudeTaskNotification(extracted)))
       : extracted;
     if (!text) continue;
 

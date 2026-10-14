@@ -43,6 +43,7 @@ import { sameProjectPath } from './project-path.mjs';
 import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
+import { claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
 
 export const CLAUDE_AUTO_HANDOFF_SCHEMA = 'throughline.claude-auto-handoff.v2';
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
@@ -140,10 +141,13 @@ export function listClaudeAutoHandoffs({ dir = claudeAutoHandoffDir() } = {}) {
 }
 
 /** 外へ見せる項目だけ。依頼の本文・発言・道具の対象と、受け口は含めない。 */
-export function publicClaudeAutoHandoff(record) {
+export function publicClaudeAutoHandoff(record, { dir = claudeAutoHandoffDir() } = {}) {
   const { handoff_id, source_session_id, project_path, state, error_code, requested_at, updated_at, successor } = record;
+  // 後継の置き場の数（ADR 0063）。pending は届けるのを待つ入力、unknown は届いたか分からなくなった入力。
+  const forward = validSessionId(successor?.session_id) ? readClaudeForwardStatus(successor.session_id, { dir }) : null;
   return { handoff_id, source_session_id, project_path, state, error_code: error_code ?? null,
     successor_session_id: successor?.session_id ?? null, successor_short_id: successor?.short_id ?? null,
+    forward_pending: forward ? forward.pending : null, forward_unknown: forward ? forward.unknown : null,
     // 止めたターンを DB へ取り込めたか。false の時、後継は `throughline detail` でそのターンの入出力を取れない。
     in_flight_captured: Boolean(record.in_flight?.turn),
     // 後継を Claude Desktop で開く引き継ぎか、開けたか（null は対象外）。
@@ -219,6 +223,12 @@ function removeStale(dir, now) {
       rmSync(path, { force: true });
     }
   }
+  // 後継の置き場（ADR 0063）。後継として指されている会話の置き場は、空でも残す（待つ hook が、フォルダの有無で待つかを決める）。
+  try {
+    const keepSessionIds = new Set(listClaudeAutoHandoffs({ dir })
+      .map(record => record.successor?.session_id).filter(validSessionId));
+    removeStaleClaudeForwards({ dir, now, keepSessionIds });
+  } catch { /* 置き場の片付けの失敗で、引き継ぎを止めない */ }
 }
 
 /**
@@ -727,6 +737,22 @@ function handedOffReason(record, dir) {
     (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
 }
 
+/**
+ * 引き継ぎ済みの会話へ届いた入力を、後継の置き場へ置けた時に見せる文 (ADR 0063)。
+ * 後継で待つ hook が生きていれば、後継は動いている。生きていなければ、後継は止まっているか、待つ hook が登録される前に
+ * 立った会話で、入力は後継が次に動く時まで置き場で待つ。どちらかを、打った人へ返す。
+ */
+function forwardedReason(record, dir, successorSessionId) {
+  const { shortId, sessionId } = currentSuccessor(record, dir);
+  const open = `claude attach ${shortId}` + (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
+  return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+    '届いた入力は、後継の会話へ渡しました。' +
+    (claudeForwardWaiterAlive(successorSessionId, dir)
+      ? '後継は動いています。手すきならすぐ、作業中なら次の道具の前か番の終わりに届きます。' +
+        `後継のモデルが、運ばれた入力を利用者の依頼として扱わない事があります。答えは後継で確かめてください: ${open}`
+      : `後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ${open}`);
+}
+
 function stopOutput(record, dir) {
   const reason = record.successor?.short_id
     ? handedOffReason(record, dir)
@@ -761,18 +787,29 @@ function recordClaudeRedirect(entry, dir) {
  * 何もしない（null）。Aiterm が起こした席の会話（ADR 0057）も止めない。席を外す前の版が引き継いだ席が残っていても、
  * 呼び手は席の番の終わりを待っている。止めると番が始まらず、呼び手は答えを受け取れない。
  *
- * @returns {{output: {decision: 'block', reason: string}, kind: 'prompt'|'task-notification', handoffId: string, successorShortId: string|null}|null}
+ * 止めた入力は、今の続きの会話の置き場へ置く (ADR 0063)。後継の hook が受け取って、モデルへ渡す。後継の会話 ID を
+ * 引けない時、置き場へ書けなかった時、入力が slash command の時は、置かずに「後継で打ち直す」文を返す。
+ *
+ * @returns {{output: {decision: 'block', reason: string}, kind: 'prompt'|'task-notification', handoffId: string, successorShortId: string|null, forwarded: boolean}|null}
  */
 export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir = claudeAutoHandoffDir(), env = process.env }) {
   const sessionId = payload?.session_id;
   if (!validSessionId(sessionId) || payload.agent_id || isAitermSeatConversation(env, sessionId)) return null;
   const record = readClaudeAutoHandoff(sessionId, dir);
   if (!record || !successorRemains(record)) return null;
-  const successorShortId = currentSuccessor(record, dir).shortId;
+  const successor = currentSuccessor(record, dir);
+  const successorShortId = successor.shortId;
   const kind = typeof payload.prompt === 'string' && /^\s*<task-notification>/.test(payload.prompt) ? 'task-notification' : 'prompt';
+  const successorSessionId = successor.sessionId ?? findSuccessorSessionId(record);
+  // slash command は、その会話への命令なので運ばない。ほかの会話から届いた文は、利用者の入力と分けて運ぶ。
+  const forwardKind = claudeForwardKind(payload.prompt);
+  const forwarded = forwardKind !== null && validSessionId(successorSessionId) && successorSessionId !== sessionId &&
+    enqueueClaudeForward({ successorSessionId, sourceSessionId: sessionId, handoffId: record.handoff_id, kind: forwardKind,
+      text: payload.prompt, now, dir });
   recordClaudeRedirect({ at: new Date(now).toISOString(), source_session_id: sessionId, handoff_id: record.handoff_id,
-    successor_short_id: successorShortId, kind }, dir);
-  return { output: { decision: 'block', reason: handedOffReason(record, dir) }, kind, handoffId: record.handoff_id, successorShortId };
+    successor_short_id: successorShortId, kind, forwarded }, dir);
+  return { output: { decision: 'block', reason: forwarded ? forwardedReason(record, dir, successorSessionId) : handedOffReason(record, dir) },
+    kind, handoffId: record.handoff_id, successorShortId, forwarded };
 }
 
 /**
@@ -893,6 +930,8 @@ export function acceptClaudeAutoContinuation({ predecessorId, successorSessionId
   if (carriesInstruction && !record.accepted_at && !existsSync(acceptancePath(predecessorId, dir))) {
     writeJsonPrivate(acceptancePath(predecessorId, dir),
       { handoff_id: record.handoff_id, successor_session_id: successorSessionId, accepted_at: now });
+    // 後継の置き場を作る（ADR 0063）。番の終わりの待つ hook は、このフォルダが在る会話でだけ待つ。
+    if (validSessionId(successorSessionId)) ensureClaudeForwardInbox(successorSessionId, dir);
   }
   return { handoffId: record.handoff_id, projectPath: record.project_path, inFlight: record.in_flight ?? null,
     transcriptPath: record.transcript_path ?? null };

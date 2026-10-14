@@ -97,7 +97,7 @@ async function runClaude(parsed) {
   const handoffs = listClaudeAutoHandoffs()
     .filter(record => !parsed.project || sameProjectPath(record.project_path, parsed.project))
     .filter(record => !parsed.operation || record.handoff_id === parsed.operation || record.source_session_id === parsed.operation)
-    .map(publicClaudeAutoHandoff);
+    .map(record => publicClaudeAutoHandoff(record));
   return { host: 'claude', config: readClaudeAutoHandoffConfig(),
     hooks: { registered: claudeAutoHandoffHooksRegistered() }, handoffs };
 }
@@ -121,7 +121,7 @@ export async function run(args = []) {
       if (parsed.json) process.stdout.write(JSON.stringify(result) + '\n');
       else if (parsed.action === 'status') {
         process.stdout.write(`自動継続: ${result.config.enabled ? '有効' : '無効'}（Claude Code）\n`);
-        process.stdout.write(`hook（PreCompact・PreToolUse）: ${result.hooks.registered ? '登録済み' : '未登録'}\n`);
+        process.stdout.write(`hook（PreCompact・PreToolUse・Stop）: ${result.hooks.registered ? '登録済み' : '未登録'}\n`);
         for (const item of result.handoffs) process.stdout.write(`${item.handoff_id}  ${item.state}  ${item.error_code ?? ''}\n`);
       } else process.stdout.write(JSON.stringify(result, null, 2) + '\n');
       return result.state === 'failed' || result.state === 'unknown' ? 1 : 0;

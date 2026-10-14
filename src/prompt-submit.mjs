@@ -177,6 +177,7 @@ export async function run() {
         handoff_id: redirect.handoffId,
         successor_short_id: redirect.successorShortId,
         input_kind: redirect.kind,
+        forwarded: redirect.forwarded,
       });
       process.stdout.write(`${JSON.stringify(redirect.output)}\n`);
       process.exit(0);
@@ -199,6 +200,7 @@ export async function run() {
   // プロンプト到達 = セッション実在の証明。幽霊 SessionStart はここに来られない。
   // /tl・/clear のバトン書き込みより先に実行する (初回プロンプトが /tl でも、
   // 引き継ぎを受けてから自分のバトンを書く順序になり、自己バトン食いが起きない)。
+  let injected = false;
   if (session_id) {
     const db = getDb();
     const projectPath = cwd ?? process.cwd();
@@ -219,6 +221,7 @@ export async function run() {
         if (!delivery.delivered) {
           process.stderr.write(`[prompt-submit] ${delivery.reason}\n`);
         }
+        injected = true;
       }
       logDecision({
         ts: new Date(now).toISOString(),
@@ -235,6 +238,19 @@ export async function run() {
         predecessor_id: handoff.mergeResult.predecessorId ?? null,
         injection: handoff.injectionStats,
       });
+    }
+  }
+
+  // 引き継ぎ前の会話へ届いた入力が、この会話（後継）の置き場で待っていれば、文脈として足す (ADR 0063)。
+  // 置き場のフォルダが無い会話（ほとんどの会話）では、何も読み込まずに先へ進む。記憶を注入した入力には足さない
+  // （足すと、文脈の長さの上限で両方が切り詰められる。置き場の分は、番の終わりの hook か次の入力で届く）。
+  if (!injected && hostAdapter.host === CLAUDE_HOST && typeof session_id === 'string' && CLAUDE_SESSION_ID_PATTERN.test(session_id) &&
+      existsSync(join(homedir(), '.throughline', 'claude-auto-handoff', 'inbox', session_id))) {
+    const { takeClaudeForwardsAsContext } = await import('./claude-forward.mjs');
+    const taken = takeClaudeForwardsAsContext({ sessionId: session_id, via: 'prompt-submit' });
+    if (taken) {
+      process.stdout.write(`${taken.text}\n`);
+      taken.done();
     }
   }
 

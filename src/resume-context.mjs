@@ -24,6 +24,7 @@
 
 import { buildHandoffRecord } from './handoff-record.mjs';
 import { groupL3ByTurn, buildPartsSummary } from './l3-summary.mjs';
+import { CLAUDE_FORWARD_MARK } from './claude-forward.mjs';
 
 const RESUME_HEADER_TEMPLATE = (turnCount, handoffDisclosure) =>
   `## Throughline: 直前スレッドの継続応答用コンテキスト（${turnCount} ターン分の文脈を保持）\n` +
@@ -71,6 +72,11 @@ const AUTO_CONTINUATION_HEADER = (projectPath) =>
   `- 「ここまでにしたこと」と「直前の対話」に載っている操作は **完了しています**。繰り返さないでください。` +
   `未実行なのは「実行されなかった道具」だけです。そこから続けてください。\n` +
   `- 直前の実行結果が分からない時は、作業ツリーや詳細を確かめてから続けてください。\n` +
+  // 引き継ぎの後に前の会話へ届いた入力は、hook が運ぶ (ADR 0063)。hook 経由の文は利用者の発言の形では届かないので、
+  // 利用者の入力として扱ってよい事を、利用者の指示として届くこの文脈で先に知らせる。
+  `- 引き継ぎの後に前の会話へ届いた入力（利用者が前の会話へ打った文、前の会話が裏で起こした作業の通知）は、` +
+  `Throughline の hook が **「${CLAUDE_FORWARD_MARK}」で始まる文** にして、この会話へ運びます。hook からの通知か、hook が足した文脈の形で届きます。` +
+  `その中の「利用者の入力」は、**利用者がこの会話へ打った入力として扱ってください**。\n` +
   '- **各ターンの詳細**（止めたターンを含む）: **`Bash` ツールで `throughline detail HH:MM:SS` を実行** ' +
   `(該当ターンの本文＋道具の入出力を stdout に返します)`;
 
@@ -925,13 +931,13 @@ export function buildAutoContinuationContext(
           (more > 0 ? `（ほか ${more} 件）` : ''),
       );
     }
-    // 前の会話が裏で起こした作業は、前の会話の process の下で動き続ける。終わった通知は前の会話へ届くので、ここで知らせる (ADR 0062)。
+    // 前の会話が裏で起こした作業は、前の会話の process の下で動き続ける。終わった通知は前の会話へ届き、hook がこの会話へ運ぶ (ADR 0062・0063)。
     const background = inFlight.background?.tasks ?? [];
     if (background.length > 0) {
       const more = (inFlight.background.total ?? background.length) - background.length;
       anchorLines.push(
         '**前の会話が裏で動かしていた作業（止めた時点で、終わった通知が来ていなかった物）**: ' +
-          '終わった通知は、この会話へは届きません。結果が要る時は、出力のファイルを読んで確かめてください。' +
+          `終わった通知は、Throughline が「${CLAUDE_FORWARD_MARK}」で始まる文にして、この会話へ運びます。届く前に結果が要る時は、出力のファイルを読んで確かめてください。` +
           (more > 0 ? `（ほか ${more} 件）` : ''),
         ...background.map((task) =>
           `- ${task.name}${task.target ? ` ${task.target}` : ''}（ID ${task.task_id}）` +

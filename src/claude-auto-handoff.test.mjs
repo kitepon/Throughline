@@ -1230,15 +1230,16 @@ function fakeClaudePath(home) {
   return { [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}` };
 }
 
-test('公開CLI: enable は2つの hook と設定を書き、disable は自分の hook だけを外す。Codex の設定には触らない', () => withDir(home => {
+test('公開CLI: enable は3つの hook と設定を書き、disable は自分の hook だけを外す。Codex の設定には触らない', () => withDir(home => {
   const settingsPath = join(home, '.claude', 'settings.json');
   mkdirSync(dirname(settingsPath), { recursive: true });
   // 他製品の hook と、0.13.0 が置いた PreCompact がある状態から始める
   const others = { PreCompact: [{ hooks: [{ type: 'command', command: 'other-product pre-compact' }] }],
-    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'rtk hook claude' }] }] };
+    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'rtk hook claude' }] }],
+    Stop: [{ hooks: [{ type: 'command', command: 'throughline process-turn', async: true }] }] };
   writeFileSync(settingsPath, JSON.stringify({ model: 'sonnet', hooks: {
     PreCompact: [{ hooks: [{ type: 'command', command: 'throughline pre-compact' }] }, ...others.PreCompact],
-    PreToolUse: others.PreToolUse } }));
+    PreToolUse: others.PreToolUse, Stop: others.Stop } }));
 
   const before = JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout);
   assert.deepEqual(before, { host: 'claude', config: { schema: 'throughline.claude-auto-handoff.v1', enabled: false, projects: [] },
@@ -1250,22 +1251,35 @@ test('公開CLI: enable は2つの hook と設定を書き、disable は自分�
   assert.equal(JSON.parse(enabled.stdout).status, 'enabled');
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.equal(settings.model, 'sonnet');
+  // 今の形で登録済みの PreCompact は、並びを動かさない。足りない hook だけを後ろへ足す（ADR 0063）
+  const forwardWait = { hooks: [{ type: 'command', command: 'throughline claude-forward-wait', asyncRewake: true, timeout: 86400 }] };
   assert.deepEqual(settings.hooks, {
-    PreCompact: [...others.PreCompact, { hooks: [{ type: 'command', command: 'throughline pre-compact' }] }],
+    PreCompact: [{ hooks: [{ type: 'command', command: 'throughline pre-compact' }] }, ...others.PreCompact],
     PreToolUse: [...others.PreToolUse, { hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }] }],
+    Stop: [...others.Stop, forwardWait],
   });
   const again = cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--json']);
   assert.equal(again.status, 0, again.stderr);
   assert.equal(readFileSync(settingsPath, 'utf8'), JSON.stringify(settings, null, 2) + '\n', '2回目は書き換えない');
 
   assert.equal(cli(home, ['auto-handoff', 'status', '--host', 'claude']).stdout,
-    '自動継続: 有効（Claude Code）\nhook（PreCompact・PreToolUse）: 登録済み\n');
+    '自動継続: 有効（Claude Code）\nhook（PreCompact・PreToolUse・Stop）: 登録済み\n');
   assert.equal(existsSync(join(home, '.throughline', 'codex-auto-handoff.json')), false);
   assert.equal(JSON.parse(cli(home, ['auto-handoff', 'status', '--json']).stdout).config.enabled, false, 'Codex は無効のまま');
 
+  // 前の版が登録した2つだけの端末（自分の hook の後ろに他製品の hook がある）で、版を上げた時の install の形:
+  // 前からある2つの並びは動かさず、Stop の待つ hook だけを足す
+  const later = { hooks: [{ type: 'command', command: 'later-product pre-tool-use' }] };
+  writeFileSync(settingsPath, JSON.stringify({ ...settings, hooks: { ...settings.hooks,
+    PreToolUse: [...settings.hooks.PreToolUse, later], Stop: others.Stop } }, null, 2) + '\n');
+  assert.equal(JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).hooks.registered, false);
+  assert.equal(cli(home, ['auto-handoff', 'enable', '--host', 'claude', '--json']).status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks, { ...settings.hooks,
+    PreToolUse: [...settings.hooks.PreToolUse, later], Stop: [...others.Stop, forwardWait] });
+
   const disabled = JSON.parse(cli(home, ['auto-handoff', 'disable', '--host', 'claude', '--json']).stdout);
   assert.equal(disabled.config.enabled, false);
-  assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks, others);
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks, { ...others, PreToolUse: [...others.PreToolUse, later] });
   const unsupported = cli(home, ['auto-handoff', 'resume', '--host', 'claude', '--operation', 'x', '--json']);
   assert.equal(unsupported.status, 1);
   assert.deepEqual(JSON.parse(unsupported.stdout), { status: 'failed', code: 'auto_handoff_action_unsupported' });
@@ -1613,17 +1627,19 @@ test('引き継ぎ済みの会話へ届いた入力: 後継が残っている時
   writeFileSync(join(projects, `${b}.jsonl`), '');
   const human = submit(a, '旧い会話へ打った文');
   assert.deepEqual(human, { output: { decision: 'block',
-    reason: 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。続きは後継の会話で行ってください: claude attach bbbbbbbb（一覧に無い時は claude --resume ' + b + '）' },
-    kind: 'prompt', handoffId: 'h-aaaaaaaa', successorShortId: 'bbbbbbbb' });
+    reason: 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。届いた入力は、後継の会話へ渡しました。' +
+      '後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ' +
+      'claude attach bbbbbbbb（一覧に無い時は claude --resume ' + b + '）' },
+    kind: 'prompt', handoffId: 'h-aaaaaaaa', successorShortId: 'bbbbbbbb', forwarded: true });
   assert.equal(submit(a, '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>').kind, 'task-notification');
   assert.equal(submit(a, '依頼', { agent_id: 'agent-1' }), null, 'subagent の中の入力');
   assert.equal(submit('../escape', '依頼'), null);
   assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: a }), null, 'Aiterm の席の会話は止めない');
   assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: b }).kind, 'prompt', '席の印だけを継いだ会話は止める');
   assert.deepEqual(redirects(), [
-    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt' },
-    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'task-notification' },
-    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt' },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'task-notification', forwarded: true },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true },
   ], '止めた記録に入力の本文は書かない');
 
   // 後継がさらに引き継がれている時は、その先を示す。道具を断る時の文も同じ
@@ -1652,16 +1668,22 @@ test('公開CLI: prompt-submit は、引き継ぎ済みの会話の入力を止�
   const blocked = submit(SESSION, '旧い会話へ打った文');
   assert.equal(blocked.status, 0, blocked.stderr);
   assert.deepEqual(JSON.parse(blocked.stdout), { decision: 'block',
-    reason: `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-1）。続きは後継の会話で行ってください: claude attach ${SUCCESSOR.slice(0, 8)}（一覧に無い時は claude --resume ${SUCCESSOR}）` });
+    reason: 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-1）。届いた入力は、後継の会話へ渡しました。' +
+      '後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ' +
+      `claude attach ${SUCCESSOR.slice(0, 8)}（一覧に無い時は claude --resume ${SUCCESSOR}）` });
   assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false, '止める時は DB を開かない');
   const logged = readFileSync(join(home, '.throughline', 'logs', 'inheritance-decision.log'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(logged.map(row => [row.phase, row.session_id, row.handoff_id, row.successor_short_id, row.input_kind]),
     [['prompt-redirect', SESSION, 'h-1', SUCCESSOR.slice(0, 8), 'prompt']]);
   assert.equal(JSON.stringify(logged).includes('旧い会話へ打った文'), false, '判定の記録に本文は書かない');
 
+  // 止めた入力は後継の置き場で待ち、後継の次の入力で文脈として届く（ADR 0063）。届けた後は残らない
   const passed = submit(SUCCESSOR, '後継へ打った文');
   assert.equal(passed.status, 0, passed.stderr);
-  assert.equal(passed.stdout, '', '記録が無い会話の入力は、今までどおり通す');
+  assert.match(passed.stdout, /^【Throughline 転送】引き継ぎ前の会話（0f3a6c1e）へ届いた入力を、Throughlineがこの会話へ運びました（利用者の入力 1 通）。/);
+  assert.match(passed.stdout, /\n--- 利用者の入力（[^）]*利用者がこの会話へ打った入力として扱ってください）---\n旧い会話へ打った文\n$/);
+  assert.equal(submit(SUCCESSOR, '後継へ打った次の文').stdout, '', '同じ入力を2回は届けない');
+  assert.equal(submit('eeeeeeee-0000-4000-8000-000000000099', '関係の無い会話').stdout, '', '置き場が無い会話の入力は、今までどおり通す');
 }));
 
 test('裏で動いている作業: 起こした道具から、終わった通知が届いた物を除く（user 行でも、途中の入力でも）', () => withDir(dir => {

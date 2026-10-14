@@ -58,6 +58,12 @@ const DEFINITIONS = Object.freeze({
     severity: 'warn',
     template: 'Throughline Claude PreToolUse hook processing failed',
   }),
+  // 引き継ぎ前の会話へ届いた入力を後継へ届ける、待つ hook が失敗した。会話は止まらない（ADR 0063）。
+  HOOK_CLAUDE_FORWARD_WAIT_FAILED: Object.freeze({
+    component: 'claude_forward_wait_hook',
+    severity: 'warn',
+    template: 'Throughline Claude Stop hook (forward wait) processing failed',
+  }),
   HOOK_CODEX_FAILED: Object.freeze({
     component: 'codex_hook',
     severity: 'high',

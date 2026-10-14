@@ -39,6 +39,7 @@ const SC_COMMANDS = [
   'throughline prompt-submit',
   'throughline pre-compact',
   'throughline pre-tool-use',
+  'throughline claude-forward-wait',
   // 旧コマンド（アンインストール時に除去する）
   'throughline inject-context',
   'throughline capture-tool',
@@ -63,12 +64,17 @@ const SC_HOOKS = {
 // Claude の自動継続 (ADR 0033) の hook。install は登録しない。`auto-handoff enable --host claude` が登録し、
 // `disable` が外す。PreToolUse は道具の呼び出しのたびに走るので、使わない端末には置かない。
 // PreCompact に matcher は付けない: 手動の /compact でも呼ばれ、止める前の記録を取り下げる。
+// Stop の待つ hook (ADR 0063) は、引き継ぎ前の会話へ届いた入力を、手すきの後継へ届ける。`asyncRewake` なので番の終わりを
+// 待たせない。timeout は待てる長さで、src/claude-forward-wait.mjs の値と合わせる。
 const CLAUDE_AUTO_HANDOFF_HOOKS = {
   PreCompact: {
     hooks: [{ type: 'command', command: 'throughline pre-compact' }],
   },
   PreToolUse: {
     hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }],
+  },
+  Stop: {
+    hooks: [{ type: 'command', command: 'throughline claude-forward-wait', asyncRewake: true, timeout: 86400 }],
   },
 };
 const CLAUDE_AUTO_HANDOFF_COMMANDS = new Set(
@@ -662,41 +668,53 @@ const defaultClaudeSettingsPath = () => join(homedir(), '.claude', 'settings.jso
 function isClaudeAutoHandoffEntry(group, event) {
   const entry = CLAUDE_AUTO_HANDOFF_HOOKS[event];
   return !group.matcher && (group.hooks ?? []).length === 1 &&
-    group.hooks[0].command === entry.hooks[0].command && group.hooks[0].timeout === entry.hooks[0].timeout;
+    group.hooks[0].command === entry.hooks[0].command && group.hooks[0].timeout === entry.hooks[0].timeout &&
+    (group.hooks[0].asyncRewake ?? false) === (entry.hooks[0].asyncRewake ?? false);
 }
 
-/** 自動継続の hook が、今の形で2つとも登録されているか。 */
+/** その event に、自動継続の hook が今の形で1つだけ登録されているか。 */
+function claudeAutoHandoffEventRegistered(hooks, event) {
+  return (hooks[event] ?? []).filter(group => isClaudeAutoHandoffEntry(group, event)).length === 1 &&
+    (hooks[event] ?? []).flatMap(group => group.hooks ?? [])
+      .filter(hook => hook.command === CLAUDE_AUTO_HANDOFF_HOOKS[event].hooks[0].command).length === 1;
+}
+
+/** 自動継続の hook が、今の形で全部登録されているか。 */
 export function claudeAutoHandoffHooksRegistered(settingsPath = defaultClaudeSettingsPath()) {
   const hooks = readSettings(settingsPath).hooks ?? {};
-  return Object.keys(CLAUDE_AUTO_HANDOFF_HOOKS).every(event =>
-    (hooks[event] ?? []).filter(group => isClaudeAutoHandoffEntry(group, event)).length === 1 &&
-    (hooks[event] ?? []).flatMap(group => group.hooks ?? [])
-      .filter(hook => CLAUDE_AUTO_HANDOFF_COMMANDS.has(hook.command)).length === 1);
+  return Object.keys(CLAUDE_AUTO_HANDOFF_HOOKS).every(event => claudeAutoHandoffEventRegistered(hooks, event));
 }
 
-function withoutClaudeAutoHandoffHooks(hooks) {
+function withoutClaudeAutoHandoffHooks(hooks, commands = CLAUDE_AUTO_HANDOFF_COMMANDS) {
   const next = {};
   for (const [event, groups] of Object.entries(hooks)) {
     const kept = groups.map(group => ({ ...group,
-      hooks: (group.hooks ?? []).filter(hook => !CLAUDE_AUTO_HANDOFF_COMMANDS.has(hook.command)) }))
+      hooks: (group.hooks ?? []).filter(hook => !commands.has(hook.command)) }))
       .filter(group => group.hooks.length);
     if (kept.length) next[event] = kept;
   }
   return next;
 }
 
-/** `auto-handoff enable --host claude` 用。他製品の hook とその並びは保ち、自分の2つを今の形で置く。 */
+/**
+ * `auto-handoff enable --host claude` 用。他製品の hook とその並びは保ち、自分の hook を今の形で置く。
+ * 今の形で登録済みの event には触らない（版を上げて hook が増えた時に、前からある hook の並びを動かさない）。
+ */
 export function installClaudeAutoHandoffHooks(settingsPath = defaultClaudeSettingsPath()) {
-  if (!claudeAutoHandoffHooksRegistered(settingsPath)) {
-    const current = readSettings(settingsPath);
-    const hooks = withoutClaudeAutoHandoffHooks(current.hooks ?? {});
-    for (const [event, entry] of Object.entries(CLAUDE_AUTO_HANDOFF_HOOKS)) hooks[event] = [...(hooks[event] ?? []), entry];
-    writeSettings(settingsPath, { ...current, hooks });
+  const current = readSettings(settingsPath);
+  let hooks = current.hooks ?? {};
+  let changed = false;
+  for (const [event, entry] of Object.entries(CLAUDE_AUTO_HANDOFF_HOOKS)) {
+    if (claudeAutoHandoffEventRegistered(hooks, event)) continue;
+    hooks = withoutClaudeAutoHandoffHooks(hooks, new Set([entry.hooks[0].command]));
+    hooks[event] = [...(hooks[event] ?? []), entry];
+    changed = true;
   }
+  if (changed) writeSettings(settingsPath, { ...current, hooks });
   return { settingsPath, commands: [...CLAUDE_AUTO_HANDOFF_COMMANDS] };
 }
 
-/** `auto-handoff disable --host claude` と、無効な端末の install 用。自分の2つだけを外す。 */
+/** `auto-handoff disable --host claude` と、無効な端末の install 用。自分の hook だけを外す。 */
 export function removeClaudeAutoHandoffHooks(settingsPath = defaultClaudeSettingsPath()) {
   if (!existsSync(settingsPath)) return { settingsPath, removed: false };
   const current = readSettings(settingsPath);

@@ -10,6 +10,7 @@
  *   throughline session-start # SessionStart hook (Claude Code から呼ばれる)
  *   throughline pre-compact   # PreCompact hook (Claude Code から呼ばれる。自動継続: 自動圧縮を止める)
  *   throughline pre-tool-use  # PreToolUse hook (Claude Code から呼ばれる。自動継続: 旧い会話を止める)
+ *   throughline claude-forward-wait # Stop hook (Claude Code から呼ばれる。自動継続: 引き継ぎ前の会話へ届いた入力を後継へ届ける)
  *   throughline detail [<日付>T]<時刻> # L2+L3 詳細取得 (Claude が Bash 経由で呼ぶ想定)
  *   throughline recall --l2|--l1 # 注入案内から辿る pull 用 read-only 記憶取得
  *   throughline handoff-preview # Codex-facing throughline_handoff JSON preview
@@ -87,6 +88,9 @@ switch (cmd) {
     break;
   case 'pre-tool-use':
     await (await import('../src/claude-pre-tool-use.mjs')).run();
+    break;
+  case 'claude-forward-wait':
+    await (await import('../src/claude-forward-wait.mjs')).run();
     break;
   case 'monitor':
     (await import('../src/token-monitor.mjs')).main();
@@ -243,6 +247,7 @@ switch (cmd) {
     'process-turn': 'HOOK_PROCESS_TURN_FAILED',
     'pre-compact': 'HOOK_PRE_COMPACT_FAILED',
     'pre-tool-use': 'HOOK_PRE_TOOL_USE_FAILED',
+    'claude-forward-wait': 'HOOK_CLAUDE_FORWARD_WAIT_FAILED',
   }[cmd];
   if (code) {
     const { recordRuntimeErrorBestEffort } = await import('../src/runtime-error-store.mjs');

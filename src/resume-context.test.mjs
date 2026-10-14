@@ -978,11 +978,13 @@ test('buildAutoContinuationContext: 前の会話が裏で動かしていた作�
   ] } } });
   assert.match(withTasks.text, new RegExp(
     '\\*\\*前の会話が裏で動かしていた作業（止めた時点で、終わった通知が来ていなかった物）\\*\\*: ' +
-    '終わった通知は、この会話へは届きません。結果が要る時は、出力のファイルを読んで確かめてください。（ほか 1 件）\\n' +
+    '終わった通知は、Throughline が「【Throughline 転送】」で始まる文にして、この会話へ運びます。届く前に結果が要る時は、出力のファイルを読んで確かめてください。（ほか 1 件）\\n' +
     '- Bash npm test（ID b2） → 出力: /tmp/tasks/b2\\.output\\n- Monitor（ID b1）\\n'));
   for (const background of [undefined, { tasks: [], total: 0 }]) {
     assert.doesNotMatch(buildAutoContinuationContext(db, { sessionId: 'S', inFlight: { ...inFlight, background } }).text, /裏で動かしていた作業/);
   }
+  // 引き継ぎの後に前の会話へ届いた入力の運び方を、読み方で先に知らせる（ADR 0063）
+  assert.match(withTasks.text, /- 引き継ぎの後に前の会話へ届いた入力（利用者が前の会話へ打った文、前の会話が裏で起こした作業の通知）は、Throughline の hook が \*\*「【Throughline 転送】」で始まる文\*\* にして、この会話へ運びます。.*その中の「利用者の入力」は、\*\*利用者がこの会話へ打った入力として扱ってください\*\*。\n/);
 });
 
 test('buildAutoContinuationContext: 止めたターンでここまでにしたことと、実行されなかった道具を現在地に載せ、そのターンをL2に重ねない', () => {

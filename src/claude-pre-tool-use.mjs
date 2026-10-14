@@ -8,6 +8,7 @@
  * 会話では、記録のファイルの有無だけを見て終わる（DB も他の module も読み込まない）。
  *
  * 記録がある会話では、その道具を実行させずにターンを止め、後継を立てる worker を起動する。
+ * 後継の会話では、引き継ぎ前の会話へ届いた入力が置き場で待っていれば、文脈として渡す (ADR 0063)。道具は止めない。
  * この hook 自身が失敗した時は exit code 1 で終わる。道具は止まらず、作業は続く。
  */
 
@@ -31,23 +32,40 @@ export async function run() {
 
   const payload = JSON.parse(raw.replace(/^﻿/, ''));
   const sessionId = payload?.session_id;
-  if (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId) || payload.agent_id ||
-      !existsSync(join(homedir(), '.throughline', 'claude-auto-handoff', `${sessionId}.json`))) {
-    process.exit(0);
+  if (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId) || payload.agent_id) process.exit(0);
+  const dir = join(homedir(), '.throughline', 'claude-auto-handoff');
+  const hasRecord = existsSync(join(dir, `${sessionId}.json`));
+  // 引き継ぎ前の会話へ届いた入力の、この会話（後継）の置き場 (ADR 0063)。
+  const hasInbox = existsSync(join(dir, 'inbox', sessionId));
+  if (!hasRecord && !hasInbox) process.exit(0);
+
+  if (hasRecord) {
+    const { stopClaudeTurnForHandoff } = await import('./claude-auto-handoff.mjs');
+    const { logDecision } = await import('./decision-log.mjs');
+    const now = Date.now();
+    const output = await stopClaudeTurnForHandoff({ payload, now });
+    if (output) {
+      logDecision({
+        ts: new Date(now).toISOString(),
+        phase: 'pre-tool-use-stop',
+        session_id: sessionId,
+        tool_name: payload.tool_name ?? null,
+      });
+      process.stdout.write(`${JSON.stringify(output)}\n`);
+      process.exit(0);
+    }
   }
 
-  const { stopClaudeTurnForHandoff } = await import('./claude-auto-handoff.mjs');
-  const { logDecision } = await import('./decision-log.mjs');
-  const now = Date.now();
-  const output = await stopClaudeTurnForHandoff({ payload, now });
-  if (!output) process.exit(0);
-  logDecision({
-    ts: new Date(now).toISOString(),
-    phase: 'pre-tool-use-stop',
-    session_id: sessionId,
-    tool_name: payload.tool_name ?? null,
-  });
-  process.stdout.write(`${JSON.stringify(output)}\n`);
+  // 作業中の後継へ、置き場で待っている入力を、次の道具の前に文脈として渡す。道具は止めない。
+  if (hasInbox) {
+    const { takeClaudeForwardsAsContext } = await import('./claude-forward.mjs');
+    const taken = takeClaudeForwardsAsContext({ sessionId, via: 'pre-tool-use' });
+    if (taken) {
+      const output = { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: taken.text } };
+      await new Promise(resolve => process.stdout.write(`${JSON.stringify(output)}\n`, resolve));
+      taken.done();
+    }
+  }
   process.exit(0);
 }
 

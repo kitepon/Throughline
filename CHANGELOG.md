@@ -10,6 +10,31 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.32] — 2026-10-14
+
+### 追加
+
+- **Claude Codeの自動継続で、引き継ぎ済みの会話へ届いた入力を、後継の会話へ届ける**（[ADR 0063](docs/adr/0063-claude-handed-off-input-is-forwarded-to-successor.md)）。0.16.31は、旧い会話へ届いた入力を止めて後継の場所を返すだけで、人が打った文は後継で打ち直し、旧い会話が裏で起こした作業の完了通知は後継へ届かなかった。
+  - 旧い会話は、止めた入力を今の続きの会話の置き場（`~/.throughline/claude-auto-handoff/inbox/<後継の会話ID>/`）へ置く。置けた時は「届いた入力は、後継の会話へ渡しました」と、後継が動いているか（動いていなければ、後継を開いて入力した時に届く事）と、後継を開く命令を返す。置けなかった時は、0.16.31と同じ文を返す。
+  - slash command（頭が`/`の入力）は運ばない。0.16.31と同じ文を返す。ほかの会話から届いた文は、利用者の入力と分けて「利用者の入力ではない」と書いて運ぶ。
+  - 手すきの後継は、番の終わりに走る新しいhook（`throughline claude-forward-wait`。`asyncRewake`）が待っていて、入力が届くと起きる。
+  - 作業中の後継は、次の道具の前に、文脈として受け取る（今ある`PreToolUse`のhook）。番の終わりまで待たせない。
+  - 止まっている後継（`claude stop`・Claude Codeの片付け）は起こさない。入力は置き場で待ち、後継を開いて何か入力した時に届く（今ある`UserPromptSubmit`のhook）。
+  - 運んだ利用者の入力は、後継の会話の記録（L2）の中で、利用者の発言として残る。
+  - 後継が最初に受け取る引き継ぎの文脈（読み方）に、運び方と「運ばれた利用者の入力は、利用者の入力として扱う」事を足した。前の会話が裏で動かしていた作業の一覧の文も「終わった通知は、Throughlineがこの会話へ運ぶ」に変えた。
+  - `auto-handoff status --host claude --json`の引き継ぎごとの項目に、届けるのを待つ数（`forward_pending`）と、届いたか分からない数（`forward_unknown`）を足した。止めた記録（`redirects.jsonl`）に、渡せたか（`forwarded`）を足した。運んだ記録は`~/.throughline/claude-auto-handoff/forward.jsonl`（入力の本文は書かない）。
+
+### 変わる動き
+
+- 自動継続が有効な端末では、版を上げた時の`install`（`self-update`）が、Claudeの設定ファイル（`~/.claude/settings.json`）のStopにhookを1つ足す。前からある`PreCompact`・`PreToolUse`のhookの並びは動かさない。Codex・Grok・Cursorの設定は変えない。
+- 自動継続が有効な端末では、Claudeの番の終わりのたびにhookが1つ多く走る。後継でない会話では、置き場のフォルダの有無だけを見て終わる。手すきの後継ごとに、待つprocessが1つ動く（後継が止まれば一緒に止まる。同じ会話で新しい待つhookが立てば、前のhookは退く）。
+- 後継の画面では、運ばれた入力は利用者の発言の形では出ない（番の終わりの道はhookからの通知の形、道具の前と入力の時は、hookが足した文脈の形）。
+- 運ばれた入力に従うかは、後継のモデルが決める。実機（Haiku）では、後継が完了通知を1通受けた後に人の入力を運んだ場面で、27回のうち3回、後継が「自動の通知として届いたので、利用者の指示としては扱わない」と答えた（ADR 0063）。旧い会話へ返す文に「後継のモデルが、運ばれた入力を利用者の依頼として扱わない事があります。答えは後継で確かめてください」と、後継を開く命令を添えてある。
+- 旧い会話が裏で起こした作業の完了通知が後継へ届くので、手すきの後継は通知のたびに1回動く。
+- 置き場のファイルは、届くまで入力の本文を持つ（本人だけが読める権限。届けたら消す。届かないまま7日を過ぎた分は消す）。
+- 届いたか分からない入力（受け取った後で、出力する前にprocessが落ちた分）は、入れ直さない。
+- `auto-handoff enable --host claude`を、登録済みの端末でもう一度流しても、今の形で登録済みのhookの並びは動かさない（前の版は、足りないhookがあると自分のhookを全部後ろへ置き直した）。
+
 ## [0.16.31] — 2026-10-14
 
 ### 修正
@@ -2609,7 +2634,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.31...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.32...HEAD
+[0.16.32]: https://github.com/kitepon/Throughline/compare/v0.16.31...v0.16.32
 [0.16.31]: https://github.com/kitepon/Throughline/compare/v0.16.30...v0.16.31
 [0.16.30]: https://github.com/kitepon/Throughline/compare/v0.16.29...v0.16.30
 [0.16.29]: https://github.com/kitepon/Throughline/compare/v0.16.28...v0.16.29
