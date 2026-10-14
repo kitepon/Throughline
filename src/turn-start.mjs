@@ -40,7 +40,11 @@ export function classifyTurnStart(entry, text) {
   // Claude Code: {type:"user", origin:{kind}, message:{...}}
   if (entry.type === 'user' && entry.message && typeof entry.message === 'object') {
     const kind = entry.origin?.kind;
-    return Object.hasOwn(CLAUDE_ORIGIN_KINDS, kind) ? CLAUDE_ORIGIN_KINDS[kind] : TURN_START_UNKNOWN;
+    if (Object.hasOwn(CLAUDE_ORIGIN_KINDS, kind)) return CLAUDE_ORIGIN_KINDS[kind];
+    // 予定（cron）が起こしたターン。予定は会話が自分で置いた物なので self (ADR 0065)。
+    return entry.turnOrigin === 'scheduled' || typeof entry.scheduledTaskId === 'string'
+      ? TURN_START_SELF
+      : TURN_START_UNKNOWN;
   }
 
   // Grok chat_history: {type:"user", content, prompt_index?, synthetic_reason?}

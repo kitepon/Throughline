@@ -51,7 +51,18 @@ export function isClaudeHostWrittenMetaEntry(entry) {
   return entry?.type === 'user'
     && entry.message !== null && typeof entry.message === 'object'
     && entry.isMeta === true
-    && typeof entry.origin?.kind !== 'string';
+    && typeof entry.origin?.kind !== 'string'
+    && !isClaudeScheduledTaskPromptEntry(entry);
+}
+
+/**
+ * Claude Code の予定（cron）が起こしたターンの依頼の行か（ADR 0065）。`isMeta: true` だが、
+ * 予定へ書いた依頼の文で、ターンの始まり。`turnOrigin: "scheduled"` と `scheduledTaskId` を持つ。
+ * @param {object} entry
+ */
+export function isClaudeScheduledTaskPromptEntry(entry) {
+  return entry?.type === 'user'
+    && (entry.turnOrigin === 'scheduled' || typeof entry.scheduledTaskId === 'string');
 }
 
 /** ターンの始まりにも本文にもしない user 行か。圧縮の要約（ADR 0032）と、host が書いた meta の行（ADR 0060）。 */

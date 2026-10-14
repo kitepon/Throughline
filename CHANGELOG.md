@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.34] — 2026-10-15
+
+### 修正
+
+- **Claude Codeで、予定（`CronCreate`）が起こしたターンの後、その会話のStopのhookが毎回失敗していた**（[ADR 0065](docs/adr/0065-claude-scheduled-task-turn-and-stored-receipt-number.md)）。予定の依頼の行は`isMeta: true`で書かれ、0.16.29（ADR 0060）からClaude Codeが自分で書く行として読み飛ばしていた。予定が起こしたターンの回答が前のターンへ足され、保存済みのターンの番号が動いて、受領を出す所で`completed pair was not captured before receipt publication`になった。
+  - `turnOrigin: "scheduled"`か`scheduledTaskId`を持つuser行を、ターンの始まりにする。始まり方は`self`。
+  - 保存済みのターンの受領は、bodiesにある番号で出す。群へ後から断片が足されても失敗しない。
+  - 0.16.33までで止まった会話は、この版の最初のStopで、抜けていたターンが入って直る。失敗していた間のターンの道具の入出力（L3）は戻らない。
+
 ## [0.16.33] — 2026-10-14
 
 ### 追加
@@ -2655,7 +2664,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.33...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.34...HEAD
+[0.16.34]: https://github.com/kitepon/Throughline/compare/v0.16.33...v0.16.34
 [0.16.33]: https://github.com/kitepon/Throughline/compare/v0.16.32...v0.16.33
 [0.16.32]: https://github.com/kitepon/Throughline/compare/v0.16.31...v0.16.32
 [0.16.31]: https://github.com/kitepon/Throughline/compare/v0.16.30...v0.16.31

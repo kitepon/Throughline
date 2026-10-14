@@ -543,6 +543,45 @@ test('backfillBodies: meta の行で区切っていた頃に保存したター�
   ]);
 });
 
+// --- ADR 0065: 予定（cron）が起こしたターンと、保存の後に断片が増えた群の受領の番号 ---
+
+test('backfillBodies: 予定が起こしたターンは、前のターンへ足さず、新しいターンとして入れる', () => {
+  const human = (text) => entry('user', text, undefined, { origin: { kind: 'human' } });
+  const scheduled = {
+    type: 'user', isMeta: true, promptId: 'p-cron', turnOrigin: 'scheduled', scheduledTaskId: '5ab219dd',
+    promptSource: 'system', message: { role: 'user', content: '子の答えを見て、指揮官へ知らせる' },
+  };
+  const fire = { type: 'system', subtype: 'scheduled_task_fire', content: 'Running scheduled task', prompt: '子の答えを見て' };
+  const db = makeDb();
+  const run = (entries) => withData(entries, (path) =>
+    backfillBodies(db, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 }));
+
+  const first = [human('待ってればいいの？'), entry('assistant', 'はい、待っていて')];
+  assert.deepEqual(run(first), { groups: 1, insertedTurns: 1, skippedExisting: 0, lastTurnNumber: 1, turnNumbers: [1] });
+
+  const result = run([...first, fire, scheduled, entry('assistant', 'Idle になった'), entry('assistant', '結果を送った')]);
+  assert.deepEqual(result, { groups: 2, insertedTurns: 1, skippedExisting: 1, lastTurnNumber: 4, turnNumbers: [1, 4] });
+  assert.deepEqual(db.prepare('SELECT turn_number, role, text, turn_start FROM bodies ORDER BY turn_number, role DESC').all().map((r) => ({ ...r })), [
+    { turn_number: 1, role: 'user', text: '待ってればいいの？', turn_start: 'prompt' },
+    { turn_number: 1, role: 'assistant', text: 'はい、待っていて', turn_start: null },
+    { turn_number: 4, role: 'user', text: '子の答えを見て、指揮官へ知らせる', turn_start: 'self' },
+    { turn_number: 4, role: 'assistant', text: '結果を送った', turn_start: null },
+  ]);
+});
+
+test('backfillBodies: 保存の後に断片が増えた群は、保存した番号を受領の番号に返す', () => {
+  const meta = { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'skill の本文' }] } };
+  const db = makeDb();
+  const run = (entries) => withData(entries, (path) =>
+    backfillBodies(db, { targetSessionId: 'target', originSessionId: 'origin', transcriptPath: path, now: 999 }));
+
+  const first = [entry('user', '依頼', undefined, { origin: { kind: 'human' } }), entry('assistant', '途中の報告')];
+  run(first);
+  // 群の代表は 3 へ移るが、bodies にあるのは 1。3 を返すと、受領を出す所で「completed pair was not captured」になる。
+  assert.deepEqual(run([...first, meta, entry('assistant', '最終回答')]),
+    { groups: 1, insertedTurns: 0, skippedExisting: 1, lastTurnNumber: 1, turnNumbers: [1] });
+});
+
 function pick(result) {
   return { groups: result.groups, insertedTurns: result.insertedTurns, skippedExisting: result.skippedExisting };
 }

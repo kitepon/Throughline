@@ -185,14 +185,19 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
 
   let insertedTurns = 0;
   let skippedExisting = 0;
+  const turnNumbers = [];
 
   db.exec('BEGIN');
   try {
     for (const g of groups) {
       // 群のいずれかの断片 index が既に bodies にある = 部分捕捉済み群。
       // 代表差し替えは重複ペアを生むので回収しない (refuter 修正1)。
-      if (g.fragments.some((f) => existing.has(f.index))) {
+      // 受領は行が実際にある番号で出す。保存の後に群へ断片が増えると代表の番号は bodies に無く、
+      // その番号で受領を出すと、この会話の Stop が毎回失敗する (ADR 0065)。
+      const stored = g.fragments.findLast((f) => existing.has(f.index));
+      if (stored) {
         skippedExisting++;
+        turnNumbers.push(stored.index);
         continue;
       }
       const turnNumber = g.representative.index;
@@ -220,6 +225,7 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
         null,
       );
       insertedTurns++;
+      turnNumbers.push(turnNumber);
     }
     db.exec('COMMIT');
   } catch (err) {
@@ -231,8 +237,8 @@ export function backfillBodies(db, { targetSessionId, originSessionId, transcrip
     groups: groups.length,
     insertedTurns,
     skippedExisting,
-    lastTurnNumber: groups[groups.length - 1].representative.index,
-    turnNumbers: groups.map((group) => group.representative.index),
+    lastTurnNumber: turnNumbers.at(-1),
+    turnNumbers,
   };
 }
 
