@@ -22,7 +22,7 @@ Claude Code 2.1.296 で、次を実機で確かめた（Linux・macOS・Windows 
 | 同（作業中） | `state: working`・`status: busy`・`pid` がある |
 | 同（手すきの時に `claude stop` で止めた） | `state: done`。`status` と `pid` の鍵が無い |
 | 同（作業の途中で `claude stop` で止めた） | `state: stopped`。`status` と `pid` の鍵が無い |
-| 同（Claude Code が 61 分で片付けた） | `state: done`。`pid` の鍵が無い（Linux。macOS・Windows は公開の後に読む） |
+| 同（Claude Code が 61 分で片付けた） | `state: done`。`status` と `pid` の鍵が無い（3つとも。macOS・Windows は公開の後に読んだ） |
 | 同（コンテナごと止められた） | `state: done`。`status` と `pid` の鍵が無い（Linux） |
 | 同（`claude rm` で消した） | 一覧に出ない。transcript は残る。立てた時の option の控え（`~/.claude/jobs/<頭8字>/state.json`）は消える |
 | 同（止めた裏の会話を、端末の `claude --resume` で開いている・`claude -p --resume` が走っている） | 裏の項目（`pid` なし）とは別に、同じ会話 ID の `kind: interactive` の項目が `pid`・`status` 付きで出る |
@@ -103,11 +103,11 @@ Claude Code 2.1.296 で、次を実機で確かめた（Linux・macOS・Windows 
 - 直した版を、本物の Claude Code 2.1.296 の裏の会話（Haiku）へ通した。Linux・macOS・Windows の3つ。利用者の設定の hook を
   外し、直した版を切り離した HOME で呼ぶ hook だけを付けた（直した版が流す `claude` は、HOME を本物へ戻す shim を通した）。
   結果は CHANGELOG と保守の記録に書く。
+- 公開の後に、61 分で片付けられた裏の会話（3つの OS）へ option なしの起こす命令を流した。3つとも同じ会話・同じ名前のまま起き、
+  文が利用者の行として入ってモデルが答え、置き場の完了通知が文脈として届き、番の終わりに待つ hook が立った（0.7〜1.3 秒）。
 - 確かめていない:
   - Claude Desktop の画面とリモートコントロール（スマホ）で、起きた後継がどう見えるか。リモートコントロール付きで立てた
     後継が、起きた後もリモートコントロール付きか（立てた時の option の控えには入る）。
   - Windows で `claude` が単体の `claude.exe` の時の、文の渡り方（確かめた fox の `claude` は npm の shim で、Throughline は
     `claude.ps1` を PowerShell から呼ぶ。記号と改行を含む文は、この道でそのまま届いた）。
-  - 61 分で片付けられた会話へ起こす命令を流した時の動き。一覧の形は Linux で `state: done`・`pid` なし（止めた会話と同じ形）と
-    見たので、同じに起きる見込み。macOS・Windows の一覧の形も含めて、3つの OS で公開の後に読む。
   - 本物の自動継続の後継での実地（入れた後の追跡で、`forward.jsonl` の `woken` を読む）。
