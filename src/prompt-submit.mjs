@@ -178,6 +178,7 @@ export async function run() {
         successor_short_id: redirect.successorShortId,
         input_kind: redirect.kind,
         forwarded: redirect.forwarded,
+        ...(redirect.wake ? { wake: redirect.wake } : {}),
       });
       process.stdout.write(`${JSON.stringify(redirect.output)}\n`);
       process.exit(0);

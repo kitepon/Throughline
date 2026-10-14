@@ -8,6 +8,7 @@
  *   ~/.throughline/claude-auto-handoff/inbox/<後継の会話 ID>/claimed/…            受け取った所が出力するまでの置き場
  *   ~/.throughline/claude-auto-handoff/inbox/<後継の会話 ID>/full/…               長すぎる入力の全文
  *   ~/.throughline/claude-auto-handoff/inbox/<後継の会話 ID>/waiter                今、待つ番の hook の印
+ *   ~/.throughline/claude-auto-handoff/inbox/<後継の会話 ID>/waking                止まっている後継を起こしている所の印 (ADR 0064)
  *   ~/.throughline/claude-auto-handoff/forward.jsonl                              運んだ記録（本文は書かない）
  *
  * 届いたか分からない入力は入れ直さない。受け取る所は、ファイルを `claimed` へ改名してから出力し、出力した後で消す。
@@ -79,19 +80,75 @@ export function logClaudeForward(entry, dir = defaultDir()) {
  * 旧い会話が止めた入力を、後継の置き場へ置く。
  * @returns {boolean} 置けたか
  */
-export function enqueueClaudeForward({ successorSessionId, sourceSessionId, handoffId, kind, text, now = Date.now(), dir = defaultDir() }) {
+export function enqueueClaudeForward(input) {
+  return writeClaudeForward(input) !== null;
+}
+
+/** 入力を1ファイルに書く。`claimed` が真なら、受け取り済みの置き場へ書く。書いたファイルの名前と場所を返す。 */
+function writeClaudeForward({ successorSessionId, sourceSessionId, handoffId, kind, text, now = Date.now(), dir = defaultDir(), claimed = false }) {
   const inbox = claudeForwardInboxDir(successorSessionId, dir);
-  if (!inbox || typeof text !== 'string' || !text.trim()) return false;
+  if (!inbox || typeof text !== 'string' || !text.trim()) return null;
   try {
-    mkdirSync(inbox, { recursive: true, mode: 0o700 });
+    const folder = claimed ? join(inbox, 'claimed') : inbox;
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
     const name = `${String(now).padStart(13, '0')}-${randomUUID().slice(0, 8)}.json`;
-    const temporary = join(inbox, `${name}.tmp`);
+    const path = join(folder, claimed ? `${name}.${process.pid}` : name);
+    const temporary = join(folder, `${name}.tmp`);
     writeFileSync(temporary, JSON.stringify({ schema: 'throughline.claude-forward.v1', at: now,
       source_session_id: sourceSessionId ?? null, handoff_id: handoffId ?? null,
       kind: KINDS.includes(kind) ? kind : 'prompt', text }) + '\n', { mode: 0o600, flag: 'wx' });
-    renameSync(temporary, join(inbox, name));
-    return true;
-  } catch { return false; }
+    renameSync(temporary, path);
+    return { inbox, name, path };
+  } catch { return null; }
+}
+
+/**
+ * 止まっている後継を起こす命令で直接渡す入力を、受け取り済み（`claimed`）として置く (ADR 0064)。置き場の入力として
+ * 待たせると、起きた後継の hook が同じ文を文脈としてもう1回渡すため。起こす命令が終わったら、届いた時は `settle()`、
+ * 届かなかったと確かめられた時は `release()`（置き場へ戻す）を呼ぶ。どちらも呼ばなければ、届いたか分からない入力として
+ * `claimed` に残る（入れ直さない）。
+ *
+ * @returns {{settle: () => void, release: () => boolean}|null} 書けなかった時は null
+ */
+export function holdClaudeForward(input) {
+  const written = writeClaudeForward({ ...input, claimed: true });
+  if (!written) return null;
+  return {
+    settle: () => rmSync(written.path, { force: true }),
+    release: () => {
+      try { renameSync(written.path, join(written.inbox, written.name)); return true; }
+      catch { return false; }
+    },
+  };
+}
+
+const WAKE_CLAIM_TTL_MS = 60_000;
+
+/**
+ * 止まっている後継を起こす番を取る (ADR 0064)。起こす命令を同時に2つ流すと、どちらも「起こした」と返るのに、
+ * 後継へ届くのは1通だけになる（Claude Code 2.1.296 の実測）。番を取れなかった入力は、置き場で待たせる。
+ * 起こせた後も印は消さず、60 秒の間は次の入力で起こさない（起きたばかりの後継は、一覧でまだ止まって見える事がある）。
+ *
+ * @returns {(() => void)|null} 番を返す関数。取れなかった時は null
+ */
+export function acquireClaudeWakeClaim(sessionId, { dir = defaultDir(), now = Date.now() } = {}) {
+  const inbox = claudeForwardInboxDir(sessionId, dir);
+  if (!inbox) return null;
+  const path = join(inbox, 'waking');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      mkdirSync(inbox, { recursive: true, mode: 0o700 });
+      writeFileSync(path, `${process.pid}-${now}`, { mode: 0o600, flag: 'wx' });
+      return () => rmSync(path, { force: true });
+    } catch (error) {
+      if (error.code !== 'EEXIST') return null;
+      try {
+        if (now - statSync(path).mtimeMs <= WAKE_CLAIM_TTL_MS) return null;
+        rmSync(path, { force: true }); // 期限を過ぎた印
+      } catch { /* 別の hook が消した */ }
+    }
+  }
+  return null;
 }
 
 function pendingNames(inbox) {
@@ -287,7 +344,7 @@ export function removeStaleClaudeForwards({ dir = defaultDir(), now = Date.now()
       try { names = readdirSync(join(inbox, sub)); }
       catch { continue; }
       for (const name of names) {
-        if (sub === '' && (name === 'claimed' || name === 'full' || name === 'waiter')) continue;
+        if (sub === '' && (name === 'claimed' || name === 'full' || name === 'waiter' || name === 'waking')) continue;
         const path = join(inbox, sub, name);
         try {
           if (now - statSync(path).mtimeMs > PENDING_TTL_MS) { rmSync(path, { force: true }); if (sub !== 'full') dropped++; }

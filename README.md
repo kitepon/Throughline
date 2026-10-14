@@ -84,7 +84,7 @@ throughline auto-handoff successor --host claude --thread <claude-session-id> --
 
 後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
 
-引き継いだ後の旧い会話へ入力が届いた時は、モデルを動かさずに止めて、後継の会話へ届けます（[ADR 0062](docs/adr/0062-claude-handed-off-conversation-blocks-input.md)、[ADR 0063](docs/adr/0063-claude-handed-off-input-is-forwarded-to-successor.md)）。旧い会話へ打った文と、旧い会話が裏で起こした作業の完了通知が対象です。打った人には「届いた入力は、後継の会話へ渡しました」と後継を開く命令が返ります。手すきの後継はすぐ動き、作業中の後継は次の道具の前に読みます。後継が止まっている時は起こさず、後継を開いて何か入力した時に届きます。後継の画面では、運ばれた入力は利用者の発言の形ではなく、フックからの通知か文脈の形で出ます。届くまでの間、入力の本文は`~/.throughline/claude-auto-handoff/inbox/`に置かれます（本人だけが読める権限。届けたら消します）。
+引き継いだ後の旧い会話へ入力が届いた時は、モデルを動かさずに止めて、後継の会話へ届けます（[ADR 0062](docs/adr/0062-claude-handed-off-conversation-blocks-input.md)、[ADR 0063](docs/adr/0063-claude-handed-off-input-is-forwarded-to-successor.md)）。旧い会話へ打った文と、旧い会話が裏で起こした作業の完了通知が対象です。打った人には「届いた入力は、後継の会話へ渡しました」と後継を開く命令が返ります。手すきの後継はすぐ動き、作業中の後継は次の道具の前に読みます。後継が止まっている時（`claude stop`・Claude Codeの片付け）は、旧い会話へ人が打った文の時だけ、後継を起こしてその文を最初の入力として渡します（[ADR 0064](docs/adr/0064-claude-stopped-successor-is-woken-by-human-input.md)）。止まっていると確かめられない時と、完了通知の時は起こさず、後継を開いて何か入力した時に届きます。後継の画面では、運ばれた入力は利用者の発言の形ではなく、フックからの通知か文脈の形で出ます。届くまでの間、入力の本文は`~/.throughline/claude-auto-handoff/inbox/`に置かれます（本人だけが読める権限。届けたら消します）。
 
 有効にした端末では、Claudeの道具の呼び出しのたびに`PreToolUse`フックが1回、番の終わりのたびに`Stop`フックが1回多く走ります（後継でない会話では、すぐ終わります）。Linux・macOS・Windowsの端末から始めた会話と、macOSのClaude Desktopの画面から始めた会話を実機確認済みです。Desktopでは、移動済みの会話の最初の後継への記憶注入と、最初からフォルダを選んだ会話の連続継承・作業完了を確認しました。[実測と検証範囲](https://github.com/kitepon/Throughline/blob/main/evidence/2026-10-05-claude-auto-handoff.md)を参照してください。
 

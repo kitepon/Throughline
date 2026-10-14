@@ -13,8 +13,10 @@ import {
   claudeForwardWaiterAlive,
   registerClaudeForwardWaiter,
   claudeForwardInboxDir,
+  acquireClaudeWakeClaim,
   enqueueClaudeForward,
   ensureClaudeForwardInbox,
+  holdClaudeForward,
   hasPendingClaudeForwards,
   moveClaudeForwards,
   readClaudeForwardStatus,
@@ -24,7 +26,7 @@ import {
   unwrapClaudeForwardedDelivery,
 } from './claude-forward.mjs';
 import { waitForClaudeForwards } from './claude-forward-wait.mjs';
-import { acceptClaudeAutoContinuation, publicClaudeAutoHandoff, redirectClaudeHandedOffPrompt } from './claude-auto-handoff.mjs';
+import { CLAUDE_WAKE_TEXT_MAX_CHARS, acceptClaudeAutoContinuation, publicClaudeAutoHandoff, readClaudeSessionStopped, redirectClaudeHandedOffPrompt } from './claude-auto-handoff.mjs';
 import { MID_TURN_INPUT_MARK, readTranscript } from './transcript-reader.mjs';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -32,6 +34,11 @@ const CLI = join(REPO_ROOT, 'bin', 'throughline.mjs');
 const OLD = 'aaaaaaaa-0000-4000-8000-000000000041';
 const NEXT = 'bbbbbbbb-0000-4000-8000-000000000042';
 const LAST = 'cccccccc-0000-4000-8000-000000000043';
+
+// 一覧を読めない `claude`（試験では本物の claude を呼ばない）
+const NO_CLAUDE = () => ({ error: Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }) });
+// 後継の transcript を、止まってしばらく経った物にする（書かれたばかりの transcript の後継は、動いていると見なす）
+const settled = path => { const past = new Date(Date.now() - 60_000); utimesSync(path, past, past); };
 
 function withDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'tl-claude-forward-'));
@@ -201,9 +208,10 @@ test('旧い会話の側: 止めた入力を今の続きの会話の置き場へ
   const record = (id, fields) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2',
     handoff_id: `h-${id.slice(0, 8)}`, source_session_id: id, project_path: '/work/app', transcript_path: join(projects, `${id}.jsonl`),
     requested_at: 1_000, updated_at: 2_000, error_code: null, state: 'sent', ...fields }));
-  const submit = (id, prompt) => redirectClaudeHandedOffPrompt({ payload: { session_id: id, prompt }, now: 1_760_000_000_000, dir, env: {} });
+  const submit = (id, prompt) => redirectClaudeHandedOffPrompt({ payload: { session_id: id, prompt }, now: 1_760_000_000_000, dir, env: {}, spawn: NO_CLAUDE });
   record(OLD, { successor: { short_id: 'bbbbbbbb', session_id: NEXT } });
   writeFileSync(join(projects, `${NEXT}.jsonl`), '');
+  settled(join(projects, `${NEXT}.jsonl`));
 
   const human = submit(OLD, '旧い会話へ打った文');
   assert.equal(human.forwarded, true);
@@ -222,6 +230,7 @@ test('旧い会話の側: 止めた入力を今の続きの会話の置き場へ
   // 後継がさらに引き継がれている時は、その先の置き場へ置く
   record(NEXT, { state: 'unknown', successor: { short_id: 'cccccccc', session_id: null } });
   writeFileSync(join(projects, `${LAST}.jsonl`), '');
+  settled(join(projects, `${LAST}.jsonl`));
   assert.equal(submit(OLD, '後継の先へ届く文').forwarded, true);
   assert.deepEqual(readClaudeForwardStatus(NEXT, { dir }).pending, 2);
   assert.match(claimClaudeForwards({ sessionId: LAST, dir }).text, /引き継ぎ前の会話（aaaaaaaa）.*\n後継の先へ届く文$/s);
@@ -350,4 +359,178 @@ test('公開CLI: pre-tool-use は、後継の置き場で待っている入力�
   assert.match(output.hookSpecificOutput.additionalContext, /^【Throughline 転送】.*\n作業中の後継へ届く依頼$/s);
   assert.equal(tool(NEXT).stdout, '', '同じ入力を2回は届けない');
   assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false);
+}));
+
+// ---- 止まっている後継を、人の入力で起こして届ける (ADR 0064) ----
+
+test('置き場: 起こす命令で渡す入力は受け取り済みとして置き、届いたら消し、届かなかったら置き場へ戻す', () => withDir(dir => {
+  const held = holdClaudeForward({ successorSessionId: NEXT, sourceSessionId: OLD, handoffId: 'h-1', kind: 'prompt', text: '起こして渡す文', now: 1_000, dir });
+  assert.deepEqual(readClaudeForwardStatus(NEXT, { dir, now: 2_000 }), { pending: 0, unknown: 0 });
+  assert.equal(hasPendingClaudeForwards(NEXT, dir), false, '起きた後継の hook が、同じ文を文脈としてもう1回渡さない');
+  assert.equal(held.release(), true);
+  assert.match(claimClaudeForwards({ sessionId: NEXT, dir }).text, /\n起こして渡す文$/);
+  const done = holdClaudeForward({ successorSessionId: NEXT, sourceSessionId: OLD, handoffId: 'h-1', kind: 'prompt', text: '届いた文', now: 1_000, dir });
+  done.settle();
+  assert.deepEqual(readdirSync(join(claudeForwardInboxDir(NEXT, dir), 'claimed')).filter(name => name.includes('-')).length, 1, '前の claim の残りだけ');
+  assert.equal(holdClaudeForward({ successorSessionId: '../x', text: 'x', dir }), null);
+}));
+
+test('置き場: 起こす番は1つだけ。60 秒を過ぎた印は取り直せる。片付けは印を入力として数えない', () => withDir(dir => {
+  const release = acquireClaudeWakeClaim(NEXT, { dir, now: Date.now() });
+  assert.equal(typeof release, 'function');
+  assert.equal(acquireClaudeWakeClaim(NEXT, { dir, now: Date.now() }), null, '起こしている間は、次の入力で起こさない');
+  release();
+  const again = acquireClaudeWakeClaim(NEXT, { dir, now: Date.now() });
+  assert.equal(typeof again, 'function');
+  const mark = join(claudeForwardInboxDir(NEXT, dir), 'waking');
+  const past = new Date(Date.now() - 61_000); utimesSync(mark, past, past);
+  assert.equal(typeof acquireClaudeWakeClaim(NEXT, { dir, now: Date.now() }), 'function', '期限を過ぎた印');
+  utimesSync(mark, new Date(0), new Date(0));
+  removeStaleClaudeForwards({ dir, now: Date.now(), keepSessionIds: new Set([NEXT]) });
+  assert.equal(existsSync(join(dir, 'forward.jsonl')), false, '印は期限切れの入力として数えない');
+  assert.equal(acquireClaudeWakeClaim('../x', { dir }), null);
+}));
+
+test('一覧の読み方: 裏の項目に pid も status も無く、state が done か stopped の時だけ止まっていると読む', () => {
+  const read = (entries, extra = {}) => readClaudeSessionStopped(NEXT, { spawn: () => ({ status: 0, stdout: JSON.stringify(entries), ...extra }) });
+  const bg = fields => ({ id: 'bbbbbbbb', kind: 'background', sessionId: NEXT, name: 'n', cwd: '/w', startedAt: 1, ...fields });
+  assert.deepEqual(read([bg({ state: 'done' })]), { stopped: true, reason: 'stopped' }, '手すきで止めた・片付けられた');
+  assert.deepEqual(read([bg({ state: 'stopped' })]), { stopped: true, reason: 'stopped' }, '作業の途中で止めた');
+  assert.equal(read([bg({ state: 'done', pid: 10, status: 'idle' })]).reason, 'running', '手すきで動いている');
+  assert.equal(read([bg({ state: 'working', pid: 10, status: 'busy' })]).reason, 'running', '作業中');
+  assert.equal(read([bg({ state: 'done' }), { kind: 'interactive', sessionId: NEXT, pid: 11, status: 'idle', name: 'n' }]).reason, 'running', '端末で開いている・claude -p --resume が走っている');
+  assert.equal(read([bg({ state: 'working' })]).reason, 'not_stopped', '立ち上げ中（pid がまだ無い）');
+  assert.equal(read([bg({ state: 'failed' })]).reason, 'not_stopped');
+  assert.equal(read([{ ...bg({ state: 'done' }), sessionId: LAST }]).reason, 'not_listed', 'claude rm で一覧から消した');
+  assert.equal(read([{ kind: 'interactive', sessionId: NEXT, name: 'n' }]).reason, 'not_background');
+  assert.equal(read([], { status: 1 }).reason, 'list_failed');
+  assert.equal(read(null, { stdout: 'not json' }).reason, 'list_failed');
+  assert.equal(readClaudeSessionStopped(NEXT, { spawn: NO_CLAUDE }).reason, 'list_failed');
+});
+
+test('旧い会話の側: 人が打った文で、後継が止まっていれば、後継を起こしてその文を最初の入力として渡す', () => withDir(dir => {
+  const projects = join(dir, 'claude', 'projects', '-work-app');
+  const project = join(dir, 'app');
+  mkdirSync(projects, { recursive: true }); mkdirSync(project);
+  writeFileSync(join(dir, `${OLD}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: 'h-aaaaaaaa',
+    source_session_id: OLD, project_path: project, transcript_path: join(projects, `${OLD}.jsonl`), requested_at: 1_000, updated_at: 2_000,
+    error_code: null, state: 'sent', successor: { short_id: 'bbbbbbbb', session_id: NEXT } }));
+  const transcript = join(projects, `${NEXT}.jsonl`);
+  writeFileSync(transcript, ''); settled(transcript);
+  const bg = fields => ({ id: 'bbbbbbbb', kind: 'background', sessionId: NEXT, name: 'n', cwd: project, startedAt: 1, ...fields });
+  let listing = [bg({ state: 'done' })];
+  let woke = { status: 0, stdout: 'backgrounded · bbbbbbbb · n\n  claude attach bbbbbbbb    open in this terminal\nnote: woke session bbbbbbbb with its saved options (--name, --model).\n' };
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ args, cwd: options.cwd, env: options.env });
+    if (args[0] === 'agents') return { status: 0, stdout: JSON.stringify(listing) };
+    if (args[0] === '--bg') return typeof woke === 'function' ? woke() : woke;
+    return { status: 0, stdout: `${args[0]}ped` };
+  };
+  const env = { CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_SESSION_ID: OLD, PATH: '/bin' };
+  const submit = (prompt, extraEnv = {}) => redirectClaudeHandedOffPrompt({ payload: { session_id: OLD, prompt }, now: Date.now(), dir, env: { ...env, ...extraEnv }, spawn });
+  const inbox = claudeForwardInboxDir(NEXT, dir);
+  const pending = () => readClaudeForwardStatus(NEXT, { dir }).pending;
+  const claimed = () => { try { return readdirSync(join(inbox, 'claimed')).length; } catch { return 0; } };
+  const events = () => readFileSync(join(dir, 'forward.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const freeClaim = () => rmSync(join(inbox, 'waking'), { force: true });
+  const open = `claude attach bbbbbbbb（一覧に無い時は claude --resume ${NEXT}）`;
+
+  // 1) 止まっている後継: 起こして、文をそのまま渡す。option は付けず、文は -- の後。会話ごとの環境変数は渡さない
+  const text = '-v を付けて、もう一度ビルドして\n2行目';
+  const woken = submit(text);
+  assert.deepEqual([woken.wake, woken.forwarded], ['woken', true]);
+  assert.equal(woken.output.reason, 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。' +
+    `後継の会話が止まっていたので、Throughlineが起こして、この入力を後継の最初の入力として渡しました。後継は裏で作業を続けます: ${open}`);
+  assert.deepEqual(calls.map(call => call.args), [['agents', '--json', '--all'], ['--bg', '--resume', NEXT, '--', text]]);
+  assert.equal(calls[1].cwd, project);
+  assert.deepEqual(Object.keys(calls[1].env).filter(key => key.startsWith('CLAUDE')), [], '旧い会話の環境変数を後継へ渡さない');
+  assert.deepEqual([pending(), claimed()], [0, 0], '渡した文は置き場に残さない（起きた後継の hook が二重に渡さない）');
+  assert.deepEqual(events().at(-1), { at: events().at(-1).at, event: 'woken', session_id: NEXT, source_session_id: OLD, chars: text.length });
+  assert.equal(readFileSync(join(dir, 'forward.jsonl'), 'utf8').includes('ビルド'), false, '運んだ記録に本文は書かない');
+  assert.equal(JSON.parse(readFileSync(join(dir, 'redirects.jsonl'), 'utf8').trim().split('\n').at(-1)).wake, 'woken');
+
+  // 2) 起こした直後の次の入力: 番の印が残っているので起こさず、置き場へ置く
+  calls.length = 0;
+  const second = submit('続けてもう1つ');
+  assert.deepEqual([second.wake, second.forwarded, pending()], ['skipped', true, 1]);
+  assert.match(second.output.reason, /後継は、先に届いた入力で起きている所です。起きた後継が、次の道具の前か番の終わりに読みます。/);
+  assert.deepEqual(calls, [], '一覧も読まない');
+  freeClaim();
+
+  // 3) 動いている後継（手すき・作業中・端末で開いている）: 起こさず、置き場へ置いて「動いています」と返す
+  for (const entries of [[bg({ state: 'done', pid: 5, status: 'idle' })], [bg({ state: 'working', pid: 5, status: 'busy' })],
+    [bg({ state: 'done' }), { kind: 'interactive', sessionId: NEXT, pid: 6, status: 'idle', name: 'n' }]]) {
+    listing = entries; calls.length = 0;
+    const result = submit('動いている後継へ');
+    assert.deepEqual([result.wake, result.forwarded], ['skipped', true]);
+    assert.match(result.output.reason, /後継は動いています。/);
+    assert.deepEqual(calls.map(call => call.args[0]), ['agents'], '起こす命令は流さない');
+    assert.equal(existsSync(join(inbox, 'waking')), false, '起こさなかった時は番を返す');
+  }
+
+  // 4) 止まっていると確かめられない（一覧に無い・立ち上げ中・一覧を読めない）: 起こさず、0.16.32 と同じ文
+  for (const entries of [[], [bg({ state: 'working' })], 'unreadable']) {
+    listing = entries; calls.length = 0;
+    const result = submit('確かめられない後継へ');
+    assert.deepEqual([result.wake, result.forwarded], ['skipped', true]);
+    assert.match(result.output.reason, /後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。/);
+    assert.equal(calls.some(call => call.args[0] === '--bg'), false);
+  }
+
+  // 5) 写しが立った（確かめた後に後継が動き出した）: 写しを止めて一覧から消し、入力は置き場へ戻す
+  listing = [bg({ state: 'done' })]; calls.length = 0;
+  woke = { status: 0, stdout: 'backgrounded · 12345678\nnote: session bbbbbbbb is already running in the background, so this started a copy as 12345678.\n' };
+  const before = pending();
+  const copied = submit('写しが立つ入力');
+  assert.deepEqual([copied.wake, copied.forwarded, pending()], ['queued', true, before + 1]);
+  assert.deepEqual(calls.map(call => call.args), [['agents', '--json', '--all'], ['--bg', '--resume', NEXT, '--', '写しが立つ入力'], ['stop', '12345678'], ['rm', '12345678']]);
+  assert.match(copied.output.reason, /届いた入力は、後継の会話へ渡しました。後継は動いています。/);
+  assert.deepEqual([events().at(-1).event, events().at(-1).copy_short_id, events().at(-1).queued], ['wake-copy', '12345678', true]);
+
+  // 6) 起こす命令が失敗した: 置き場へ戻す
+  woke = { status: 1, stdout: '', stderr: 'Error: something went wrong\n' }; calls.length = 0;
+  const failed = submit('失敗する入力');
+  assert.deepEqual([failed.wake, failed.forwarded, pending()], ['queued', true, before + 2]);
+  assert.match(failed.output.reason, /後継は今、入力を待ち受けていません/);
+
+  // 7) 起きたか分からない（時間切れ）: 入れ直さない
+  woke = () => ({ error: Object.assign(new Error('spawnSync claude ETIMEDOUT'), { code: 'ETIMEDOUT' }) });
+  const unknown = submit('分からない入力');
+  assert.deepEqual([unknown.wake, unknown.forwarded, pending(), claimed()], ['unknown', false, before + 2, 1]);
+  assert.equal(unknown.output.reason, 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。' +
+    '後継の会話が止まっていたので起こそうとしましたが、起きて入力を受け取ったか確かめられませんでした。' +
+    `二重に届かないよう、この入力は入れ直していません。後継を開いて確かめてください: ${open}`);
+  assert.equal(events().at(-1).event, 'wake-unknown');
+  freeClaim();
+
+  // 8) 起こさない入力: 完了通知・ほかの会話からの文・長すぎる文・NUL を含む文・上書きで止めた時・書かれたばかりの transcript
+  woke = { status: 0, stdout: 'backgrounded · bbbbbbbb · n\n' }; calls.length = 0;
+  assert.equal(submit('<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>').wake, undefined);
+  assert.equal(submit('Another Claude session sent a message:\n確認をお願いします').wake, undefined);
+  assert.equal(submit('あ'.repeat(CLAUDE_WAKE_TEXT_MAX_CHARS + 1)).wake, 'skipped');
+  assert.equal(submit('NUL\0入り').wake, 'skipped');
+  assert.equal(submit('止めた時', { THROUGHLINE_AUTO_HANDOFF_WAKE: 'off' }).wake, 'skipped');
+  writeFileSync(transcript, '{}\n');
+  const fresh = submit('書かれたばかり');
+  assert.match(fresh.output.reason, /後継は動いています。/);
+  settled(transcript);
+  assert.deepEqual(calls, [], 'どれも一覧を読まず、起こす命令も流さない');
+  // Claude Desktop へ移した後継も起こさない
+  const record = JSON.parse(readFileSync(join(dir, `${OLD}.json`), 'utf8'));
+  writeFileSync(join(dir, `${OLD}.json`), JSON.stringify({ ...record, desktop: { wanted: true, state: 'opened' } }));
+  assert.equal(submit('Desktop へ移した後継').wake, 'skipped');
+  assert.deepEqual(calls, []);
+  writeFileSync(join(dir, `${OLD}.json`), JSON.stringify(record));
+
+  // 9) 後継がさらに引き継がれている時は、一番先の会話を起こす
+  writeFileSync(join(dir, `${NEXT}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: 'h-bbbbbbbb',
+    source_session_id: NEXT, project_path: project, transcript_path: transcript, requested_at: 1_000, updated_at: 2_000,
+    error_code: null, state: 'sent', successor: { short_id: 'cccccccc', session_id: LAST } }));
+  writeFileSync(join(projects, `${LAST}.jsonl`), ''); settled(join(projects, `${LAST}.jsonl`));
+  listing = [{ id: 'cccccccc', kind: 'background', sessionId: LAST, state: 'done', name: 'n', cwd: project, startedAt: 1 }];
+  woke = { status: 0, stdout: 'backgrounded · cccccccc · n\nnote: woke session cccccccc with its saved options (--name).\n' };
+  const chained = submit('一番先へ');
+  assert.equal(chained.wake, 'woken');
+  assert.deepEqual(calls.at(-1).args, ['--bg', '--resume', LAST, '--', '一番先へ']);
 }));

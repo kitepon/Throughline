@@ -10,6 +10,27 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.33] — 2026-10-14
+
+### 追加
+
+- **Claude Codeの自動継続で、後継の会話が止まっている時に旧い会話へ人が文を打ったら、後継を起こしてその文を最初の入力として渡す**（[ADR 0064](docs/adr/0064-claude-stopped-successor-is-woken-by-human-input.md)）。0.16.32は、止まっている後継（`claude stop`・Claude Codeの片付け）を起こさず、入力は後継を開いて何か入力した時に届いた。
+  - 起こすのは、人が打った文の時だけ。完了通知とほかの会話からの文では起こさない（今までどおり置き場で待つ）。
+  - 起こすのは、止まっていると確かめられた時だけ。後継で待つhookが生きていない、`claude agents --json --all`の後継の項目に`pid`・`status`を持つ物が無く裏の項目の`state`が`done`か`stopped`、後継のtranscriptが在って5秒より前に書かれた、Claude Desktopへ移した後継でない、後継に引き継ぎが進んでいない、文が12,000字以下。どれか1つでも確かめられなければ、0.16.32と同じに置き場で待つ。
+  - 起こす命令は`claude --bg --resume <後継の会話ID> -- <文>`。optionは付けない（裏の会話は立てた時のoptionを持っていて、optionなしの時だけ同じ会話のまま起きる。モデル・effort・権限のmode・名前はそのまま）。文は利用者の発言として後継へ入る。旧い会話の会話ごとの環境変数は渡さない。
+  - 起こす番は1つだけ（後継の置き場の印`waking`。起こせた後も60秒残す）。その間に届いた入力は、起きた後継のhookが受け取る。
+  - 写しが立った時（確かめた後に後継が動き出した）は、写しをすぐ`claude stop`・`claude rm`で止めて消し、文は置き場へ戻す。起こす命令が失敗した時も置き場へ戻す。起きたか分からない時は入れ直さない。
+  - 旧い会話へ返す文: 起きた時は「後継の会話が止まっていたので、Throughlineが起こして、この入力を後継の最初の入力として渡しました」。起こしている所・動いていた・確かめられなかった・分からない時は、それぞれの文と後継を開く命令。
+  - 運んだ記録（`forward.jsonl`）に`woken`・`wake-skipped`・`wake-copy`・`wake-failed`・`wake-unknown`、止めた記録（`redirects.jsonl`）と判定の記録に`wake`を足した。本文は書かない。
+  - `THROUGHLINE_AUTO_HANDOFF_WAKE=off`で起こさない（0.16.32の動き）。
+
+### 変わる動き
+
+- 旧い会話へ人が打った文のhookが、後継が止まって見える時だけ`claude agents`と起こす命令を流す分、1〜2.5秒長くなる。
+- 起きた後継は、Claude Codeが片付けるまで（手すきで61分）裏で動き、利用枠を使う。片付けられた後で旧い会話へ文を打つたびに、もう一度起きる。
+- `claude rm`で一覧から消した後継と、12,000字を超える文では起こさない。
+- 続けて打った2通めからは、起きた後継のhookの道（通知・文脈の形）で届く。その分は0.16.32と同じに、後継のモデルが従わない事がある。
+
 ## [0.16.32] — 2026-10-14
 
 ### 追加
@@ -2634,7 +2655,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.32...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.33...HEAD
+[0.16.33]: https://github.com/kitepon/Throughline/compare/v0.16.32...v0.16.33
 [0.16.32]: https://github.com/kitepon/Throughline/compare/v0.16.31...v0.16.32
 [0.16.31]: https://github.com/kitepon/Throughline/compare/v0.16.30...v0.16.31
 [0.16.30]: https://github.com/kitepon/Throughline/compare/v0.16.29...v0.16.30

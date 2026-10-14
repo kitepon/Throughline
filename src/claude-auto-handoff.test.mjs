@@ -1611,7 +1611,9 @@ test('引き継ぎ済みの会話へ届いた入力: 後継が残っている時
   const record = (id, fields) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2',
     handoff_id: `h-${id.slice(0, 8)}`, source_session_id: id, project_path: '/work/app', transcript_path: join(projects, `${id}.jsonl`),
     requested_at: 1_000, updated_at: 2_000, error_code: null, ...fields }));
-  const submit = (id, prompt, extra = {}, env = {}) => redirectClaudeHandedOffPrompt({ payload: { session_id: id, prompt, ...extra }, now: 5_000, dir, env });
+  const noClaude = () => ({ error: Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }) });
+  const submit = (id, prompt, extra = {}, env = {}) => redirectClaudeHandedOffPrompt({ payload: { session_id: id, prompt, ...extra }, now: 5_000, dir, env, spawn: noClaude });
+  const settled = path => { const past = new Date(Date.now() - 60_000); utimesSync(path, past, past); };
   const redirects = () => existsSync(join(dir, 'redirects.jsonl'))
     ? readFileSync(join(dir, 'redirects.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
 
@@ -1625,26 +1627,28 @@ test('引き継ぎ済みの会話へ届いた入力: 後継が残っている時
   assert.deepEqual(redirects(), []);
 
   writeFileSync(join(projects, `${b}.jsonl`), '');
+  settled(join(projects, `${b}.jsonl`));
   const human = submit(a, '旧い会話へ打った文');
   assert.deepEqual(human, { output: { decision: 'block',
     reason: 'この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: h-aaaaaaaa）。届いた入力は、後継の会話へ渡しました。' +
       '後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ' +
       'claude attach bbbbbbbb（一覧に無い時は claude --resume ' + b + '）' },
-    kind: 'prompt', handoffId: 'h-aaaaaaaa', successorShortId: 'bbbbbbbb', forwarded: true });
+    kind: 'prompt', handoffId: 'h-aaaaaaaa', successorShortId: 'bbbbbbbb', forwarded: true, wake: 'skipped' });
   assert.equal(submit(a, '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>').kind, 'task-notification');
   assert.equal(submit(a, '依頼', { agent_id: 'agent-1' }), null, 'subagent の中の入力');
   assert.equal(submit('../escape', '依頼'), null);
   assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: a }), null, 'Aiterm の席の会話は止めない');
   assert.equal(submit(a, '依頼', {}, { AITERM_AGENT_LAUNCH_ID: 'abc', AITERM_AGENT_VENDOR_SESSION_ID: b }).kind, 'prompt', '席の印だけを継いだ会話は止める');
   assert.deepEqual(redirects(), [
-    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true, wake: 'skipped:list_failed' },
     { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'task-notification', forwarded: true },
-    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true },
+    { at: '1970-01-01T00:00:05.000Z', source_session_id: a, handoff_id: 'h-aaaaaaaa', successor_short_id: 'bbbbbbbb', kind: 'prompt', forwarded: true, wake: 'skipped:list_failed' },
   ], '止めた記録に入力の本文は書かない');
 
   // 後継がさらに引き継がれている時は、その先を示す。道具を断る時の文も同じ
   record(b, { state: 'unknown', successor: { short_id: 'cccccccc', session_id: null } });
   writeFileSync(join(projects, `${c}.jsonl`), '');
+  settled(join(projects, `${c}.jsonl`));
   assert.match(submit(a, '依頼').output.reason, /claude attach cccccccc（一覧に無い時は claude --resume cccccccc-0000-4000-8000-000000000033）$/);
   assert.match(submit(b, '依頼').output.reason, /引き継ぎID: h-bbbbbbbb.*claude attach cccccccc（一覧に無い時は claude --resume cccccccc-0000-4000-8000-000000000033）$/);
   const denied = await stopClaudeTurnForHandoff({ payload: { session_id: a, cwd: '/work/app' }, dir,
@@ -1659,6 +1663,7 @@ test('公開CLI: prompt-submit は、引き継ぎ済みの会話の入力を止�
   const projects = join(home, '.claude', 'projects', '-work-app');
   mkdirSync(dir, { recursive: true }); mkdirSync(projects, { recursive: true });
   writeFileSync(join(projects, `${SUCCESSOR}.jsonl`), '');
+  utimesSync(join(projects, `${SUCCESSOR}.jsonl`), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
   writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ schema: 'throughline.claude-auto-handoff.v2', handoff_id: 'h-1',
     source_session_id: SESSION, project_path: '/work/app', transcript_path: join(projects, `${SESSION}.jsonl`), state: 'sent',
     requested_at: 1_000, updated_at: 2_000, error_code: null, successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }));

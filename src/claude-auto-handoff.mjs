@@ -43,7 +43,7 @@ import { sameProjectPath } from './project-path.mjs';
 import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
-import { claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
+import { acquireClaudeWakeClaim, claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, holdClaudeForward, logClaudeForward, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
 
 export const CLAUDE_AUTO_HANDOFF_SCHEMA = 'throughline.claude-auto-handoff.v2';
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
@@ -742,15 +742,197 @@ function handedOffReason(record, dir) {
  * 後継で待つ hook が生きていれば、後継は動いている。生きていなければ、後継は止まっているか、待つ hook が登録される前に
  * 立った会話で、入力は後継が次に動く時まで置き場で待つ。どちらかを、打った人へ返す。
  */
-function forwardedReason(record, dir, successorSessionId) {
+function openSuccessorCommand(record, dir) {
   const { shortId, sessionId } = currentSuccessor(record, dir);
-  const open = `claude attach ${shortId}` + (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
+  return `claude attach ${shortId}` + (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
+}
+
+function forwardedReason(record, dir, successorSessionId, { running = false, waking = false } = {}) {
+  const open = openSuccessorCommand(record, dir);
   return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
     '届いた入力は、後継の会話へ渡しました。' +
-    (claudeForwardWaiterAlive(successorSessionId, dir)
-      ? '後継は動いています。手すきならすぐ、作業中なら次の道具の前か番の終わりに届きます。' +
+    (waking
+      ? '後継は、先に届いた入力で起きている所です。起きた後継が、次の道具の前か番の終わりに読みます。' +
         `後継のモデルが、運ばれた入力を利用者の依頼として扱わない事があります。答えは後継で確かめてください: ${open}`
-      : `後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ${open}`);
+      : running || claudeForwardWaiterAlive(successorSessionId, dir)
+        ? '後継は動いています。手すきならすぐ、作業中なら次の道具の前か番の終わりに届きます。' +
+          `後継のモデルが、運ばれた入力を利用者の依頼として扱わない事があります。答えは後継で確かめてください: ${open}`
+        : `後継は今、入力を待ち受けていません（止まっているか、この版より前に立った会話です）。後継を開いて何か入力した時に届きます: ${open}`);
+}
+
+/** 止まっていた後継を起こして、入力を最初の入力として渡せた時に見せる文 (ADR 0064)。 */
+function wokenReason(record, dir) {
+  return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+    '後継の会話が止まっていたので、Throughlineが起こして、この入力を後継の最初の入力として渡しました。' +
+    `後継は裏で作業を続けます: ${openSuccessorCommand(record, dir)}`;
+}
+
+/** 起こす命令を流したが、起きたか確かめられなかった時に見せる文 (ADR 0064)。入力は入れ直さない。 */
+function wakeUnknownReason(record, dir) {
+  return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+    '後継の会話が止まっていたので起こそうとしましたが、起きて入力を受け取ったか確かめられませんでした。' +
+    `二重に届かないよう、この入力は入れ直していません。後継を開いて確かめてください: ${openSuccessorCommand(record, dir)}`;
+}
+
+// ---- 止まっている後継を、人が旧い会話へ打った文で起こす (ADR 0064) ----
+
+// 起こす命令で渡す文の上限（UTF-16 の長さ）。Windows の命令行は全体で 32,767 字まで。引用で増える分を見込む。
+export const CLAUDE_WAKE_TEXT_MAX_CHARS = 12_000;
+// 起こしてよい、裏の会話の state（一覧の項目に `pid` も `status` も無い時だけ）。手すきで止めた・片付けられた会話は
+// `done`、作業の途中で止めた会話は `stopped`。立ち上げ中の会話は `working` で、`pid` がまだ無い事がある。
+const STOPPED_BACKGROUND_STATES = new Set(['done', 'stopped']);
+// 後継の transcript がこれより新しく書かれていたら、動いていると見なして起こさない。
+const RECENTLY_WRITTEN_MS = 5_000;
+// 止まっていない会話へ起こす命令を流すと、Claude Code は写しを立てて、こう書く（2.1.296）。
+const WAKE_COPY_PATTERN = /started a copy as ([0-9a-f]{8})\b/;
+// 起こす仕組みを止める上書き（`off`）。
+const WAKE_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_WAKE';
+
+// 起こす命令に渡さない、旧い会話の環境変数（hook は旧い会話の中で走る）。後継は、保存された自分の設定で起きる。
+const WAKE_STRIPPED_ENV = ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ATTENDED',
+  'CLAUDE_EFFORT', 'CLAUDE_CODE_EXECPATH'];
+
+function wakeCommandEnv(env) {
+  const next = successorEnv(env);
+  for (const key of WAKE_STRIPPED_ENV) delete next[key];
+  return next;
+}
+
+/** 起こす命令で渡せる文か。長すぎる文と、命令の引数に入らない文字（NUL）を含む文は渡さない。 */
+export function claudeWakeTextAllowed(text) {
+  return typeof text === 'string' && text.trim() !== '' && text.length <= CLAUDE_WAKE_TEXT_MAX_CHARS && !text.includes('\0');
+}
+
+/**
+ * `claude agents --json --all` で、その会話が止まっていると確かめられるか。
+ * 同じ会話 ID の項目が1つでも `pid` か `status` を持てば動いている（裏の会話を端末で開いた時と、`claude -p --resume` が
+ * 走っている時は、裏の項目とは別に `interactive` の項目が出る）。裏の項目が無い・一覧を読めない時は、確かめられない。
+ *
+ * @returns {{stopped: boolean, reason: string}}
+ */
+export function readClaudeSessionStopped(sessionId, { spawn = spawnPortableSync, env = process.env } = {}) {
+  const listed = spawn('claude', ['agents', '--json', '--all'], { env, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (listed.error || listed.status !== 0) return { stopped: false, reason: 'list_failed' };
+  let entries;
+  try { entries = JSON.parse(`${listed.stdout ?? ''}`); }
+  catch { return { stopped: false, reason: 'list_failed' }; }
+  if (!Array.isArray(entries)) return { stopped: false, reason: 'list_failed' };
+  const same = entries.filter(entry => entry?.sessionId === sessionId);
+  if (!same.length) return { stopped: false, reason: 'not_listed' };
+  if (same.some(entry => entry.pid || Object.hasOwn(entry, 'status'))) return { stopped: false, reason: 'running' };
+  const background = same.find(entry => entry.kind === 'background');
+  if (!background) return { stopped: false, reason: 'not_background' };
+  if (!STOPPED_BACKGROUND_STATES.has(background.state)) return { stopped: false, reason: 'not_stopped' };
+  return { stopped: true, reason: 'stopped' };
+}
+
+/** 後継の transcript の場所（旧い会話の transcript と同じ projects の下を探す）。見つからなければ null。 */
+function findSessionTranscript(record, sessionId) {
+  if (typeof record?.transcript_path !== 'string' || !validSessionId(sessionId)) return null;
+  const own = dirname(record.transcript_path);
+  const direct = join(own, `${sessionId}.jsonl`);
+  if (existsSync(direct)) return direct;
+  let folders;
+  try { folders = readdirSync(dirname(own), { withFileTypes: true }); }
+  catch { return null; }
+  for (const entry of folders) {
+    const path = entry.isDirectory() ? join(dirname(own), entry.name, `${sessionId}.jsonl`) : null;
+    if (path && existsSync(path)) return path;
+  }
+  return null;
+}
+
+/**
+ * 起こす命令を流す。option は付けない。裏の会話は、立てた時の option（モデル・effort・権限の mode・名前・リモート
+ * コントロール）を持っていて、option なしの時だけ、同じ会話のままそれで起きる。option を付けると、止まっている
+ * 会話でも写しが立つ。文は `--` の後に置く（頭が `-` の文を option として読ませない）。
+ *
+ * @returns {{outcome: 'woken'|'copy'|'failed'|'unknown', copyShortId?: string}}
+ */
+function runClaudeWake({ sessionId, text, cwd, env, spawn }) {
+  const result = spawn('claude', ['--bg', '--resume', sessionId, '--', text], {
+    cwd, env, encoding: 'utf8', timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) {
+    // 立ち上がる前の失敗（命令が無い・実行できない）は届いていない。時間切れは、命令が途中まで進んだかもしれない。
+    return { outcome: result.error.code === 'ETIMEDOUT' ? 'unknown' : 'failed' };
+  }
+  const out = normalizeTerminalText(`${result.stdout ?? ''}${result.stderr ?? ''}`);
+  const copy = WAKE_COPY_PATTERN.exec(out)?.[1];
+  if (copy) return { outcome: 'copy', copyShortId: copy };
+  const shortId = BACKGROUNDED_PATTERN.exec(out)?.[1];
+  if (result.status === 0 && shortId === sessionId.slice(0, 8)) return { outcome: 'woken' };
+  if (result.status === 0 && shortId) return { outcome: 'copy', copyShortId: shortId };
+  if (result.status !== 0 && !shortId) return { outcome: 'failed' };
+  return { outcome: 'unknown' };
+}
+
+/**
+ * 後継が止まっていて、人が旧い会話へ文を打った時に、後継を起こしてその文を最初の入力として渡す (ADR 0064)。
+ * 利用者の決め（K-9UHCLQ、2026-10-14）は「人が打った文の時だけ起こす。完了通知では起こさない」。
+ *
+ * 止まっていると確かめられない時は何もしない（`skipped`。入力は呼んだ側が置き場へ置く）。写しが立った時は、写しを
+ * 止めて一覧から消し、入力を置き場へ戻す（`queued`）。起こす命令が失敗した時も置き場へ戻す。起きたか分からない時は
+ * 入れ直さない（`unknown`）。
+ *
+ * @returns {{outcome: 'woken'|'queued'|'unknown'|'skipped', reason: string, running?: boolean, waking?: boolean}}
+ */
+export function wakeStoppedClaudeSuccessor({ record, successorSessionId, sourceSessionId, text, now = Date.now(),
+  dir = claudeAutoHandoffDir(), env = process.env, spawn = spawnPortableSync }) {
+  const skip = (reason, extra = {}) => {
+    logClaudeForward({ event: 'wake-skipped', reason, session_id: successorSessionId }, dir);
+    return { outcome: 'skipped', reason, ...extra };
+  };
+  if (`${env[WAKE_OVERRIDE_ENV] ?? ''}`.trim().toLowerCase() === 'off') return { outcome: 'skipped', reason: 'disabled' };
+  if (claudeForwardWaiterAlive(successorSessionId, dir)) return { outcome: 'skipped', reason: 'waiter_alive', running: true };
+  if (!claudeWakeTextAllowed(text)) return skip('text_not_allowed');
+  // Claude Desktop へ移した後継は、Desktop が開いている。裏で起こすと、同じ会話を2か所で動かす事になる。
+  if (record.desktop?.state === 'opened') return skip('desktop');
+  try {
+    if (resolveClaudeAutoHandoffSuccessor(successorSessionId, { dir }).pending) return skip('handoff_pending');
+  } catch { return skip('handoff_pending'); }
+  const transcript = findSessionTranscript(record, successorSessionId);
+  if (!transcript) return skip('transcript_missing'); // 無い会話 ID へ流すと、その ID で新しい会話が立つ
+  try {
+    if (Date.now() - statSync(transcript).mtimeMs < RECENTLY_WRITTEN_MS) return skip('recently_written', { running: true });
+  } catch { return skip('transcript_missing'); }
+  const release = acquireClaudeWakeClaim(successorSessionId, { dir, now });
+  if (!release) return skip('waking', { waking: true });
+  const wakeEnv = wakeCommandEnv(env);
+  const state = readClaudeSessionStopped(successorSessionId, { spawn, env: wakeEnv });
+  if (!state.stopped) {
+    release();
+    return skip(state.reason, { running: state.reason === 'running' });
+  }
+  const held = holdClaudeForward({ successorSessionId, sourceSessionId, handoffId: record.handoff_id, kind: 'prompt', text, now, dir });
+  if (!held) { release(); return skip('store_failed'); }
+  const cwd = typeof record.project_path === 'string' && existsSync(record.project_path) ? record.project_path : undefined;
+  const woke = runClaudeWake({ sessionId: successorSessionId, text, cwd, env: wakeEnv, spawn });
+  const base = { session_id: successorSessionId, source_session_id: sourceSessionId, chars: text.length };
+  if (woke.outcome === 'woken') {
+    held.settle();
+    logClaudeForward({ event: 'woken', ...base }, dir);
+    return { outcome: 'woken', reason: 'woken' }; // 番の印は残す（期限で切れる）
+  }
+  if (woke.outcome === 'copy') {
+    // 写しは、渡した文で動き出す。後継と同じ作業を2か所でしないよう、すぐ止めて一覧から消す。入力は置き場へ戻す
+    // （後継は動いているので、後継の hook が受け取る）。
+    for (const verb of ['stop', 'rm']) {
+      spawn('claude', [verb, woke.copyShortId], { env: wakeEnv, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+    const queued = held.release();
+    release();
+    logClaudeForward({ event: 'wake-copy', ...base, copy_short_id: woke.copyShortId, queued }, dir);
+    return queued ? { outcome: 'queued', reason: 'copy', running: true } : { outcome: 'unknown', reason: 'copy' };
+  }
+  if (woke.outcome === 'failed') {
+    const queued = held.release();
+    release();
+    logClaudeForward({ event: 'wake-failed', ...base, queued }, dir);
+    return queued ? { outcome: 'queued', reason: 'failed' } : { outcome: 'unknown', reason: 'failed' };
+  }
+  logClaudeForward({ event: 'wake-unknown', ...base }, dir);
+  return { outcome: 'unknown', reason: 'unknown' };
 }
 
 function stopOutput(record, dir) {
@@ -792,7 +974,7 @@ function recordClaudeRedirect(entry, dir) {
  *
  * @returns {{output: {decision: 'block', reason: string}, kind: 'prompt'|'task-notification', handoffId: string, successorShortId: string|null, forwarded: boolean}|null}
  */
-export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir = claudeAutoHandoffDir(), env = process.env }) {
+export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir = claudeAutoHandoffDir(), env = process.env, spawn = spawnPortableSync }) {
   const sessionId = payload?.session_id;
   if (!validSessionId(sessionId) || payload.agent_id || isAitermSeatConversation(env, sessionId)) return null;
   const record = readClaudeAutoHandoff(sessionId, dir);
@@ -803,13 +985,23 @@ export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir =
   const successorSessionId = successor.sessionId ?? findSuccessorSessionId(record);
   // slash command は、その会話への命令なので運ばない。ほかの会話から届いた文は、利用者の入力と分けて運ぶ。
   const forwardKind = claudeForwardKind(payload.prompt);
-  const forwarded = forwardKind !== null && validSessionId(successorSessionId) && successorSessionId !== sessionId &&
-    enqueueClaudeForward({ successorSessionId, sourceSessionId: sessionId, handoffId: record.handoff_id, kind: forwardKind,
-      text: payload.prompt, now, dir });
+  const canForward = forwardKind !== null && validSessionId(successorSessionId) && successorSessionId !== sessionId;
+  // 人が打った文で、後継が止まっていれば、後継を起こしてその文を渡す (ADR 0064)。完了通知とほかの会話からの文では起こさない。
+  const wake = canForward && forwardKind === 'prompt'
+    ? wakeStoppedClaudeSuccessor({ record, successorSessionId, sourceSessionId: sessionId, text: payload.prompt, now, dir, env, spawn })
+    : null;
+  const forwarded = canForward && (wake?.outcome === 'woken' || wake?.outcome === 'queued' ||
+    (wake?.outcome !== 'unknown' && enqueueClaudeForward({ successorSessionId, sourceSessionId: sessionId, handoffId: record.handoff_id,
+      kind: forwardKind, text: payload.prompt, now, dir })));
   recordClaudeRedirect({ at: new Date(now).toISOString(), source_session_id: sessionId, handoff_id: record.handoff_id,
-    successor_short_id: successorShortId, kind, forwarded }, dir);
-  return { output: { decision: 'block', reason: forwarded ? forwardedReason(record, dir, successorSessionId) : handedOffReason(record, dir) },
-    kind, handoffId: record.handoff_id, successorShortId, forwarded };
+    successor_short_id: successorShortId, kind, forwarded,
+    ...(wake && wake.reason !== 'disabled' ? { wake: wake.outcome === 'skipped' ? `skipped:${wake.reason}` : wake.outcome } : {}) }, dir);
+  const reason = wake?.outcome === 'woken' ? wokenReason(record, dir)
+    : wake?.outcome === 'unknown' ? wakeUnknownReason(record, dir)
+      : forwarded ? forwardedReason(record, dir, successorSessionId, { running: Boolean(wake?.running), waking: Boolean(wake?.waking) })
+        : handedOffReason(record, dir);
+  return { output: { decision: 'block', reason }, kind, handoffId: record.handoff_id, successorShortId, forwarded,
+    ...(wake ? { wake: wake.outcome } : {}) };
 }
 
 /**
