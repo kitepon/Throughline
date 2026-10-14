@@ -108,5 +108,6 @@ Claude Code 2.1.296 で、次を実機で確かめた（Linux・macOS・Windows 
     後継が、起きた後もリモートコントロール付きか（立てた時の option の控えには入る）。
   - Windows で `claude` が単体の `claude.exe` の時の、文の渡り方（確かめた fox の `claude` は npm の shim で、Throughline は
     `claude.ps1` を PowerShell から呼ぶ。記号と改行を含む文は、この道でそのまま届いた）。
-  - macOS・Windows で、61 分で片付けられた会話の一覧の形と、起こす命令の動き（Linux で見た。公開の後に読む）。
+  - 61 分で片付けられた会話へ起こす命令を流した時の動き。一覧の形は Linux で `state: done`・`pid` なし（止めた会話と同じ形）と
+    見たので、同じに起きる見込み。macOS・Windows の一覧の形も含めて、3つの OS で公開の後に読む。
   - 本物の自動継続の後継での実地（入れた後の追跡で、`forward.jsonl` の `woken` を読む）。
