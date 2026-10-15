@@ -48,7 +48,7 @@ import { pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
-import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
+import { writeCompletedTurnReceipts } from './completed-turn-receipts.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 import { readClaudeRelocatedCwd } from './hosts/claude.mjs';
 import { CLAUDE_HOST } from './hosts/identity.mjs';
@@ -205,23 +205,30 @@ export function publishCapturedClaudeCompletionReceipt(db, {
   projectPath,
   receiptOptions,
 }) {
-  const completedPair = db.prepare(
+  return publishCapturedClaudeCompletionReceipts(db, {
+    target, origin, turnNumbers: [turnNumber], projectPath, receiptOptions,
+  })[0];
+}
+
+/** Resolve every durable pair before the single receipt-store transaction starts. */
+export function publishCapturedClaudeCompletionReceipts(db, {
+  target, origin, turnNumbers, projectPath, receiptOptions,
+}) {
+  const statement = db.prepare(
     `SELECT role, text, created_at FROM bodies
      WHERE session_id = ? AND origin_session_id = ? AND turn_number = ? AND role IN ('user', 'assistant')`,
-  ).all(target, origin, turnNumber);
-  const completedUser = completedPair.find((row) => row.role === 'user');
-  const completedAssistant = completedPair.find((row) => row.role === 'assistant');
-  if (!completedUser || !completedAssistant) {
-    throw new Error('completed pair was not captured before receipt publication');
-  }
-  return writeCompletedTurnReceipt({
-    projectPath,
-    targetSessionId: target,
-    originSessionId: origin,
-    userBody: completedUser.text,
-    assistantBody: completedAssistant.text,
-    completedAt: completedAssistant.created_at,
-  }, receiptOptions);
+  );
+  const inputs = turnNumbers.map((turnNumber) => {
+    const pair = statement.all(target, origin, turnNumber);
+    const user = pair.find((row) => row.role === 'user');
+    const assistant = pair.find((row) => row.role === 'assistant');
+    if (!user || !assistant) throw new Error('completed pair was not captured before receipt publication');
+    return {
+      projectPath, targetSessionId: target, originSessionId: origin,
+      userBody: user.text, assistantBody: assistant.text, completedAt: assistant.created_at,
+    };
+  });
+  return writeCompletedTurnReceipts(inputs, receiptOptions);
 }
 
 /**
@@ -382,14 +389,12 @@ async function processStop() {
   // 過去のStopでDBだけ回収済みだったpairもreceipt storeの冪等性で穴埋めする。
   // receipt failure は Stop hook の failure として上位へ伝播させる。L1/L3/usage は
   // receipt 後の派生処理なので、そこで失敗しても completed pair を取り消さない。
-  for (const completedTurnNumber of backfill.turnNumbers) {
-    publishCapturedClaudeCompletionReceipt(db, {
-      target,
-      origin,
-      turnNumber: completedTurnNumber,
-      projectPath: completionProjectPath,
-    });
-  }
+  publishCapturedClaudeCompletionReceipts(db, {
+    target,
+    origin,
+    turnNumbers: backfill.turnNumbers,
+    projectPath: completionProjectPath,
+  });
 
   // L1 = 遅延要約。target 配下の bodies ターン数 (distinct origin×turn) が
   // WINDOW を超えていたら、最古の未要約ターンを 1 件だけ要約する。

@@ -10,6 +10,7 @@ import {
   defaultCompletedTurnReceiptStorePath,
   readCompletedTurnReceiptSnapshot,
   writeCompletedTurnReceipt,
+  writeCompletedTurnReceipts,
 } from './completed-turn-receipts.mjs';
 import { seedCompletedTurnReceiptStore } from './completed-turn-receipts-test-fixture.mjs';
 import { verifyWindowsPrivateAcl } from './os/windows-acl-test-helper.mjs';
@@ -274,4 +275,87 @@ test('completed turn receipt: Windows path uses LocalAppData', () => {
     defaultCompletedTurnReceiptStorePath(projectSha256, env),
     join(env.LOCALAPPDATA, 'throughline', 'completed-turn-receipts', `${projectSha256}.json`),
   );
+});
+
+test('completed turn receipt: batch is ordered, idempotent, and rejects mixed projects before mutation', () => {
+  const box = sandbox();
+  try {
+    const inputs = [input(1), input(2), input(2), input(3)];
+    const first = writeCompletedTurnReceipts(inputs, { storePath: box.storePath });
+    assert.deepEqual(first.map((receipt) => receipt.sequence), [1, 2, 2, 3]);
+    assert.deepEqual(writeCompletedTurnReceipts(inputs, { storePath: box.storePath }), first);
+    const bytes = readFileSync(box.storePath, 'utf8');
+    assert.throws(() => writeCompletedTurnReceipts([input(4), { ...input(5), projectPath: '/other' }],
+      { storePath: box.storePath }), /one project/);
+    assert.equal(readFileSync(box.storePath, 'utf8'), bytes);
+    const retained = Array.from({ length: COMPLETED_TURN_RECEIPT_LIMIT + 2 }, (_, i) => input(i + 4));
+    writeCompletedTurnReceipts(retained, { storePath: box.storePath });
+    const store = JSON.parse(readFileSync(box.storePath, 'utf8'));
+    assert.equal(store.receipts.length, COMPLETED_TURN_RECEIPT_LIMIT);
+    assert.equal(store.history_floor, 6);
+    assert.equal(store.next_sequence, 262);
+  } finally {
+    rmSync(box.root, { recursive: true, force: true });
+  }
+});
+
+test('completed turn receipt: competing writer waits beyond five seconds and preserves both pairs', async () => {
+  const box = sandbox();
+  let holder;
+  try {
+    const first = writeCompletedTurnReceipt(input(), { storePath: box.storePath });
+    const code = `const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(process.argv[1]); db.exec('BEGIN IMMEDIATE');
+      process.stdout.write('locked\\n');
+      setTimeout(() => { db.exec('COMMIT'); db.close(); }, 14000);`;
+    holder = childProcess.spawn(process.execPath, ['-e', code, box.storePath + '.lock.sqlite'],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const exited = new Promise((resolve, reject) => {
+      holder.once('error', reject);
+      holder.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`holder exit ${code}`)));
+    });
+    await new Promise((resolve, reject) => {
+      holder.stdout.once('data', resolve);
+      holder.once('error', reject);
+      holder.once('exit', () => reject(new Error('holder exited before locking')));
+    });
+    const next = writeCompletedTurnReceipts([input(), input(2)], { storePath: box.storePath });
+    assert.deepEqual(next[0], first);
+    assert.equal(next[1].sequence, 2);
+    await exited;
+    assert.equal(JSON.parse(readFileSync(box.storePath, 'utf8')).receipts.length, 2);
+  } finally {
+    if (holder?.exitCode === null) holder.kill();
+    rmSync(box.root, { recursive: true, force: true });
+  }
+});
+
+test('completed turn receipt: Windows batch validates ACLs once and preserves the old store on failure', (t) => {
+  const box = sandbox();
+  const env = { OS: 'Windows_NT', HOME: box.root, USERPROFILE: box.root };
+  const calls = [];
+  let failReplacement = false;
+  t.mock.method(childProcess, 'spawnSync', (command, args, options) => {
+    calls.push(options.env.THROUGHLINE_ACL_PATH);
+    return { status: failReplacement && options.env.THROUGHLINE_ACL_PATH.endsWith('.tmp') ? 1 : 0 };
+  });
+  try {
+    const options = { env, storePath: box.storePath };
+    const inputs = Array.from({ length: 72 }, (_, index) => input(index + 1));
+    writeCompletedTurnReceipts(inputs, options);
+    assert.equal(calls.length, 3);
+    calls.length = 0;
+    writeCompletedTurnReceipts([...inputs, input(73)], options);
+    assert.equal(calls.length, 4);
+    calls.length = 0;
+    writeCompletedTurnReceipts(inputs, options);
+    assert.equal(calls.length, 3, 'retry verifies directory, lock and store without replacing it');
+    const before = readFileSync(box.storePath, 'utf8');
+    failReplacement = true;
+    assert.throws(() => writeCompletedTurnReceipts([input(74), input(75)], options), /ACL verification failed/);
+    assert.equal(readFileSync(box.storePath, 'utf8'), before);
+    assert.equal(readdirSync(dirname(box.storePath)).filter((name) => name.endsWith('.tmp')).length, 0);
+  } finally {
+    rmSync(box.root, { recursive: true, force: true });
+  }
 });

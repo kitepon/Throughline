@@ -22,7 +22,9 @@ export const COMPLETED_TURN_RECEIPT_SCHEMA_VERSION = '1.0';
 export const COMPLETED_TURN_RECEIPT_LIMIT = 256;
 
 const PRIVATE_DIRECTORY_CAPABILITY = Symbol('throughline.completed-turn-receipt-directory');
-// CI実測でPowerShellコールドスタートが3.0〜3.2秒に達しflakeしたため15秒 (run 29586852389 / 29628634501)
+// A holder can validate an existing store and protect its replacement with two
+// separate 15-second ACL processes. Allow that bounded work plus contention.
+export const COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS = 60_000;
 
 export function defaultCompletedTurnReceiptStorePath(projectSha256, env = process.env) {
   if (!isSha256(projectSha256)) throw new TypeError('projectSha256 must be a SHA-256 digest');
@@ -38,33 +40,47 @@ export function defaultCompletedTurnReceiptStorePath(projectSha256, env = proces
  * another sequence number.
  */
 export function writeCompletedTurnReceipt(input, options = {}) {
-  assertExactInput(input);
-  assertExactOptions(options);
-  const normalized = normalizeInput(input);
-  return withStoreLock(normalized, options, (privateDirectory) => {
-    const store = readStore(normalized, options, privateDirectory);
-    const existing = store.receipts.find((receipt) => samePair(receipt, normalized));
-    if (existing) return { ...existing };
+  return writeCompletedTurnReceipts([input], options)[0];
+}
 
-    const receipt = {
-      schema_version: COMPLETED_TURN_RECEIPT_SCHEMA_VERSION,
-      host: 'claude',
-      project_sha256: normalized.projectSha256,
-      target_session_id: normalized.targetSessionId,
-      origin_session_id: normalized.originSessionId,
-      user_sha256: normalized.userSha256,
-      assistant_sha256: normalized.assistantSha256,
-      completed_at: normalized.completedAt,
-      sequence: store.next_sequence,
-    };
-    store.next_sequence += 1;
-    store.receipts.push(receipt);
-    if (store.receipts.length > COMPLETED_TURN_RECEIPT_LIMIT) {
-      store.receipts.splice(0, store.receipts.length - COMPLETED_TURN_RECEIPT_LIMIT);
-      store.history_floor = store.receipts[0].sequence;
-    }
-    writeStore(store, normalized, options, privateDirectory);
-    return { ...receipt };
+/** Publish one Stop's completed pairs under one lock and one atomic replacement. */
+export function writeCompletedTurnReceipts(inputs, options = {}) {
+  if (!Array.isArray(inputs)) throw new TypeError('completed turn receipt inputs must be an array');
+  inputs.forEach(assertExactInput);
+  assertExactOptions(options);
+  if (inputs.length === 0) return [];
+  const normalized = inputs.map(normalizeInput);
+  if (normalized.some((input) => input.projectSha256 !== normalized[0].projectSha256)) {
+    throw new TypeError('completed turn receipt batch must use one project');
+  }
+  return withStoreLock(normalized[0], options, (privateDirectory) => {
+    const store = readStore(normalized[0], options, privateDirectory);
+    let changed = false;
+    const receipts = normalized.map((input) => {
+      const existing = store.receipts.find((receipt) => samePair(receipt, input));
+      if (existing) return { ...existing };
+      const receipt = {
+        schema_version: COMPLETED_TURN_RECEIPT_SCHEMA_VERSION,
+        host: 'claude',
+        project_sha256: input.projectSha256,
+        target_session_id: input.targetSessionId,
+        origin_session_id: input.originSessionId,
+        user_sha256: input.userSha256,
+        assistant_sha256: input.assistantSha256,
+        completed_at: input.completedAt,
+        sequence: store.next_sequence,
+      };
+      store.next_sequence += 1;
+      store.receipts.push(receipt);
+      if (store.receipts.length > COMPLETED_TURN_RECEIPT_LIMIT) {
+        store.receipts.splice(0, store.receipts.length - COMPLETED_TURN_RECEIPT_LIMIT);
+        store.history_floor = store.receipts[0].sequence;
+      }
+      changed = true;
+      return { ...receipt };
+    });
+    if (changed) writeStore(store, normalized[0], options, privateDirectory);
+    return receipts;
   });
 }
 
@@ -174,7 +190,7 @@ function withStoreLock(normalized, options, operation) {
   const database = new DatabaseSync(lockPath);
   let active = false;
   try {
-    database.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+    database.exec(`PRAGMA busy_timeout=${COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS}; PRAGMA synchronous=FULL; BEGIN IMMEDIATE`);
     active = true;
     const result = operation(privateDirectoryCapability(directory, options.env));
     database.exec('COMMIT');

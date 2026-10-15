@@ -11,6 +11,7 @@ import {
   countDistinctBodyTurns,
   pickOldestUnsummarizedTurn,
   publishCapturedClaudeCompletionReceipt,
+  publishCapturedClaudeCompletionReceipts,
   waitForClaudeStopTranscriptFlush,
 } from './turn-processor.mjs';
 
@@ -551,4 +552,27 @@ test('逐次要約シナリオ: 20 ターンまでは要約発火しない、21 
   // 次は turn 2 が選ばれる
   const target2 = pickOldestUnsummarizedTurn(db, 'S');
   assert.equal(target2?.turn_number, 2);
+});
+
+
+test('publishCapturedClaudeCompletionReceipts: incomplete later pair leaves the receipt store unchanged', () => {
+  const db = makeDb();
+  const root = mkdtempSync(join(tmpdir(), 'throughline-batch-receipt-'));
+  const storePath = join(root, 'state', 'completed-turn-receipts.json');
+  const options = { target: 'target', origin: 'origin', projectPath: '/repo', receiptOptions: { storePath } };
+  try {
+    insertTurn(db, { session: 'target', origin: 'origin', turn: 7, createdAt: 1 });
+    insertTurn(db, { session: 'target', origin: 'origin', turn: 8, createdAt: 2 });
+    const first = publishCapturedClaudeCompletionReceipts(db, { ...options, turnNumbers: [7] });
+    const before = readFileSync(storePath, 'utf8');
+    assert.throws(() => publishCapturedClaudeCompletionReceipts(db, { ...options, turnNumbers: [8, 9] }),
+      /completed pair was not captured/);
+    assert.equal(readFileSync(storePath, 'utf8'), before);
+    const receipts = publishCapturedClaudeCompletionReceipts(db, { ...options, turnNumbers: [7, 8] });
+    assert.deepEqual(receipts[0], first[0]);
+    assert.equal(receipts[1].sequence, 2);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

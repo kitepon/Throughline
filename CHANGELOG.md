@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.35] — 2026-10-15
+
+### Fixed
+
+- Publish a Stop's completed pairs under one receipt lock and one atomic store
+  replacement, avoiding repeated Windows ACL processes for every previous pair.
+- Allow receipt-lock contention to wait up to 60 seconds, matching the bounded
+  Windows ACL work instead of failing after five seconds. Errors remain explicit,
+  and owner-only ACL checks and receipt identity/retention are unchanged.
+  See [ADR 0066](docs/adr/0066-stop-receipts-batch-and-lock-deadline.md).
+
 ## [0.16.34] — 2026-10-15
 
 ### 修正
@@ -2665,6 +2676,7 @@ two attempts, instrument first instead of patching again.
 ---
 
 [Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.34...HEAD
+[0.16.35]: https://github.com/kitepon/Throughline/compare/v0.16.34...v0.16.35
 [0.16.34]: https://github.com/kitepon/Throughline/compare/v0.16.33...v0.16.34
 [0.16.33]: https://github.com/kitepon/Throughline/compare/v0.16.32...v0.16.33
 [0.16.32]: https://github.com/kitepon/Throughline/compare/v0.16.31...v0.16.32
