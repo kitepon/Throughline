@@ -49,7 +49,8 @@ LOCALAPPDATA/APPDATA. No real DB/receipt/runtime store is used.
   next sequence 73 and zero failure-log lines.
 - Linux full suite: 1,090 tests, 1,088 passed, 2 skipped, 0 failures.
 - macOS focused receipt/processor suite: 38 passed, 0 failures.
-- Windows focused receipt/processor suite: recorded below after native completion.
+- Windows focused receipt/processor suite: 38 tests, 36 passed, 2 POSIX-only
+  skips, 0 failures. Final native Stop smoke: 2,793 ms.
 - Documentation and packed Markdown link checks pass.
 
 The initial Windows native unit invocation passed a drive path to Node's
