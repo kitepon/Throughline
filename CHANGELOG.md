@@ -2675,7 +2675,7 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.34...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.35...HEAD
 [0.16.35]: https://github.com/kitepon/Throughline/compare/v0.16.34...v0.16.35
 [0.16.34]: https://github.com/kitepon/Throughline/compare/v0.16.33...v0.16.34
 [0.16.33]: https://github.com/kitepon/Throughline/compare/v0.16.32...v0.16.33
