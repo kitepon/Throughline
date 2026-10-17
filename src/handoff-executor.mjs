@@ -49,7 +49,9 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
 
   // 自動継続の後継は、最初の指示が運ぶ引き継ぎ ID で前任を決める (ADR 0053)。project ごとに1つの印は見ない
   // (同じ project の別の会話のための印を、後継が取らない)。
-  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId, openDb: () => db });
+  let continuationTurn = null;
+  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId, openDb: () => db,
+    onCaptured: turn => { continuationTurn = turn; } });
   // baton 適格性はセッション誕生時刻 (pending.createdAt) 基準。
   // 誕生後に書かれたバトンは future_baton として残置される (本来の後継のもの)。
   const baton = continuationSourceId ? null : consumeBaton(db, { projectPath, now, bornAt: pending.createdAt });
@@ -100,7 +102,8 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
     // 止めたターンは Stop を通っていないので、state ファイルが無いことがある。hook が記録した
     // transcript の場所を、回収元の候補に足す。
     const autoContinuation = triggeredPath === 'auto-handoff' || triggeredPath === 'baton'
-      ? acceptClaudeAutoContinuation({ predecessorId: continuationSourceId ?? baton.sessionId, successorSessionId: sessionId, prompt, now })
+      ? acceptClaudeAutoContinuation({ predecessorId: continuationSourceId ?? baton.sessionId, successorSessionId: sessionId,
+        prompt, now, capturedTurn: continuationTurn })
       : null;
     const predecessorTranscriptPath = [derivedTranscriptPath, stateTranscriptPath, autoContinuation?.transcriptPath]
       .find((candidate) => candidate && existsSync(candidate)) ?? null;

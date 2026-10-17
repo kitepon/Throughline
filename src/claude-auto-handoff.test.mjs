@@ -555,8 +555,17 @@ async function runWorker(dir, { spawn, onLaunched }) {
 
 const launchedOk = () => ({ status: 0, stdout: 'Starting background service…\nbackgrounded · a41a97ae · tl-app-1234\n', stderr: '' });
 // 後継の最初の UserPromptSubmit。起動時に渡された指示で、受領を残す。worker が後継の ID を記録へ写す前に届く。
-const successorStarts = (dir, predecessorId = SESSION) => args => acceptClaudeAutoContinuation({
-  predecessorId, successorSessionId: SUCCESSOR, prompt: args.at(-1), dir, now: 5_000 });
+const successorStarts = (dir, predecessorId = SESSION, openDb = null) => args => {
+  let capturedTurn = null;
+  if (openDb) {
+    const before = readFileSync(join(dir, `${predecessorId}.json`), 'utf8');
+    findClaudeAutoContinuationSource({ prompt: args.at(-1), successorSessionId: SUCCESSOR, dir, openDb,
+      onCaptured: turn => { capturedTurn = turn; } });
+    assert.equal(readFileSync(join(dir, `${predecessorId}.json`), 'utf8'), before, '後継はworkerの原本を書き換えない');
+  }
+  return acceptClaudeAutoContinuation({ predecessorId, successorSessionId: SUCCESSOR, prompt: args.at(-1), dir,
+    now: 5_000, capturedTurn });
+};
 
 test('worker: hook の payload に effort が無い時は、止めた時点の effort を transcript から読んで後継へ渡す', () => withDir(async dir => {
   const transcriptPath = join(dir, 'transcript.jsonl');
@@ -770,8 +779,7 @@ test('worker: 止めたターンを DB へ取り込み、ここまでにした�
   const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 300,
     openDb: () => db,
     spawn: (command, args) => {
-      findClaudeAutoContinuationSource({ prompt: args.at(-1), successorSessionId: SUCCESSOR, dir, openDb: () => db });
-      successorStarts(dir)(args);
+      successorStarts(dir, SESSION, () => db)(args);
       return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app\n' };
     } });
   assert.equal(record.state, 'sent');
@@ -815,8 +823,7 @@ test('worker: 止めたターンを取り込めなくても後継を立て、取
   const record = await runClaudeAutoHandoffWorker(SESSION, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 300,
     openDb: () => db,
     spawn: (command, args) => {
-      findClaudeAutoContinuationSource({ prompt: args.at(-1), successorSessionId: SUCCESSOR, dir, openDb: () => db });
-      successorStarts(dir)(args);
+      successorStarts(dir, SESSION, () => db)(args);
       return { status: 0, stderr: '', stdout: 'backgrounded · a41a97ae · tl-app\n' };
     } });
   assert.equal(record.state, 'sent');
@@ -1454,10 +1461,10 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   const prompt = claudeContinuationInput(record);
   const first = cli(home, ['prompt-submit'], JSON.stringify({ session_id: SUCCESSOR, cwd: project, hook_event_name: 'UserPromptSubmit', prompt }), extra);
   assert.equal(first.status, 0, first.stderr);
-  record = JSON.parse(readFileSync(recordFile, 'utf8'));
-  assert.equal(record.in_flight.turn.origin_session_id, SESSION);
-  assert.equal(record.in_flight.turn.details, 3);
-  assert.equal(publicClaudeAutoHandoff(JSON.parse(readFileSync(recordFile, 'utf8'))).in_flight_captured, true);
+  const capturedTurn = JSON.parse(readFileSync(join(handoffDir, `${SESSION}.accepted`), 'utf8')).in_flight_turn;
+  assert.equal(capturedTurn.origin_session_id, SESSION);
+  assert.equal(capturedTurn.details, 3);
+  assert.equal(JSON.parse(readFileSync(recordFile, 'utf8')).in_flight.turn, null, '原本はworkerだけが更新する');
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
   assert.match(first.stdout, /### 現在地 \(作業の途中で止めたターン\)\n\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: big1\.txt と big2\.txt を読んで result\.txt を作って\n/);
   assert.match(first.stdout, new RegExp('\\*\\*このターンでここまでにしたこと\\*\\*（古い順。どれも完了済み。道具の入出力の全文: `throughline detail \\d\\d:\\d\\d:\\d\\d`）:\\n' +
@@ -1478,7 +1485,7 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   // 止めたターンは、道具の入出力ごと後継の記憶に入っている（`throughline detail` で取り出せる）
   assert.deepEqual(db.prepare(`SELECT b.role, b.text, (SELECT COUNT(*) FROM details d WHERE d.session_id = b.session_id
       AND d.origin_session_id = b.origin_session_id AND d.turn_number = b.turn_number) AS details
-    FROM bodies b WHERE b.origin_session_id = ? AND b.turn_number = ? ORDER BY b.id`).all(SESSION, record.in_flight.turn.turn_number)
+    FROM bodies b WHERE b.origin_session_id = ? AND b.turn_number = ? ORDER BY b.id`).all(SESSION, capturedTurn.turn_number)
     .map(row => ({ ...row })), [
     { role: 'user', text: 'big1.txt と big2.txt を読んで result.txt を作って', details: 3 },
     { role: 'assistant', text: 'big1.txt を読み終えました。次に big2.txt を読みます。', details: 3 },
@@ -1534,7 +1541,7 @@ test('hook: 引き継ぎを予約してから止まるまでの間に、同じ p
   const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
     prompt: claudeContinuationInput(record) }), extra);
   assert.equal(first.status, 0, first.stderr);
-  assert.equal(publicClaudeAutoHandoff(JSON.parse(readFileSync(recordFile, 'utf8'))).in_flight_captured, true);
+  assert.ok(JSON.parse(readFileSync(join(dirname(recordFile), `${SESSION}.accepted`), 'utf8')).in_flight_turn);
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
   assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: Windows の席として、アプリを入れ直して\n/);
   assert.equal(existsSync(join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.accepted`)), true, '最初の指示が受領を残す');
@@ -1595,7 +1602,7 @@ test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（C
   const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
     prompt: claudeContinuationInput(record) }), fakeClaudePath(home));
   assert.equal(first.status, 0, first.stderr);
-  assert.equal(publicClaudeAutoHandoff(JSON.parse(readFileSync(recordFile, 'utf8'))).in_flight_captured, true);
+  assert.ok(JSON.parse(readFileSync(join(dirname(recordFile), `${SESSION}.accepted`), 'utf8')).in_flight_turn);
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
   assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: 画面の余白を直して\n/);
   assert.equal(existsSync(join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.accepted`)), true, '最初の指示が受領を残す');
@@ -1650,7 +1657,7 @@ test('hook: 別の project へ移した会話（Claude Desktop）を、移った
   const first = cli(home, ['prompt-submit'], JSON.stringify({ ...successorPayload, hook_event_name: 'UserPromptSubmit',
     prompt: claudeContinuationInput(record) }), fakeClaudePath(home));
   assert.equal(first.status, 0, first.stderr);
-  assert.equal(publicClaudeAutoHandoff(JSON.parse(readFileSync(recordFile, 'utf8'))).in_flight_captured, true);
+  assert.ok(JSON.parse(readFileSync(join(dirname(recordFile), `${SESSION}.accepted`), 'utf8')).in_flight_turn);
   assert.match(first.stdout, /^## Throughline: 自動継続の文脈\n/);
   assert.match(first.stdout, /\*\*作業中のユーザー依頼\*\* \[\d\d:\d\d:\d\d\]: part06 から part09 をもう一度読んで\n/);
   assert.match(first.stdout, /\*\*止める直前に呼ぼうとして、実行されなかった道具\*\*: Read .*part06\.txt\n/);

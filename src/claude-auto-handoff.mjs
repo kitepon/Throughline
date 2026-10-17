@@ -1121,7 +1121,7 @@ export function claudeContinuationInput(record) {
  *
  * @returns {string|null}
  */
-export function findClaudeAutoContinuationSource({ prompt, successorSessionId, dir = claudeAutoHandoffDir(), openDb = null }) {
+export function findClaudeAutoContinuationSource({ prompt, successorSessionId, dir = claudeAutoHandoffDir(), openDb = null, onCaptured = null }) {
   if (typeof prompt !== 'string' || typeof successorSessionId !== 'string') return null;
   const handoffId = CONTINUATION_PREFIX.exec(prompt)?.[1];
   if (!handoffId) return null;
@@ -1132,7 +1132,7 @@ export function findClaudeAutoContinuationSource({ prompt, successorSessionId, d
   // 起動失敗の時に旧い会話が続くので、途中の本文を先に凍結しない（ADR 0068）。
   if (openDb && record.in_flight && !record.in_flight.turn) {
     const turn = captureStoppedTurn(record, openDb);
-    updateRecord(record.source_session_id, { in_flight: { ...record.in_flight, turn } }, { dir });
+    onCaptured?.(turn);
   }
   return record.source_session_id;
 }
@@ -1144,7 +1144,7 @@ export function findClaudeAutoContinuationSource({ prompt, successorSessionId, d
  * @returns {{handoffId: string, projectPath: string, inFlight: object|null, transcriptPath: string|null}|null}
  */
 export function acceptClaudeAutoContinuation({ predecessorId, successorSessionId, prompt = null,
-  dir = claudeAutoHandoffDir(), now = Date.now() }) {
+  dir = claudeAutoHandoffDir(), now = Date.now(), capturedTurn = null }) {
   if (!validSessionId(predecessorId) || typeof successorSessionId !== 'string') return null;
   const record = readClaudeAutoHandoff(predecessorId, dir);
   if (!record || !ACCEPTABLE_STATES.has(record.state)) return null;
@@ -1156,11 +1156,13 @@ export function acceptClaudeAutoContinuation({ predecessorId, successorSessionId
   if (!isSuccessor) return null;
   if (carriesInstruction && !record.accepted_at && !existsSync(acceptancePath(predecessorId, dir))) {
     writeJsonPrivate(acceptancePath(predecessorId, dir),
-      { handoff_id: record.handoff_id, successor_session_id: successorSessionId, accepted_at: now });
+      { handoff_id: record.handoff_id, successor_session_id: successorSessionId, accepted_at: now,
+        ...(capturedTurn ? { in_flight_turn: capturedTurn } : {}) });
     // 後継の置き場を作る（ADR 0063）。番の終わりの待つ hook は、このフォルダが在る会話でだけ待つ。
     if (validSessionId(successorSessionId)) ensureClaudeForwardInbox(successorSessionId, dir);
   }
-  return { handoffId: record.handoff_id, projectPath: record.project_path, inFlight: record.in_flight ?? null,
+  return { handoffId: record.handoff_id, projectPath: record.project_path,
+    inFlight: record.in_flight ? { ...record.in_flight, ...(capturedTurn ? { turn: capturedTurn } : {}) } : null,
     transcriptPath: record.transcript_path ?? null };
 }
 
@@ -1216,12 +1218,15 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   if (!record) throw new ClaudeHandoffError('handoff_not_found');
   if (record.state !== 'stopped') return record;
   const update = fields => { record = updateRecord(sessionId, fields, { dir }); return record; };
+  const captureFields = accepted => accepted.in_flight_turn && record.in_flight
+    ? { in_flight: { ...record.in_flight, turn: accepted.in_flight_turn } } : {};
   const fail = (code, state = 'failed', shortId = null) => {
     // CLI の応答を失っても、受領があれば後継は動いている。旧い会話を解放しない。
     const accepted = readAcceptance(sessionId, record.handoff_id, dir);
     if (accepted) {
       rmSync(acceptancePath(sessionId, dir), { force: true });
       return update({ state: 'sent', error_code: null, accepted_at: accepted.accepted_at,
+        ...captureFields(accepted),
         successor: { short_id: accepted.successor_session_id.slice(0, 8), session_id: accepted.successor_session_id } });
     }
     return update({ state, error_code: code,
@@ -1279,6 +1284,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     if (acceptance) {
       rmSync(acceptancePath(sessionId, dir), { force: true });
       return update({ state: 'sent', error_code: null, accepted_at: acceptance.accepted_at,
+        ...captureFields(acceptance),
         successor: { short_id: shortId, session_id: acceptance.successor_session_id } });
     }
     await delay(pollMs);

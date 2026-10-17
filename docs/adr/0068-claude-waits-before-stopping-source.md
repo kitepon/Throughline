@@ -21,6 +21,8 @@ ADR 0067 は失敗後の再停止を廃止したが、最初の PreToolUse は w
    止める。210秒を過ぎても結果が無ければ unknown/handoff_source_wait_timeout とする。
 4. 進行中のターンの DB 捕捉は worker の起動前には行わない。実際の後継の最初の
    UserPromptSubmit が handoff ID で前任を確定した時に、合流前に捕捉する。
+   捕捉した番の参照は独立した受領ファイルでworkerへ渡す。後継はworkerの原本を
+   書き換えず、状態の更新と捕捉メタデータの競合を避ける。
    後継が生まれなかった失敗では、旧い会話の通常の Stop が完了した本文を保存する。
 5. 自分の PreToolUse hook の timeout だけを15秒から240秒へ更新する。
    既存の hook 登録を移行し、他製品の hook と利用者の権限・モデルは変えない。
