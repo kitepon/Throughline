@@ -41,7 +41,7 @@ const ENABLED = { enabled: true, projects: [] };
 
 function withDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'tl-claude-auto-'));
-  const finish = () => rmSync(dir, { recursive: true, force: true });
+  const finish = () => rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
   let result;
   try { result = fn(dir); }
   catch (error) { finish(); throw error; }
@@ -1333,7 +1333,7 @@ function cli(home, args, input = '', extra = {}) {
 function fakeClaudePath(home) {
   const bin = join(home, 'fake-bin');
   mkdirSync(bin, { recursive: true });
-  if (process.platform === 'win32') writeFileSync(join(bin, 'claude.cmd'), '@echo off\r\nexit /b 1\r\n');
+  if (process.platform === 'win32') writeFileSync(join(bin, 'claude.ps1'), 'exit 1\r\n');
   else {
     writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexit 1\n');
     chmodSync(join(bin, 'claude'), 0o755);
@@ -1443,7 +1443,7 @@ test('hook: 自動圧縮を止め、次の道具を止めて worker を起動し
   // worker は偽の claude（すぐ失敗）で止まる。本物の claude は起動しない
   let handoff;
   for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
-  assert.deepEqual([handoff.state, handoff.error_code], ['failed', 'handoff_successor_launch_failed']);
+  assert.deepEqual([handoff.state, handoff.error_code], ['failed', process.platform === 'win32' ? 'handoff_terminal_exited_before_accept' : 'handoff_successor_launch_failed']);
 
   // 後継が立って指示が届いた場面を、記録を進めて再現する
   const handoffDir = join(home, '.throughline', 'claude-auto-handoff');
@@ -1592,7 +1592,7 @@ test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（C
   const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
   let handoff;
   for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
-  assert.equal(handoff.error_code, 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
+  assert.equal(handoff.error_code, process.platform === 'win32' ? 'handoff_terminal_exited_before_accept' : 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
   assert.equal(handoff.project_path, worktree, '後継を立てる場所は、前任が動いていた作業ツリー');
 
   // 後継は作業ツリーで立ち、最初の指示（起動時に渡された継続の指示）を受ける
@@ -1648,7 +1648,7 @@ test('hook: 別の project へ移した会話（Claude Desktop）を、移った
   const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
   let handoff;
   for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
-  assert.equal(handoff.error_code, 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
+  assert.equal(handoff.error_code, process.platform === 'win32' ? 'handoff_terminal_exited_before_accept' : 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
 
   // 後継の最初の指示（起動時に渡された継続の指示）
   const recordFile = join(home, '.throughline', 'claude-auto-handoff', `${SESSION}.json`);
@@ -1893,4 +1893,20 @@ test('Windows: worker bootstrap is owned outside the source cancellation job', (
     startWindows:options=>{called=options;return 456}});
   assert.equal(pid,456);assert.equal(called.sessionId,SESSION);
   assert.equal(called.env.CLAUDECODE,undefined);assert.equal(called.env.KEPT,'yes');
+}));
+
+test('Windows: publish a terminal failure when the worker can finish, without a late write after source recovery', () => withDir(async dir => {
+  request(dir);await stopClaudeTurnForHandoff({payload:{session_id:SESSION},dir,launchWorker:async()=>{}});
+  let end,terminalExit=null,closed=0,finished=false;
+  const terminal={pid:123,get exit(){return terminalExit},ended:new Promise(resolve=>{end=resolve})};
+  const worker=runClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{},pollMs:100,acceptTimeoutMs:1000,
+    onTerminalClosed:()=>{closed++},startTerminal:async()=>terminal}).then(result=>{finished=true;return result});
+  await new Promise(resolve=>setTimeout(resolve,5));terminalExit={exitCode:1};end(terminalExit);
+  await new Promise(resolve=>setTimeout(resolve,10));const early=readClaudeAutoHandoff(SESSION,dir).state,earlyFinished=finished;
+  const result=await worker;await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(earlyFinished || early!=='failed','the source must not observe failure while this worker can still rewrite it');
+  assert.equal(result.state,'failed');assert.equal(closed,1);
+  const file=join(dir,SESSION+'.json');const recovered={...readClaudeAutoHandoff(SESSION,dir),state:'stopped'};
+  writeFileSync(file,JSON.stringify(recovered));await new Promise(resolve=>setTimeout(resolve,110));
+  assert.equal(readClaudeAutoHandoff(SESSION,dir).state,'stopped');
 }));

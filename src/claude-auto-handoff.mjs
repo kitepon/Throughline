@@ -1304,15 +1304,27 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
       return record;
     };
     let initialReturned = false;
+    let closedNotified = false;
+    let monitor = null;
     const notifyClosed = () => {
-      if (onTerminalClosed) setImmediate(() => onTerminalClosed(readClaudeAutoHandoff(sessionId, dir)));
+      if (!onTerminalClosed || closedNotified) return;
+      closedNotified = true;
+      const closedRecord = readClaudeAutoHandoff(sessionId, dir);
+      setImmediate(() => onTerminalClosed(closedRecord));
     };
     const terminalResult = () => {
       initialReturned = true;
-      if (terminal.exit !== null) notifyClosed();
+      if (terminal.exit !== null) {
+        if (record.accepted_at) update({ terminal: { state: 'exited', pid: terminal.pid, exit_code: terminal.exit.exitCode } });
+        notifyClosed();
+      }
       return record;
     };
     terminal.ended.then(() => {
+      // Before the first result, publish failure and return from the worker in
+      // the same turn. A source that has resumed must not race a later write.
+      if (!initialReturned) return;
+      if (monitor) clearInterval(monitor);
       settle();
       record = readClaudeAutoHandoff(sessionId, dir);
       if (record.accepted_at) update({ terminal: { state: 'exited', pid: terminal.pid, exit_code: terminal.exit.exitCode } });
@@ -1339,7 +1351,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     }
     update({ state: 'unknown', error_code: 'handoff_delivery_unconfirmed' });
     // 受領が遅れた場合も、同じ端末を維持しながら追跡する。新しい後継は増やさない。
-    const monitor = setInterval(() => {
+    monitor = setInterval(() => {
       try { settle(); if (record.state === 'sent' || record.state === 'failed') clearInterval(monitor); }
       catch (error) { clearInterval(monitor); process.stderr.write(`[auto-handoff] terminal settlement failed: ${error.message}\n`); }
     }, pollMs);

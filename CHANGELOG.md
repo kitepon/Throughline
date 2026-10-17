@@ -10,7 +10,7 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
-## [0.16.38] — 2026-10-17
+## [0.16.38] — 2026-10-18
 
 ### Fixed
 
@@ -22,6 +22,8 @@ shipped to npm but were not individually tagged on GitHub.
   passing the caller's environment privately over stdin. Confirm actual memory
   acceptance before stopping the source; a terminal that exits before acceptance
   releases the first pending tool. Follow a delayed receipt without another launch.
+- Reject batch-only Windows shims before they can leave an interactive shell
+  waiting forever; preserve the original conversation on this definite failure.
 - Show the registered Remote Control link for a Windows successor, with its
   native resume command when registration is still pending, instead of a
   background-job attach command. See [ADR 0069](docs/adr/0069-windows-claude-owned-terminal-launch.md).

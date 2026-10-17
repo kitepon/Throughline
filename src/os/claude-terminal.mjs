@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -8,10 +8,15 @@ import { portableInvocation, spawnPortableSync } from './portable-spawn-sync.mjs
 /** Own a hidden terminal instead of a shared Claude daemon. Output is deliberately not logged. */
 export async function startClaudeTerminal(args, { sessionId, cwd, env, platform = process.platform,
   loadPty = () => import('node-pty') } = {}) {
-  const pty = await loadPty();
   const terminalEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('CLAUDE_BG_')));
   const [command, argv] = portableInvocation('claude',
     ['--session-id', sessionId, ...args.filter(arg => arg !== '--bg')], { env: terminalEnv, platform });
+  // A batch-only shim can leave an interactive command shell alive without ever
+  // starting Claude. npm's paired .ps1 shim and native executables are supported.
+  if (platform === 'win32' && ['.cmd', '.bat'].includes(extname(command).toLowerCase())) {
+    throw new Error('handoff_terminal_batch_shim_unsupported');
+  }
+  const pty = await loadPty();
   const terminal = pty.spawn(command, argv, { cwd, env: terminalEnv, cols: 120, rows: 40, name: 'xterm-256color' });
   let exit = null;
   let resolveExit;

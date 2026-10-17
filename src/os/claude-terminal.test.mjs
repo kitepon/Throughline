@@ -64,3 +64,12 @@ test('remote registration: use the exact session in the configured profile, neve
     assert.equal(readClaudeTerminalRemoteControl('requested',{env:{CLAUDE_CONFIG_DIR:dir}}),'https://claude.ai/code/session_Exact');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+test('Windows: reject a batch-only shim before it can leave an interactive shell hanging', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'tl-batch-shim-'));
+  try {
+    writeFileSync(join(dir,'claude.cmd'),'@echo off\r\nexit /b 1\r\n');
+    await assert.rejects(startClaudeTerminal(['--bg'],{sessionId:'fixture',cwd:dir,env:{PATH:dir},platform:'win32',
+      loadPty:async()=>{throw Error('must reject before loading a terminal')}}),/handoff_terminal_batch_shim_unsupported/);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

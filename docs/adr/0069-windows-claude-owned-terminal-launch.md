@@ -14,11 +14,11 @@ Windowsでは共有のClaude背景サービスが再起動し、異なる権限�
 
 Windowsの自動継続は共有サービスを操作せず、製品が所有する非表示のConPTYで通常の
 Claude対話セッションを直接起動する。Windows用のoptional dependencyとしてnode-ptyを使い（Unixの導入をnative build必須へ変えない）、利用者の画面を開いたり切り替えたり
-しない。同じproject・モデル・effort・権限とRemote Controlを維持する。後継IDは起動前に
+しない。native実行ファイルまたはnpmのPowerShell shimを使い、batchだけのshimは端末を作る前に拒否して旧い道具を通す。同じproject・モデル・effort・権限とRemote Controlを維持する。後継IDは起動前に
 決め、実UserPromptSubmitによる記憶受領後にだけ旧い道具を終了させる。
 
 端末の所有者は引き継ぎworkerであり、後継が存在する間は端末を維持する。workerの作業ディレクトリは製品状態の下とし、導入先を更新不能にしない。端末の終了を記録した後、専用workerも終了してnative addonのスレッドを残さない。起動失敗では
-所有する後継の終了を確認してから旧い作業を通す。結果不明を成功扱いせず、重複起動は
+所有する後継の終了を確認してから旧い作業を通す。失敗の確定とworkerの最初の結果を同じ処理で行い、再開した旧い会話へ古いworkerが後から書き戻さない。結果不明を成功扱いせず、重複起動は
 行わない。既存の共有daemon・他のworker・利用者の会話を停止しない。
 
 Linux/macOSの既存起動と4ハーネスの配線は維持する。Windowsの受入は共有サービスの
