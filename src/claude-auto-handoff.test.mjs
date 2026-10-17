@@ -11,7 +11,8 @@ import {
   stopClaudeTurnForHandoff as stopClaudeTurnForHandoffActual,
   completeClaudeTurnWithoutHandoff,
   acceptClaudeAutoContinuation,
-  runClaudeAutoHandoffWorker,
+  runClaudeAutoHandoffWorker as runClaudeAutoHandoffWorkerActual,
+  launchClaudeAutoHandoffWorker,
   readClaudeAutoHandoff,
   listClaudeAutoHandoffs,
   publicClaudeAutoHandoff,
@@ -27,6 +28,7 @@ import {
 } from './claude-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 import { backfillBodies } from './turn-backfill.mjs';
+const runClaudeAutoHandoffWorker = (sessionId, options) => runClaudeAutoHandoffWorkerActual(sessionId, { platform: 'linux', ...options });
 const stopClaudeTurnForHandoff = args => stopClaudeTurnForHandoffActual({ waitTimeoutMs: 0, ...args });
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -1832,4 +1834,63 @@ test('裏で動いている作業: 起こした道具から、終わった通知
     { task_id: 'b2', name: 'Bash', target: 'npm test', output_file: 'C:\\Users\\k\\AppData\\Local\\Temp\\claude tasks\\b2.output' },
   ] }, '途中の知らせ（status なし）が来ただけの作業は、まだ動いている');
   assert.deepEqual(readRunningBackgroundTasks(join(dir, 'none.jsonl')), { tasks: [], total: 0 });
+}));
+
+test('Windows: owned terminal receives memory before the source stops, without calling the shared daemon', () => withDir(async dir => {
+  request(dir);
+  await stopClaudeTurnForHandoff({payload:{session_id:SESSION},dir,launchWorker:async()=>{}});
+  let end, terminalExit=null, successorId, closedState=null;
+  const terminal={pid:123,get exit(){return terminalExit},ended:new Promise(resolve=>{end=resolve})};
+  const result=await runClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{CLAUDECODE:'1',CLAUDE_CODE_SESSION_ID:'old-session',CLAUDE_PID:'999',KEPT:'yes'},pollMs:1,
+    spawn:()=>{throw Error('daemon must not run')},onTerminalClosed:record=>{closedState=record.state},startTerminal:async(args,options)=>{
+      successorId=options.sessionId;
+      assert.equal(readClaudeAutoHandoff(SESSION,dir).successor.session_id,successorId);
+      assert.equal(options.env.CLAUDECODE,undefined);assert.equal(options.env.CLAUDE_CODE_SESSION_ID,undefined);assert.equal(options.env.CLAUDE_PID,undefined);assert.equal(options.env.KEPT,'yes');
+      acceptClaudeAutoContinuation({predecessorId:SESSION,successorSessionId:successorId,prompt:args.at(-1),dir});
+      return terminal;
+    }});
+  assert.equal(result.state,'sent');assert.equal(result.successor.session_id,successorId);
+  terminalExit={exitCode:0};end(terminalExit);await new Promise(resolve=>setImmediate(resolve));
+  const after=readClaudeAutoHandoff(SESSION,dir);assert.equal(after.state,'sent');assert.equal(after.terminal.state,'exited');
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(closedState,'sent');
+}));
+
+test('Windows: terminal creation failure releases even the first source tool, preserving the failure', () => withDir(async dir => {
+  request(dir);
+  const output=await stopClaudeTurnForHandoffActual({payload:{session_id:SESSION},dir,waitTimeoutMs:100,pollMs:1,
+    launchWorker:()=>runClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{},pollMs:1,
+      startTerminal:async()=>{throw Error('terminal allocation failed')}})});
+  assert.equal(output.continue,true);assert.match(output.systemMessage,/handoff_terminal_start_failed/);
+  assert.equal(readClaudeAutoHandoff(SESSION,dir).successor,null);
+}));
+
+test('Windows: a real terminal exit before receipt releases the first source tool', () => withDir(async dir => {
+  request(dir);
+  const output=await stopClaudeTurnForHandoffActual({payload:{session_id:SESSION},dir,waitTimeoutMs:100,pollMs:1,
+    launchWorker:()=>runClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{},pollMs:1,
+      startTerminal:async()=>({pid:123,exit:{exitCode:1},ended:Promise.resolve({exitCode:1})})})});
+  assert.equal(output.continue,true);assert.match(output.systemMessage,/handoff_terminal_exited_before_accept/);
+  const record=readClaudeAutoHandoff(SESSION,dir);assert.equal(record.successor,null);
+  assert.equal(typeof record.terminal.attempted_session_id,'string');
+}));
+
+test('Windows: a delayed receipt settles the same terminal instead of starting a second successor', () => withDir(async dir => {
+  request(dir);await stopClaudeTurnForHandoff({payload:{session_id:SESSION},dir,launchWorker:async()=>{}});
+  let end,terminalExit=null,successorId,prompt,calls=0;
+  const terminal={pid:123,get exit(){return terminalExit},ended:new Promise(resolve=>{end=resolve})};
+  const result=await runClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{},pollMs:1,acceptTimeoutMs:5,
+    startTerminal:async(args,options)=>{calls++;successorId=options.sessionId;prompt=args.at(-1);return terminal}});
+  assert.equal(result.state,'unknown');
+  acceptClaudeAutoContinuation({predecessorId:SESSION,successorSessionId:successorId,prompt,dir});
+  for(let i=0;i<100&&readClaudeAutoHandoff(SESSION,dir).state!=='sent';i++)await new Promise(resolve=>setTimeout(resolve,2));
+  assert.equal(readClaudeAutoHandoff(SESSION,dir).state,'sent');assert.equal(calls,1);
+  terminalExit={exitCode:0};end(terminalExit);await new Promise(resolve=>setImmediate(resolve));
+}));
+
+test('Windows: worker bootstrap is owned outside the source cancellation job', () => withDir(async dir => {
+  let called;
+  const pid=await launchClaudeAutoHandoffWorker(SESSION,{dir,platform:'win32',env:{CLAUDECODE:'1',KEPT:'yes'},
+    startWindows:options=>{called=options;return 456}});
+  assert.equal(pid,456);assert.equal(called.sessionId,SESSION);
+  assert.equal(called.env.CLAUDECODE,undefined);assert.equal(called.env.KEPT,'yes');
 }));

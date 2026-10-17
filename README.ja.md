@@ -66,10 +66,10 @@ throughline auto-handoff disable --host claude
 
 1. 自動圧縮の直前に、圧縮を止め、元の会話を特定する引き継ぎIDの記録を残します。
 2. 旧い会話の次の道具を保留し、後継の起動と受領を待ちます。受領後に旧い応答を止めます。起動失敗なら最初の道具から通し、元の応答を継続します（[ADR 0068](docs/adr/0068-claude-waits-before-stopping-source.md)）。
-3. 同じprojectに、継続の指示を最初の指示として付けた新しいClaudeの会話を裏で立てます（`claude --bg`）。会話の名前は、前任の会話の題から`<project名>｜<作業の概要>（自動引き継ぎ）`にします。モデル・推論強度・権限は旧い会話から引き継ぎます。
+3. 同じprojectに、継続の指示を最初の指示として付けた新しいClaudeの会話を裏で立てます。Windowsは共有の背景サービスを使わず、非表示の端末で直接起動します。Linux/macOSは`claude --bg`を使います（[ADR 0069](docs/adr/0069-windows-claude-owned-terminal-launch.md)）。会話の名前は、前任の会話の題から`<project名>｜<作業の概要>（自動引き継ぎ）`にします。モデル・推論強度・権限は旧い会話から引き継ぎます。
 4. 最初の指示を受け取った時に、止めた時点の依頼、そのターンでここまでにしたこと（発言と道具の呼び出し）、実行されなかった道具、直近の会話の原文を注入します（上限9,500字）。止めたターンの道具の入出力は、後継が`throughline detail`で取り出せます。
 
-続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopから始まった会話の後継は、リモートコントロール付きで立てるので、作業中もclaude.ai/codeとClaudeのアプリから見られます（[ADR 0048](docs/adr/0048-claude-desktop-origin-successor-has-remote-control.md)）。Desktopへの自動移動は既定で無効です。移動のために背景実行を止めると、リモートコントロールの接続と実行中の命令も切れるためです（[ADR 0051](docs/adr/0051-claude-successor-desktop-move-is-opt-in.md)）。`THROUGHLINE_AUTO_HANDOFF_OPEN=origin`を明示した時だけ、Desktopから始まった後継がターンを終えた後にDesktopへ移ります。`desktop`は出どころに関係なく移し、`off`は移しません。macOSとWindowsだけが対象です（[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は自動継続の対象に含めません。
+続きは裏の会話で動きます。`claude agents`の一覧で確認できます。Windowsではリモートコントロールの接続先を使います。Linux/macOSでは`claude attach <id>`で開けます。Claude Desktopから始まった会話の後継は、リモートコントロール付きで立てるので、作業中もclaude.ai/codeとClaudeのアプリから見られます（[ADR 0048](docs/adr/0048-claude-desktop-origin-successor-has-remote-control.md)）。Desktopへの自動移動は既定で無効です。移動のために背景実行を止めると、リモートコントロールの接続と実行中の命令も切れるためです（[ADR 0051](docs/adr/0051-claude-successor-desktop-move-is-opt-in.md)）。`THROUGHLINE_AUTO_HANDOFF_OPEN=origin`を明示した時だけ、Desktopから始まった後継がターンを終えた後にDesktopへ移ります。`desktop`は出どころに関係なく移し、`off`は移しません。macOSとWindowsだけが対象です（[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は自動継続の対象に含めません。
 
 ```bash
 throughline auto-handoff status --host claude --operation <handoff-id> --json

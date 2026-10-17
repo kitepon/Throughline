@@ -11,7 +11,7 @@
 | `/tl` | `UserPromptSubmit` が現在の session id を baton として保存する。次の実セッションがその前任を確定的に引き継ぐ |
 | VS Code の `/clear` | 組み込みコマンドは `UserPromptSubmit` に届かない。`SessionStart source='clear'` を使う auto path が、同じ project の直近前任を凍結して引き継ぐ |
 | Claude Desktop の `/clear` | `UserPromptSubmit` に届かず、`SessionStart source='clear'` も来ないため自動継承しない。続ける場合は `/clear` の前に `/tl` を実行する |
-| Claude Code の自動圧縮 | 有効な時だけPreCompact(auto)で要求を記録し、PreToolUseで道具を保留して後継の受領を待つ。確定した起動失敗なら最初の道具から旧い応答を継続する。後継の最初の入力がhandoff IDで前任を特定し、進行中のターンを捕捉してから記憶を合流・注入する。既定無効。手動 `/compact` は対象外。[ADR 0068](adr/0068-claude-waits-before-stopping-source.md) |
+| Claude Code の自動圧縮 | 有効な時だけPreCompact(auto)で要求を記録し、PreToolUseで道具を保留して後継の受領を待つ。確定した起動失敗なら最初の道具から旧い応答を継続する。Windowsは製品所有の非表示端末で直接起動し、共有背景サービスに依存しない（[ADR 0069](adr/0069-windows-claude-owned-terminal-launch.md)）。後継の最初の入力がhandoff IDで前任を特定し、進行中のターンを捕捉してから記憶を合流・注入する。既定無効。手動 `/compact` は対象外。[ADR 0068](adr/0068-claude-waits-before-stopping-source.md) |
 
 `/clear` が `UserPromptSubmit` に届かないことは、VS Code と Desktop の対照実測で
 確定している。`prompt-submit` に残る `/clear` 分岐は host が将来その文字列を渡した場合の

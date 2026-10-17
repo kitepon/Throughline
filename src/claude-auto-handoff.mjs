@@ -8,7 +8,7 @@
  *   2. PreToolUse                : 次の道具を保留してworkerの結果を待つ。受領後はdeny、確定した起動失敗はcontinue:true。
  *                                  止めた時点の依頼・設定を記録へ写し、後継を立てる worker を起動する。
  *   3. worker                    : 進行中のターンのsnapshotと、ここまでにしたことを
- *                                  記録へ写す。`claude --bg` を、継続の指示を最初の指示として付けて、同じ project に立てる。
+ *                                  記録へ写す。継続の指示を最初の指示として付け、同じ project に立てる。Windowsは専用端末、Unixは`claude --bg`。
  *   4. 後継の UserPromptSubmit   : handoff IDで前任を決め、DB捕捉・合流・記憶注入を行って受領を残す。worker は受領を待つ。
  *                                  外から後継へ文を送らない。権限のバイパス中の会話は、外から届いた文を
  *                                  利用者の承認まで止めるため（0.15.3）。
@@ -42,6 +42,7 @@ import { resolveMergeTarget } from './session-merger.mjs';
 import { sameProjectPath } from './project-path.mjs';
 import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
+import { readClaudeTerminalRemoteControl, startClaudeTerminal, startWindowsClaudeWorker } from './os/claude-terminal.mjs';
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
 import { acquireClaudeWakeClaim, claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, holdClaudeForward, logClaudeForward, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
 
@@ -56,7 +57,9 @@ const CLAUDE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const BACKGROUNDED_PATTERN = /backgrounded\s+\S+\s+([0-9a-f]{8})\b/;
 // 後継へ渡さない、会話ごとの環境変数。後継は自分の値を持つ。
 const PER_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_MESSAGING_SOCKET',
-  'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_PROJECT_DIR', 'CLAUDE_ENV_FILE'];
+  'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_PROJECT_DIR', 'CLAUDE_ENV_FILE',
+  'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ATTENDED',
+  'CLAUDE_EFFORT', 'CLAUDE_CODE_EXECPATH'];
 
 // Claude Desktop の画面から始まった会話が transcript に持つ印。
 const DESKTOP_ENTRYPOINT = 'claude-desktop';
@@ -156,6 +159,8 @@ export function publicClaudeAutoHandoff(record, { dir = claudeAutoHandoffDir() }
     // 後継をリモートコントロール付きで立てる引き継ぎか（null は対象外）。requested は指定を付けて立てた、unavailable は付けずに立て直した。
     // 付けて立てた後に、Claude Code がリモートへつなげたかまでは見ていない。
     remote_control_state: record.remote_control?.wanted ? (record.remote_control.state ?? 'waiting') : null,
+    ...(record.terminal ? { terminal_state: record.terminal.state,
+      remote_control_url: record.remote_control?.url ?? null } : {}),
     requested_at, updated_at };
 }
 
@@ -694,9 +699,12 @@ async function waitForStoppedToolUse(record, { timeoutMs, pollMs }) {
   for (const deadline = Date.now() + timeoutMs; !written() && Date.now() < deadline;) await delay(pollMs);
 }
 
-export async function launchClaudeAutoHandoffWorker(sessionId, { dir = claudeAutoHandoffDir() } = {}) {
+export async function launchClaudeAutoHandoffWorker(sessionId, { dir = claudeAutoHandoffDir(),
+  platform = process.platform, startWindows = startWindowsClaudeWorker, env = process.env } = {}) {
   if (!validSessionId(sessionId)) throw new ClaudeHandoffError('auto_handoff_session_id_invalid');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (platform === 'win32') return startWindows({ sessionId, cliPath: CLI_PATH,
+    logPath: join(dir, `${sessionId}.log`), env: successorEnv(env) });
   const log = openSync(join(dir, `${sessionId}.log`), 'a', 0o600);
   try {
     const child = spawnPortable(process.execPath,
@@ -736,6 +744,8 @@ function currentSuccessor(record, dir) {
  * `claude rm` で一覧から消した後継は `claude attach` では開けない（記録は残る）。その時に開ける命令も添える。
  */
 function handedOffReason(record, dir) {
+  if (record.terminal) return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+    `続きはこちらで行ってください: ${openSuccessorCommand(record, dir)}`;
   const { shortId, sessionId } = currentSuccessor(record, dir);
   return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
     `続きは後継の会話で行ってください: claude attach ${shortId}` +
@@ -749,6 +759,7 @@ function handedOffReason(record, dir) {
  */
 function openSuccessorCommand(record, dir) {
   const { shortId, sessionId } = currentSuccessor(record, dir);
+  if (record.terminal) return record.remote_control?.url ?? `claude --resume ${sessionId}`;
   return `claude attach ${shortId}` + (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
 }
 
@@ -1016,7 +1027,7 @@ function failedWithoutSuccessor(record, dir) {
 
 function failedHandoffOutput(record) {
   const message = `Throughline: 引き継ぎに失敗しました（${record.error_code ?? 'handoff_failed'}）。` +
-    '後継は起動していません。元の会話で作業を継続できます。失敗記録と保存済みの内容は保持しています。';
+    '後継は稼働していません。元の会話で作業を継続できます。失敗記録と保存済みの内容は保持しています。';
   return { continue: true, systemMessage: message,
     hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: message } };
 }
@@ -1069,8 +1080,10 @@ export async function stopClaudeTurnForHandoff({
         },
       }, { dir, now });
       try { await launchWorker(sessionId, { dir }); }
-      catch {
-        record = updateRecord(sessionId, { state: 'failed', error_code: 'handoff_worker_start_failed' }, { dir });
+      catch (error) {
+        record = updateRecord(sessionId, error.code === 'handoff_worker_start_unconfirmed'
+          ? { state: 'unknown', error_code: 'handoff_worker_start_unconfirmed' }
+          : { state: 'failed', error_code: 'handoff_worker_start_failed' }, { dir });
       }
     }
   }
@@ -1213,6 +1226,10 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   transcriptTimeoutMs = 5_000,
   acceptTimeoutMs = 60_000,
   pollMs = 200,
+  platform = process.platform,
+  startTerminal = startClaudeTerminal,
+  readTerminalRemoteControl = readClaudeTerminalRemoteControl,
+  onTerminalClosed = null,
 } = {}) {
   let record = readClaudeAutoHandoff(sessionId, dir);
   if (!record) throw new ClaudeHandoffError('handoff_not_found');
@@ -1246,6 +1263,88 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
       effort: record.settings?.effort ?? (record.transcript_path ? readLatestEffort(record.transcript_path) : null) },
     in_flight: inFlight,
   });
+  if (platform === 'win32') {
+    // Windowsの共有daemonは、別の権限で再起動されると元の会話から到達できなくなる。
+    // 共有daemonには触れず、同じ利用者の非表示端末を製品が所有する（ADR 0069）。
+    const successorSessionId = randomUUID();
+    const successor = { short_id: successorSessionId.slice(0, 8), session_id: successorSessionId };
+    update({ successor, terminal: { state: 'starting', pid: null } });
+    let terminal;
+    try {
+      terminal = await startTerminal(successorArgs(record, { remoteControl: Boolean(record.remote_control?.wanted) }),
+        { sessionId: successorSessionId, cwd: record.project_path, env: successorEnv(env), platform });
+    } catch {
+      // startTerminalが失敗を返すのは、端末を作れなかった時だけ。起動済みの端末はendedで観測する。
+      update({ successor: null, terminal: { state: 'failed', pid: null, attempted_session_id: successorSessionId } });
+      return fail('handoff_terminal_start_failed');
+    }
+    update({ state: 'launched', terminal: { state: 'running', pid: terminal.pid },
+      ...(record.remote_control?.wanted ? { remote_control: { ...record.remote_control, state: 'requested' } } : {}) });
+    const settle = () => {
+      record = readClaudeAutoHandoff(sessionId, dir);
+      const acceptance = readAcceptance(sessionId, record.handoff_id, dir);
+      if (acceptance && acceptance.successor_session_id === successorSessionId) {
+        let url = null;
+        if (record.remote_control?.wanted) {
+          try { url = readTerminalRemoteControl(successorSessionId, { env }); }
+          catch (error) { process.stderr.write(`[auto-handoff] remote registration read failed: ${error.message}\n`); }
+        }
+        const next = update({ state: 'sent', error_code: null, accepted_at: acceptance.accepted_at,
+          ...captureFields(acceptance), successor,
+          ...(url ? { remote_control: { ...record.remote_control, state: 'registered', url } } : {}) });
+        rmSync(acceptancePath(sessionId, dir), { force: true });
+        return next;
+      }
+      if (terminal.exit !== null && !record.accepted_at) {
+        // 本物の端末の終了を確認できた時だけ、元の道具を解放する。後継の試行IDは監査用に保持する。
+        return update({ state: 'failed', error_code: 'handoff_terminal_exited_before_accept', successor: null,
+          terminal: { state: 'exited', pid: terminal.pid, exit_code: terminal.exit.exitCode,
+            attempted_session_id: successorSessionId } });
+      }
+      return record;
+    };
+    let initialReturned = false;
+    const notifyClosed = () => {
+      if (onTerminalClosed) setImmediate(() => onTerminalClosed(readClaudeAutoHandoff(sessionId, dir)));
+    };
+    const terminalResult = () => {
+      initialReturned = true;
+      if (terminal.exit !== null) notifyClosed();
+      return record;
+    };
+    terminal.ended.then(() => {
+      settle();
+      record = readClaudeAutoHandoff(sessionId, dir);
+      if (record.accepted_at) update({ terminal: { state: 'exited', pid: terminal.pid, exit_code: terminal.exit.exitCode } });
+      if (initialReturned) notifyClosed();
+    }).catch(error => { process.stderr.write(`[auto-handoff] terminal exit settlement failed: ${error.message}\n`); });
+    if (record.remote_control?.wanted) {
+      const registrationDeadline = Date.now() + 60_000;
+      const registration = setInterval(() => {
+        if (terminal.exit !== null || Date.now() >= registrationDeadline) { clearInterval(registration); return; }
+        try {
+          const url = readTerminalRemoteControl(successorSessionId, { env });
+          if (url) {
+            record = readClaudeAutoHandoff(sessionId, dir);
+            update({ remote_control: { ...record.remote_control, state: 'registered', url } });
+            clearInterval(registration);
+          }
+        } catch (error) { clearInterval(registration); process.stderr.write(`[auto-handoff] remote registration read failed: ${error.message}\n`); }
+      }, 500);
+    }
+    for (const deadline = Date.now() + acceptTimeoutMs; Date.now() < deadline;) {
+      settle();
+      if (record.state === 'sent' || record.state === 'failed') return terminalResult();
+      await delay(pollMs);
+    }
+    update({ state: 'unknown', error_code: 'handoff_delivery_unconfirmed' });
+    // 受領が遅れた場合も、同じ端末を維持しながら追跡する。新しい後継は増やさない。
+    const monitor = setInterval(() => {
+      try { settle(); if (record.state === 'sent' || record.state === 'failed') clearInterval(monitor); }
+      catch (error) { clearInterval(monitor); process.stderr.write(`[auto-handoff] terminal settlement failed: ${error.message}\n`); }
+    }, pollMs);
+    return terminalResult();
+  }
   const launch = remoteControl => spawn('claude', successorArgs(record, { remoteControl }), {
     cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'],
   });

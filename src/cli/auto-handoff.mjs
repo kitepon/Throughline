@@ -88,7 +88,12 @@ async function runClaude(parsed) {
     removeClaudeAutoHandoffHooks();
     return { status: 'disabled', host: 'claude', config };
   }
-  if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation, { openDb: getDb }));
+  if (parsed.action === 'worker') return publicClaudeAutoHandoff(await runClaudeAutoHandoffWorker(parsed.operation, {
+    openDb: getDb,
+    // This CLI owns just one terminal. Once it has exited and its state is durable,
+    // do not retain native addon threads or pin an old installation indefinitely.
+    onTerminalClosed: record => process.exit(record.state === 'failed' || record.state === 'unknown' ? 1 : 0),
+  }));
   if (parsed.action === 'desktop-open') return publicClaudeAutoHandoff(await runClaudeDesktopOpen(parsed.operation));
   // ある会話の今の続きを返す。読むだけ（`--thread` には Claude の session id を渡す）。
   if (parsed.action === 'successor') {

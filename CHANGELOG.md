@@ -10,6 +10,22 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.38] — 2026-10-17
+
+### Fixed
+
+- Launch Windows Claude successors in a product-owned hidden terminal, preserving
+  the model, effort, permissions, project and Remote Control. Shared background
+  service restarts and access failures no longer determine whether a successor
+  can start. Other sessions and the shared service are not restarted or stopped.
+- Keep the Windows terminal worker outside the source hook's cancellation job,
+  passing the caller's environment privately over stdin. Confirm actual memory
+  acceptance before stopping the source; a terminal that exits before acceptance
+  releases the first pending tool. Follow a delayed receipt without another launch.
+- Show the registered Remote Control link for a Windows successor, with its
+  native resume command when registration is still pending, instead of a
+  background-job attach command. See [ADR 0069](docs/adr/0069-windows-claude-owned-terminal-launch.md).
+
 ## [0.16.37] — 2026-10-17
 
 ### Fixed
@@ -2700,7 +2716,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.37...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.38...HEAD
+[0.16.38]: https://github.com/kitepon/Throughline/compare/v0.16.37...v0.16.38
 [0.16.37]: https://github.com/kitepon/Throughline/compare/v0.16.36...v0.16.37
 [0.16.36]: https://github.com/kitepon/Throughline/compare/v0.16.35...v0.16.36
 [0.16.35]: https://github.com/kitepon/Throughline/compare/v0.16.34...v0.16.35
