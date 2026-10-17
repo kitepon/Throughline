@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.36] — 2026-10-17
+
+### Fixed
+
+- Release the original Claude conversation after a failed handoff with no
+  successor or acceptance. Keep the failure and captured memory, report the
+  failure explicitly, and allow both tools and compaction instead of repeatedly
+  stopping the user's work and retrying the launch. Keep duplicate-execution
+  protection when a successor or acceptance exists.
+  See [ADR 0067](docs/adr/0067-claude-failed-handoff-releases-source.md).
+
 ## [0.16.35] — 2026-10-15
 
 ### Fixed
@@ -2675,7 +2686,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.35...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.36...HEAD
+[0.16.36]: https://github.com/kitepon/Throughline/compare/v0.16.35...v0.16.36
 [0.16.35]: https://github.com/kitepon/Throughline/compare/v0.16.34...v0.16.35
 [0.16.34]: https://github.com/kitepon/Throughline/compare/v0.16.33...v0.16.34
 [0.16.33]: https://github.com/kitepon/Throughline/compare/v0.16.32...v0.16.33

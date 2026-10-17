@@ -65,7 +65,7 @@ const OPEN_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_OPEN';
 // 後継をリモートコントロール付きで立てるかの上書き。`on` は出どころに関係なく付け、`off` は付けない。
 const REMOTE_CONTROL_OVERRIDE_ENV = 'THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL';
 
-// requested と failed は、次の道具の hook が後継の立ち上げを始められる。
+// 席に残った requested / failed は取り下げる。一般の会話の failed は再停止しない。
 const RETRYABLE_STATES = new Set(['requested', 'failed']);
 // 後継の最初の指示は、worker が後継の ID を記録へ写す前に届くことがある（launching）。
 const ACCEPTABLE_STATES = new Set(['launching', 'launched', 'sent', 'unknown']);
@@ -409,6 +409,11 @@ export function requestClaudeAutoHandoff({
   // 席の会話に、後継を立てる前の記録が残っている（席を外す前の版が予約した）。取り下げて、圧縮を通す。
   const withdrawn = seat && existing && RETRYABLE_STATES.has(existing.state);
   if (withdrawn) withdrawRecord(sessionId, dir);
+  // 後継も受領も無い失敗は原本を保持し、旧い会話の作業と圧縮を通す。
+  if (existing && !withdrawn && failedWithoutSuccessor(existing, dir)) {
+    return { status: 'failed', block: false, reason: existing.error_code ?? 'handoff_failed',
+      sessionId, projectPath, handoffId: existing.handoff_id };
+  }
   // 引き継ぎが進んでいる会話は、設定が後から変わっても圧縮させない。
   if (existing && !withdrawn) {
     return { status: 'already_requested', block: true, sessionId, projectPath, handoffId: existing.handoff_id };
@@ -1004,12 +1009,22 @@ export function redirectClaudeHandedOffPrompt({ payload, now = Date.now(), dir =
     ...(wake ? { wake: wake.outcome } : {}) };
 }
 
+function failedWithoutSuccessor(record, dir) {
+  return record.state === 'failed' && !record.successor && !record.accepted_at &&
+    !existsSync(acceptancePath(record.source_session_id, dir));
+}
+
+function failedHandoffOutput(record) {
+  const message = `Throughline: 引き継ぎに失敗しました（${record.error_code ?? 'handoff_failed'}）。` +
+    '後継は起動していません。元の会話で作業を継続できます。失敗記録と保存済みの内容は保持しています。';
+  return { continue: true, systemMessage: message,
+    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: message } };
+}
+
 /**
- * PreToolUse hook の本体。引き継ぎの記録がある会話の道具を、実行させずに止める。
- * 最初に止めた hook だけが、止めた時点の依頼と設定を記録へ写し、後継を立てる worker を起動する。
- * 記録が無い会話と、subagent の中の道具には何もしない（null）。Aiterm が起こした席の会話に、後継を立てる前の記録が
- * 残っている時は、記録を取り下げて何もしない（ADR 0057）。
- *
+ * 最初の要求だけが旧い会話を止めて worker を起動する。後継も受領も無い失敗では、
+ * 失敗を明示して道具を通す。同じ失敗を次の道具で再試行しない（ADR 0067）。
+ * 席に残った requested / failed は取り下げる（ADR 0057）。
  * @returns {Promise<object|null>} Claude Code へ返す hook 出力
  */
 export async function stopClaudeTurnForHandoff({
@@ -1029,9 +1044,9 @@ export async function stopClaudeTurnForHandoff({
       withdrawRecord(sessionId, dir);
       return null;
     }
+    if (record.state === 'failed') return failedWithoutSuccessor(record, dir) ? failedHandoffOutput(record) : stopOutput(record, dir);
     // 同じ応答に並んだ道具の hook は同時に走る。立ち上げは1回だけ。
     const claim = join(dir, `${sessionId}.claim`);
-    if (record.state === 'failed') rmSync(claim, { force: true });
     let claimed = true;
     try { closeSync(openSync(claim, 'wx', 0o600)); }
     catch (error) {
@@ -1057,6 +1072,7 @@ export async function stopClaudeTurnForHandoff({
       }
     }
   }
+  if (failedWithoutSuccessor(record, dir)) return failedHandoffOutput(record);
   return stopOutput(record, dir);
 }
 

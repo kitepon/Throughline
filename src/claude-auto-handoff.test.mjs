@@ -428,18 +428,33 @@ test('PreToolUse: 記録のある会話の道具を実行させずに止め、�
   assert.deepEqual(launched, [SESSION]);
 }));
 
-test('PreToolUse: worker を起動できなければ failed にし、次の道具でもう一度立ち上げる', () => withDir(async dir => {
+test('PreToolUse: worker の起動失敗は元の会話を通し、道具でも圧縮でも再停止しない', () => withDir(async dir => {
   request(dir);
   const payload = { session_id: SESSION, cwd: '/work/app', tool_name: 'Read' };
-  const failing = async () => { throw new Error('spawn failed'); };
-  const output = await stopClaudeTurnForHandoff({ payload, dir, launchWorker: failing });
-  assert.equal(output.continue, false, '立ち上げに失敗しても、圧縮されていない会話の道具は止める');
-  assert.deepEqual([readClaudeAutoHandoff(SESSION, dir).state, readClaudeAutoHandoff(SESSION, dir).error_code],
-    ['failed', 'handoff_worker_start_failed']);
+  const output = await stopClaudeTurnForHandoff({ payload, dir, launchWorker: async () => { throw new Error('spawn failed'); } });
+  assert.equal(output.continue, true);
+  assert.match(output.systemMessage, /handoff_worker_start_failed/);
+  const failed = readClaudeAutoHandoff(SESSION, dir);
+  assert.deepEqual([failed.state, failed.error_code], ['failed', 'handoff_worker_start_failed']);
   const launched = [];
-  await stopClaudeTurnForHandoff({ payload, dir, launchWorker: async sessionId => { launched.push(sessionId); } });
-  assert.deepEqual(launched, [SESSION]);
-  assert.equal(readClaudeAutoHandoff(SESSION, dir).state, 'stopped');
+  assert.equal((await stopClaudeTurnForHandoff({ payload, dir, launchWorker: async id => launched.push(id) })).continue, true);
+  assert.deepEqual(launched, []);
+  assert.deepEqual(readClaudeAutoHandoff(SESSION, dir), failed);
+  assert.deepEqual([request(dir).result.status, request(dir).result.block], ['failed', false]);
+}));
+
+test('失敗記録に後継か受領がある時は二重実行を防ぐ', () => withDir(async dir => {
+  request(dir);
+  const file = join(dir, `${SESSION}.json`), original = readClaudeAutoHandoff(SESSION, dir);
+  for (const fields of [{ successor: { short_id: SUCCESSOR.slice(0, 8), session_id: SUCCESSOR } }, { accepted_at: 1234 }]) {
+    writeFileSync(file, JSON.stringify({ ...original, state: 'failed', error_code: 'handoff_successor_launch_failed', ...fields }));
+    assert.equal(request(dir).result.block, true);
+    assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir, launchWorker: async () => assert.fail('must not launch') })).continue, false);
+  }
+  writeFileSync(file, JSON.stringify({ ...original, state: 'failed', error_code: 'handoff_successor_launch_failed' }));
+  writeFileSync(join(dir, `${SESSION}.accepted`), JSON.stringify({ handoff_id: original.handoff_id, successor_session_id: SUCCESSOR, accepted_at: 1234 }));
+  assert.equal(request(dir).result.block, true);
+  assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir, launchWorker: async () => assert.fail('must not launch') })).continue, false);
 }));
 
 test('Stop: 圧縮を止めた後、道具を呼ばずにターンが終わったら記録を取り下げる', () => withDir(async dir => {
@@ -759,6 +774,13 @@ test('worker: 立ち上げの失敗は固定の理由を残し、受領を確か
     rmSync(join(dir, `${SESSION}.claim`), { force: true });
     const { record } = await runWorker(dir, deps);
     assert.deepEqual([record.state, record.error_code], [state, code], code);
+    if (state === 'failed') {
+      const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir,
+        launchWorker: async () => assert.fail('failed handoff must not relaunch') });
+      assert.equal(output.continue, true, code);
+      assert.equal(request(dir).result.block, false, code);
+      assert.deepEqual(readClaudeAutoHandoff(SESSION, dir), record, '失敗原本と記憶を保持する');
+    }
   }
   // 結果が不明な引き継ぎは、次の道具でも立ち上げ直さない
   const launched = [];

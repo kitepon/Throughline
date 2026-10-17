@@ -69,13 +69,13 @@ throughline auto-handoff disable --host claude
 3. 同じprojectに、継続の指示を最初の指示として付けた新しいClaudeの会話を裏で立てます（`claude --bg`）。会話の名前は、前任の会話の題から`<project名>｜<作業の概要>（自動引き継ぎ）`にします。モデル・推論強度・権限は旧い会話から引き継ぎます。
 4. 最初の指示を受け取った時に、止めた時点の依頼、そのターンでここまでにしたこと（発言と道具の呼び出し）、実行されなかった道具、直近の会話の原文を注入します（上限9,500字）。止めたターンの道具の入出力は、後継が`throughline detail`で取り出せます。
 
-続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopの画面から始まった会話の後継は、そのターンの作業を終えた時に、Claude Desktopへ移して開きます（macOSは0.16.8から、Windowsは0.16.9から。LinuxのClaude Codeには`--desktop`が無いので開きません。[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。Claude Codeは裏で動いている会話をDesktopへ移さないので、作業の間はDesktopには出ません。続けて引き継いだ時は、最後に作業を終えた後継だけを開きます。端末から始めた会話の後継は開きません。手で開く時は、`claude stop <id>`で裏の実行を停止し、`claude --desktop --resume <session-id>`を実行します。`session-id`は`claude agents --json --all`の`sessionId`です。環境変数`THROUGHLINE_AUTO_HANDOFF_OPEN`を`desktop`にすると出どころに関係なく開き、`off`にすると開きません。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は対象に含めません。 Claude Desktopから始まった会話の後継は、リモートコントロール付きで立てるので、作業の最中もclaude.ai/codeとClaudeのアプリから見られます（0.16.16から。[ADR 0048](docs/adr/0048-claude-desktop-origin-successor-has-remote-control.md)）。
+続きは裏の会話で動きます。`claude agents`の一覧と`claude attach <id>`で見られます。Claude Desktopから始まった会話の後継は、リモートコントロール付きで立てるので、作業中もclaude.ai/codeとClaudeのアプリから見られます（[ADR 0048](docs/adr/0048-claude-desktop-origin-successor-has-remote-control.md)）。Desktopへの自動移動は既定で無効です。移動のために背景実行を止めると、リモートコントロールの接続と実行中の命令も切れるためです（[ADR 0051](docs/adr/0051-claude-successor-desktop-move-is-opt-in.md)）。`THROUGHLINE_AUTO_HANDOFF_OPEN=origin`を明示した時だけ、Desktopから始まった後継がターンを終えた後にDesktopへ移ります。`desktop`は出どころに関係なく移し、`off`は移しません。macOSとWindowsだけが対象です（[ADR 0043](docs/adr/0043-claude-successor-opens-in-desktop.md)）。手動`/compact`、subagentの中の圧縮、`claude -p`などscriptから起動した会話は自動継続の対象に含めません。
 
 ```bash
 throughline auto-handoff status --host claude --operation <handoff-id> --json
 ```
 
-後継の立ち上げや配送に失敗した時は、固定の理由を記録して止まります。結果が不明な指示は再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
+後継の立ち上げに失敗し、後継も受領も無い時は、失敗を明示して旧い会話の作業と圧縮を通します。同じ失敗で再停止・再起動せず、保存済みの内容と失敗の記録を保持します（[ADR 0067](docs/adr/0067-claude-failed-handoff-releases-source.md)）。後継や受領が存在する時と、配送の結果が不明な時は二重実行を防ぐため旧い会話を止め、指示を再送しません。圧縮を止めた後にモデルが道具を呼ばずにターンを終えた時は、後継を立てません。印は残るので、1時間以内に開いた新しい会話が記憶を引き継ぎます。
 
 引き継いだ後の旧い会話へ入力が届いた時は、モデルを動かさずに止めて、後継の会話へ届けます（[ADR 0062](docs/adr/0062-claude-handed-off-conversation-blocks-input.md)、[ADR 0063](docs/adr/0063-claude-handed-off-input-is-forwarded-to-successor.md)）。旧い会話へ打った文と、旧い会話が裏で起こした作業の完了通知が対象です。打った人には「届いた入力は、後継の会話へ渡しました」と後継を開く命令が返ります。手すきの後継はすぐ動き、作業中の後継は次の道具の前に読みます。後継が止まっている時（`claude stop`・Claude Codeの片付け）は、旧い会話へ人が打った文の時だけ、後継を起こしてその文を最初の入力として渡します（[ADR 0064](docs/adr/0064-claude-stopped-successor-is-woken-by-human-input.md)）。止まっていると確かめられない時と、完了通知の時は起こさず、後継を開いて何か入力した時に届きます。後継の画面では、運ばれた入力は利用者の発言の形ではなく、フックからの通知か文脈の形で出ます。届くまでの間、入力の本文は`~/.throughline/claude-auto-handoff/inbox/`に置かれます（本人だけが読める権限。届けたら消します）。
 

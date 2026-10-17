@@ -47,7 +47,7 @@ export async function run() {
     if (output) {
       logDecision({
         ts: new Date(now).toISOString(),
-        phase: 'pre-tool-use-stop',
+        phase: output.continue === false ? 'pre-tool-use-stop' : 'pre-tool-use-handoff-failed',
         session_id: sessionId,
         tool_name: payload.tool_name ?? null,
       });
