@@ -10,6 +10,20 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.37] — 2026-10-17
+
+### Fixed
+
+- Hold the original Claude tool call until its successor accepts or its launch
+  fails. A confirmed failure now lets the very first pending tool run without
+  ending the original response, including parallel tool calls.
+- Capture the in-flight turn only when the real successor's first prompt arrives,
+  before merging memory. A failed launch no longer freezes partial text in the
+  database and loses the remainder when the original conversation continues.
+- Give the managed Claude PreToolUse hook a 240-second budget for the bounded
+  210-second result wait. Other products' hooks and permissions are preserved.
+  See [ADR 0068](docs/adr/0068-claude-waits-before-stopping-source.md).
+
 ## [0.16.36] — 2026-10-17
 
 ### Fixed
@@ -2686,7 +2700,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.36...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.37...HEAD
+[0.16.37]: https://github.com/kitepon/Throughline/compare/v0.16.36...v0.16.37
 [0.16.36]: https://github.com/kitepon/Throughline/compare/v0.16.35...v0.16.36
 [0.16.35]: https://github.com/kitepon/Throughline/compare/v0.16.34...v0.16.35
 [0.16.34]: https://github.com/kitepon/Throughline/compare/v0.16.33...v0.16.34

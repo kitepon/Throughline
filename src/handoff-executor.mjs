@@ -49,7 +49,7 @@ export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Da
 
   // 自動継続の後継は、最初の指示が運ぶ引き継ぎ ID で前任を決める (ADR 0053)。project ごとに1つの印は見ない
   // (同じ project の別の会話のための印を、後継が取らない)。
-  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId });
+  const continuationSourceId = findClaudeAutoContinuationSource({ prompt, successorSessionId: sessionId, openDb: () => db });
   // baton 適格性はセッション誕生時刻 (pending.createdAt) 基準。
   // 誕生後に書かれたバトンは future_baton として残置される (本来の後継のもの)。
   const baton = continuationSourceId ? null : consumeBaton(db, { projectPath, now, bornAt: pending.createdAt });

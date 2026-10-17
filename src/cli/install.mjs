@@ -71,7 +71,7 @@ const CLAUDE_AUTO_HANDOFF_HOOKS = {
     hooks: [{ type: 'command', command: 'throughline pre-compact' }],
   },
   PreToolUse: {
-    hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }],
+    hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 240 }],
   },
   Stop: {
     hooks: [{ type: 'command', command: 'throughline claude-forward-wait', asyncRewake: true, timeout: 86400 }],

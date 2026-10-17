@@ -1,15 +1,15 @@
 /**
  * claude-auto-handoff.mjs — Claude Code の自動継続 (ADR 0033)
  *
- * 自動圧縮を置き換える。圧縮が走る前に旧い会話を止め、記憶を持った新しい会話で作業を続ける。
+ * 自動圧縮を置き換える。圧縮前に旧い道具を保留し、後継の受領を確認してから旧い応答を止める。起動失敗では旧い道具を通す。
  * Codex の自動継続 (codex-auto-handoff.mjs) と同じ並びで、Claude Code の入口に合わせている。
  *
  *   1. PreCompact (trigger=auto) : 圧縮を止め（exit code 2）、/tl と同じ印（baton）と引き継ぎの記録を残す。
- *   2. PreToolUse                : 記録がある会話の次の道具を、実行させずに止める（deny + continue:false）。
+ *   2. PreToolUse                : 次の道具を保留してworkerの結果を待つ。受領後はdeny、確定した起動失敗はcontinue:true。
  *                                  止めた時点の依頼・設定を記録へ写し、後継を立てる worker を起動する。
- *   3. worker                    : 止めたターンを DB へ取り込み（発言の全部と道具の入出力）、ここまでにしたことを
+ *   3. worker                    : 進行中のターンのsnapshotと、ここまでにしたことを
  *                                  記録へ写す。`claude --bg` を、継続の指示を最初の指示として付けて、同じ project に立てる。
- *   4. 後継の UserPromptSubmit   : その指示が baton を消費し、記憶を注入して、受領を残す。worker は受領を待つ。
+ *   4. 後継の UserPromptSubmit   : handoff IDで前任を決め、DB捕捉・合流・記憶注入を行って受領を残す。worker は受領を待つ。
  *                                  外から後継へ文を送らない。権限のバイパス中の会話は、外から届いた文を
  *                                  利用者の承認まで止めるため（0.15.3）。
  *   5. 後継の Stop               : Claude Desktop から始まった会話の後継は、そのターンの作業を終えた時に
@@ -1022,7 +1022,7 @@ function failedHandoffOutput(record) {
 }
 
 /**
- * 最初の要求だけが旧い会話を止めて worker を起動する。後継も受領も無い失敗では、
+ * 最初の要求だけが worker を起動し、道具を保留して結果を待つ。後継も受領も無い失敗では、
  * 失敗を明示して道具を通す。同じ失敗を次の道具で再試行しない（ADR 0067）。
  * 席に残った requested / failed は取り下げる（ADR 0057）。
  * @returns {Promise<object|null>} Claude Code へ返す hook 出力
@@ -1033,6 +1033,8 @@ export async function stopClaudeTurnForHandoff({
   dir = claudeAutoHandoffDir(),
   launchWorker = launchClaudeAutoHandoffWorker,
   env = process.env,
+  waitTimeoutMs = 210_000,
+  pollMs = 100,
 }) {
   const sessionId = payload?.session_id;
   if (!validSessionId(sessionId) || payload.agent_id) return null;
@@ -1072,6 +1074,17 @@ export async function stopClaudeTurnForHandoff({
       }
     }
   }
+  // 道具は hook の間まだ実行されていない。後継の受領か確定した失敗を待ってから停止を決める。
+  // 失敗なら最初の道具も通し、元の応答を終了させない。並んだ hook も同じ記録を待つ。
+  for (const deadline = Date.now() + waitTimeoutMs;
+    ['requested', 'stopped', 'launching', 'launched'].includes(record.state) && Date.now() < deadline;) {
+    await delay(pollMs);
+    record = readClaudeAutoHandoff(sessionId, dir);
+    if (!record) return null;
+  }
+  if (waitTimeoutMs > 0 && ['requested', 'stopped', 'launching', 'launched'].includes(record.state)) {
+    record = updateRecord(sessionId, { state: 'unknown', error_code: 'handoff_source_wait_timeout' }, { dir });
+  }
   if (failedWithoutSuccessor(record, dir)) return failedHandoffOutput(record);
   return stopOutput(record, dir);
 }
@@ -1108,13 +1121,19 @@ export function claudeContinuationInput(record) {
  *
  * @returns {string|null}
  */
-export function findClaudeAutoContinuationSource({ prompt, successorSessionId, dir = claudeAutoHandoffDir() }) {
+export function findClaudeAutoContinuationSource({ prompt, successorSessionId, dir = claudeAutoHandoffDir(), openDb = null }) {
   if (typeof prompt !== 'string' || typeof successorSessionId !== 'string') return null;
   const handoffId = CONTINUATION_PREFIX.exec(prompt)?.[1];
   if (!handoffId) return null;
   const record = listClaudeAutoHandoffs({ dir }).find(item => item.handoff_id === handoffId);
   if (!record || !ACCEPTABLE_STATES.has(record.state) || record.source_session_id === successorSessionId) return null;
   if (record.successor?.short_id && !successorSessionId.startsWith(record.successor.short_id)) return null;
+  // 実際の後継の最初の入力が来て初めて、進行中のターンをDBへ確定する。
+  // 起動失敗の時に旧い会話が続くので、途中の本文を先に凍結しない（ADR 0068）。
+  if (openDb && record.in_flight && !record.in_flight.turn) {
+    const turn = captureStoppedTurn(record, openDb);
+    updateRecord(record.source_session_id, { in_flight: { ...record.in_flight, turn } }, { dir });
+  }
   return record.source_session_id;
 }
 
@@ -1214,7 +1233,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   rmSync(acceptancePath(sessionId, dir), { force: true });
   await waitForStoppedToolUse(record, { timeoutMs: transcriptTimeoutMs, pollMs });
   const inFlight = record.transcript_path ? snapshotInFlight(record, dir) : null;
-  if (inFlight && openDb) inFlight.turn = captureStoppedTurn(record, openDb);
+  // DBへの確定は後継の最初の入力で行う。起動失敗では旧い会話の通常Stopに任せる。
   update({
     state: 'launching',
     // モデルと effort は、止めた時点の物を後継へ渡す。effort は hook の payload の値を使い、無い時だけ transcript から読む。

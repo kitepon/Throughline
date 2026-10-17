@@ -688,7 +688,7 @@ test('Claude Stop hook is registered with async:true so it does not block ター
     await run([]);
     const enabled = JSON.parse(readFileSync(settingsPath, 'utf8')).hooks;
     assert.deepEqual(enabled.PreCompact, [other, { hooks: [{ type: 'command', command: 'throughline pre-compact' }] }]);
-    assert.deepEqual(enabled.PreToolUse, [{ hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 15 }] }]);
+    assert.deepEqual(enabled.PreToolUse, [{ hooks: [{ type: 'command', command: 'throughline pre-tool-use', timeout: 240 }] }]);
 
     await run(['--uninstall']);
     assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks, { PreCompact: [other] },
