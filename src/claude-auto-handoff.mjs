@@ -1197,7 +1197,17 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   if (!record) throw new ClaudeHandoffError('handoff_not_found');
   if (record.state !== 'stopped') return record;
   const update = fields => { record = updateRecord(sessionId, fields, { dir }); return record; };
-  const fail = code => update({ state: 'failed', error_code: code });
+  const fail = (code, state = 'failed', shortId = null) => {
+    // CLI の応答を失っても、受領があれば後継は動いている。旧い会話を解放しない。
+    const accepted = readAcceptance(sessionId, record.handoff_id, dir);
+    if (accepted) {
+      rmSync(acceptancePath(sessionId, dir), { force: true });
+      return update({ state: 'sent', error_code: null, accepted_at: accepted.accepted_at,
+        successor: { short_id: accepted.successor_session_id.slice(0, 8), session_id: accepted.successor_session_id } });
+    }
+    return update({ state, error_code: code,
+      ...(shortId ? { successor: { short_id: shortId, session_id: null } } : {}) });
+  };
 
   // 止めた時点の依頼・ここまでにしたこと・その時のモデルを写し、止めたターンを DB へ取り込む。
   // 後継の最初の指示が、これを現在地として受け取る。前の引き継ぎの受領が残っていれば消す。
@@ -1220,7 +1230,8 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   if (record.remote_control?.wanted) {
     if (!launched.error && launched.status === 0 && backgroundedId(launched)) {
       update({ remote_control: { ...record.remote_control, state: 'requested' } });
-    } else if (!launched.error && !backgroundedId(launched)) {
+    } else if (!launched.error && launched.status !== 0 && !backgroundedId(launched) &&
+        !readAcceptance(sessionId, record.handoff_id, dir)) {
       // リモートコントロールを付けると立てられない（未ログイン、古い Claude Code など）。後継は立っていないので、
       // 付けずに立て直す。引き継ぎは止めない。
       process.stderr.write(`[auto-handoff] claude --bg --remote-control exit=${launched.status} ` +
@@ -1230,6 +1241,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     }
   }
   if (launched.error) {
+    if (launched.error.code === 'ETIMEDOUT') return fail('handoff_successor_launch_unconfirmed', 'unknown', backgroundedId(launched));
     return fail(launched.error.code === 'ENOENT' ? 'handoff_claude_cli_unavailable' : 'handoff_successor_launch_failed');
   }
   const shortId = backgroundedId(launched);
@@ -1237,6 +1249,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     // 理由を端末内の worker のログに残す（指示や記憶は含まれない、起動コマンドの出力だけ）。
     process.stderr.write(`[auto-handoff] claude --bg exit=${launched.status} stdout=${JSON.stringify(`${launched.stdout ?? ''}`.slice(0, 500))} ` +
       `stderr=${JSON.stringify(`${launched.stderr ?? ''}`.slice(0, 500))}\n`);
+    if (shortId || launched.status === 0) return fail('handoff_successor_launch_unconfirmed', 'unknown', shortId);
     return fail('handoff_successor_launch_failed');
   }
   update({ state: 'launched', successor: { short_id: shortId, session_id: null } });

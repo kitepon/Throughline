@@ -765,7 +765,9 @@ test('worker: 立ち上げの失敗は固定の理由を残し、受領を確か
   const cases = [
     [{ spawn: () => ({ error: Object.assign(new Error('not found'), { code: 'ENOENT' }) }) }, 'failed', 'handoff_claude_cli_unavailable'],
     [{ spawn: () => ({ status: 1, stdout: '', stderr: 'Workspace not trusted' }) }, 'failed', 'handoff_successor_launch_failed'],
-    [{ spawn: () => ({ status: 0, stdout: 'unexpected output', stderr: '' }) }, 'failed', 'handoff_successor_launch_failed'],
+    [{ spawn: () => ({ status: 0, stdout: 'unexpected output', stderr: '' }) }, 'unknown', 'handoff_successor_launch_unconfirmed'],
+    [{ spawn: () => ({ error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) }) }, 'unknown', 'handoff_successor_launch_unconfirmed'],
+    [{ spawn: () => ({ status: 1, stdout: 'backgrounded · a41a97ae · tl-app', stderr: 'late error' }) }, 'unknown', 'handoff_successor_launch_unconfirmed'],
     // 後継は立ったが、最初の指示の受領が期限までに残らない
     [{ spawn: launchedOk }, 'unknown', 'handoff_delivery_unconfirmed'],
   ];
@@ -787,6 +789,18 @@ test('worker: 立ち上げの失敗は固定の理由を残し、受領を確か
   await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app' }, dir, launchWorker: async id => { launched.push(id); } });
   assert.deepEqual(launched, []);
   assert.equal((await runClaudeAutoHandoffWorker(SESSION, { dir, spawn: () => { throw new Error('must not spawn'); } })).state, 'unknown');
+}));
+
+test('worker: CLI の異常終了より受領を優先し、旧い会話を解放しない', () => withDir(async dir => {
+  const { record, calls } = await runWorker(dir, { spawn: (_command, args) => {
+    successorStarts(dir)(args);
+    return { status: 1, stdout: '', stderr: 'launcher response lost after acceptance' };
+  } });
+  assert.equal(record.state, 'sent');
+  assert.equal(record.successor.session_id, SUCCESSOR);
+  assert.equal(record.accepted_at, 5000);
+  assert.equal(calls.spawn.length, 1);
+  assert.equal(request(dir).result.block, true);
 }));
 
 test('最初の指示: 後継だけが止めた時点の依頼を受け取り、この引き継ぎの指示だけが受領になる', () => withDir(async dir => {
@@ -1062,7 +1076,10 @@ test('Desktop で開く: 後継が手すきになるのを待って止め、擬�
       return { status: stopStatus, stdout: `stopped ${shortId}\n` };
     };
     const pty = (command, args, options) => { calls.push(['pty', command, ...args, options.cwd]); return opened; };
-    const record = await runClaudeDesktopOpen(SESSION, { dir, env: { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, spawn, pty, idleTimeoutMs: 60, pollMs: 5 });
+    // busy→idle の成功試験は poll の順序を検査する。Windows CI の負荷で60msを越えても打ち切らない。
+    // busy のまま / 一覧無しの期限切れ試験だけは短い実時間を使う。
+    const record = await runClaudeDesktopOpen(SESSION, { dir, env: { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, spawn, pty,
+      idleTimeoutMs: statuses.length > 1 ? 5_000 : 60, pollMs: 5 });
     return { record, calls };
   };
   const ok = { status: 0, stdout: `\u0004\b\bOpening session ${SUCCESSOR} in Claude Desktop\r\n`, stderr: '' };
