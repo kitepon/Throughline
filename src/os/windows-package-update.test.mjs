@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, win32, posix } from 'node:path';
 import { tmpdir } from 'node:os';
-import { packageFiles, promoteWindowsPackage, updateWindowsPackage } from './windows-package-update.mjs';
+import { packageFiles, packagePathsOverlap, promoteWindowsPackage, updateWindowsPackage } from './windows-package-update.mjs';
 
 function fixture() {
   const work = mkdtempSync(join(tmpdir(), 'tl-promotion-test-'));
@@ -100,4 +100,18 @@ test('staged npm promotion verifies the pinned package, preserves live files and
       assert.equal(JSON.parse(readFileSync(join(f.target, 'package.json'))).version, invalid ? '1.2.3' : '1.2.4');
     } finally { rmSync(f.work, { recursive: true, force: true }); }
   }
+});
+
+
+test('update path guard allows separate volumes and rejects either direction of real nesting', () => {
+  for (const [source, target, overlap] of [
+    ['D:\\Temp\\stage', 'C:\\npm\\throughline', false],
+    ['C:\\stage', 'C:\\stage\\live', true],
+    ['C:\\live\\stage', 'C:\\live', true],
+    ['C:\\same', 'C:\\same', true],
+    ['C:\\live\\..nested', 'C:\\live', true],
+    ['C:\\stage', 'C:\\live', false],
+  ]) assert.equal(packagePathsOverlap(source, target, win32), overlap);
+  assert.equal(packagePathsOverlap('/tmp/stage', '/product/live', posix), false);
+  assert.equal(packagePathsOverlap('/product/live/..nested', '/product/live', posix), true);
 });

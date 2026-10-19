@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -26,9 +26,17 @@ function atomicWrite(path, bytes) {
   finally { rmSync(pending, { force: true }); }
 }
 
+export function packagePathsOverlap(source, target, path = { relative, resolve, isAbsolute, sep }) {
+  const inside = (root, candidate) => {
+    const rel = path.relative(path.resolve(root), path.resolve(candidate));
+    return rel === '' || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`));
+  };
+  return inside(source, target) || inside(target, source);
+}
+
 /** Roll back every completed file mutation. Keep the journal if rollback itself fails. */
 export function promoteWindowsPackage(source, target, journal, { replace = atomicWrite } = {}) {
-  if (resolve(source) === resolve(target) || !relative(target, source).startsWith('..') || !relative(source, target).startsWith('..')) {
+  if (packagePathsOverlap(source, target)) {
     throw new Error('update_overlapping_paths');
   }
   const old = JSON.parse(readFileSync(join(target, 'package.json')));

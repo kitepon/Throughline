@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.41] — 2026-10-19
+
+### Fixed
+
+- Allow the Windows updater's private staging prefix and canonical installation to
+  reside on different drives. Keep rejecting genuinely nested or identical package
+  paths in either direction, including directory names starting with two dots.
+
 ## [0.16.40] — 2026-10-19
 
 ### Fixed
@@ -2745,7 +2753,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.40...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.41...HEAD
+[0.16.41]: https://github.com/kitepon/Throughline/compare/v0.16.40...v0.16.41
 [0.16.40]: https://github.com/kitepon/Throughline/compare/v0.16.39...v0.16.40
 [0.16.39]: https://github.com/kitepon/Throughline/compare/v0.16.38...v0.16.39
 [0.16.38]: https://github.com/kitepon/Throughline/compare/v0.16.37...v0.16.38
