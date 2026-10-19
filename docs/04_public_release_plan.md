@@ -43,7 +43,16 @@ dotagentsは工場への配線と統合結果を所有するが、Throughlineの
 runtime errorを外へ送るのは製品自身で、`runtime-errors report-enable`で明示して有効にした端末に限る。
 既定では通信せず、宛先とcredentialは利用者が指定したcredential fileにだけあり、packageへ埋めない。
 
-Windows nativeの更新はPowerShell 7から公式`npm.cmd`を呼び、`npm.ps1`や
+Windows nativeの更新はPowerShell 7から公式`npm.cmd`を呼び、私有prefixへ指定版を導入する。
+正規global rootのファイルとbyte比較し、同一の使用中部品は触らず、変更ファイルだけを
+一時ファイルからrenameする。package.jsonは最後に進め、途中失敗は変更済みファイルを戻す。
+回復journalは製品状態の`recovery/package-updates`、排他lockはglobal node_modulesの
+`.throughline-update-lock`に保持する。異常終了でlockが残る場合は自動で奪わず失敗する。
+lockのowner.jsonとjournalを照合し、実行中の更新が無いこと・記録と正規packageの一致を
+保守で確認してから回復する。使用中の**異なる**native部品が上書きできない場合も、
+会話を停止せず明示失敗して変更を戻す。Windows terminalの新規起動はnpm外の
+内容hash別runtimeを使用する（[ADR 0071](adr/0071-windows-update-with-live-terminals.md)）。
+`npm.ps1`や
 Windows PowerShell 5.1へ切り替えない。更新前CLIを再利用せず、更新先global rootから解決した
 新CLI、公開PATHから起動したCLI、そのversion、`throughline.self_update.v1`成功結果がすべて
 一致した場合だけ完了とする。複数npm prefixが混在して公開PATHが旧実体を指す場合は失敗する。

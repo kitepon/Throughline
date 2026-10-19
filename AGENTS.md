@@ -238,6 +238,8 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/terminal-size.test.mjs](src/terminal-size.test.mjs) | `parseSizeResponse` / `startSizeQuery` — OSC 18t 応答パース、raw mode 遷移、分割到着、Ctrl+C 捕捉、stop() 冪等性 |
 | [src/cli/doctor.test.mjs](src/cli/doctor.test.mjs) | `doctor --session` / `doctor --trim` / `doctor --codex` 用の `parseArgs` / diagnostics helpers |
 | [src/cli/install.test.mjs](src/cli/install.test.mjs) | `run` (install / uninstall) の冪等性、`--project` スコープ、Claude Stop `async: true` / Codex Stop `async: false` 登録、既存 Codex hook shape 更新、slash command 配置、`resolveThroughlineOnPath` の PATH 解決テスト (v0.3.23+) |
+| [src/os/windows-package-update.mjs](src/os/windows-package-update.mjs) | Windows更新の私有npm stage、同一ファイル保持、正規pathへの変更差分反映、排他と回復journal・rollback |
+| [src/os/windows-terminal-runtime.mjs](src/os/windows-terminal-runtime.mjs) | node-ptyを内容hash別の製品runtimeへ検証コピー。npm更新と稼働端末のnative部品を分離 |
 | [src/cli/self-update.test.mjs](src/cli/self-update.test.mjs) | `self-update` がnpm global rootと公開PATHの実体一致、版情報の文字列・単一結果配列、versioned handshake、公開diagnostics全体のready、Windows `pwsh` + `npm.cmd`、子stderr保持を検証する契約 |
 
 ```bash

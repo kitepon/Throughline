@@ -227,13 +227,14 @@ test('自己更新は複数版・空配列・不正な版情報で後続工程�
   }
 });
 
-test('self-update fails closed without reflecting command output', () => {
+test('Unix package update fails closed without reflecting command output', () => {
   const stdout = sink();
   const stderr = sink();
   assert.equal(run(['--json'], {
     stdout,
     stderr,
     runner: () => ({ status: 1, stdout: '', stderr: '/Users/private/token' }),
+    platform: 'linux',
     packageVersion: '0.10.4',
   }), 1);
   assert.deepEqual(JSON.parse(stdout.values.join('')), {
@@ -454,86 +455,43 @@ test('Unix fails closed when PATH still resolves a different global prefix', () 
   assert.equal(childStarted, false);
 });
 
-test('Windows self-update uses pwsh and the official npm.cmd entry', () => {
-  const calls = [];
-  const runner = (command, args, options) => {
-    calls.push({ command, args, env: options.env });
+test('Windows self-update stages official npm package before the canonical new CLI acceptance', () => {
+  const path = 'C:\\npm\\node_modules\\throughline\\bin\\throughline.mjs';
+  const calls = []; let promoted = false;
+  const runner = (command, args) => {
+    calls.push([command, ...args]);
     if (command === 'pwsh.exe') {
-      if (args[4].includes("'npm.cmd' 'install' '-g' 'throughline@latest'")) return ok();
-      if (args[4].includes("'npm.cmd' 'root' '--global'")) {
-        return ok('C:\\Users\\kite\\AppData\\Roaming\\npm\\node_modules\r\n');
-      }
-      if (args[4].includes("'throughline.cmd' '--self-update-identity'")) {
-        return ok(`${JSON.stringify(updateIdentity(
-          'C:\\Users\\kite\\AppData\\Roaming\\npm\\node_modules\\throughline\\bin\\throughline.mjs',
-        ))}\r\n`);
-      }
+      const script = args[4];
+      assert.equal(script.includes("'install' '-g'"), false, 'never move the live npm directory');
+      if (script.includes("'root'")) return ok('C:\\npm\\node_modules');
+      if (script.includes("'view'")) return ok('"0.10.5"');
+      if (script.includes("'throughline.cmd'")) return ok(JSON.stringify(updateIdentity(path, promoted ? '0.10.5' : '0.10.4')));
     }
-    if (command === 'C:\\Program Files\\nodejs\\node.exe' && args.at(-1) === '--version') {
-      return ok('0.10.5\r\n');
-    }
-    if (command === 'C:\\Program Files\\nodejs\\node.exe' && args.at(-2) === 'self-update') {
-      return ok(`${JSON.stringify(updateSuccess())}\r\n`);
-    }
-    throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+    if (args.at(-1) === '--version') return ok('0.10.5');
+    if (args.at(-2) === 'self-update') return ok(JSON.stringify(updateSuccess()));
+    throw Error('unexpected call');
   };
-
-  assert.equal(run(['--json'], {
-    stdout: sink(),
-    stderr: sink(),
-    env: { Path: 'C:\\Program Files\\nodejs' },
-    runner,
-    packageVersion: '0.10.4',
-    nodePath: 'C:\\Program Files\\nodejs\\node.exe',
-    platform: 'win32',
-    canonicalizePath: fakeCanonicalizePath,
+  assert.equal(run(['--json'], { stdout: sink(), stderr: sink(), env: {}, runner, platform: 'win32',
+    cliPath: path, nodePath: 'C:\\node.exe', packageVersion: '0.10.4', canonicalizePath: fakeCanonicalizePath,
+    windowsUpdater({ target, version }) { assert.equal(target, 'C:\\npm\\node_modules\\throughline');
+      assert.equal(version, '0.10.5'); promoted = true; },
   }), 0);
-  assert.equal(calls.filter(({ command }) => command === 'pwsh.exe').length, 3);
-  assert.equal(calls.filter(({ command, args }) =>
-    command === 'pwsh.exe' && args[4].includes('npm.cmd')).length, 2);
-  assert.equal(calls.filter(({ command, args }) =>
-    command === 'pwsh.exe' && args[4].includes('throughline.cmd')).length, 1);
-  assert.ok(calls.every(({ command }) => command !== 'powershell.exe' && command !== 'npm'));
-  assert.deepEqual(calls.at(-1).args.slice(0, 2), [
-    'C:\\Users\\kite\\AppData\\Roaming\\npm\\node_modules\\throughline\\bin\\throughline.mjs',
-    'self-update',
-  ]);
+  assert.equal(promoted, true);
+  assert.equal(calls.filter(c => c[0] === 'powershell.exe').length, 0);
 });
 
-test('Windows fails closed when PATH still resolves a different global prefix', () => {
-  const stdout = sink();
-  let childStarted = false;
-  const runner = (command, args) => {
-    if (command === 'pwsh.exe') {
-      if (args[4].includes("'npm.cmd' 'install' '-g' 'throughline@latest'")) return ok();
-      if (args[4].includes("'npm.cmd' 'root' '--global'")) {
-        return ok('C:\\prefix-b\\node_modules\r\n');
-      }
-      if (args[4].includes("'throughline.cmd' '--self-update-identity'")) {
-        return ok(`${JSON.stringify(updateIdentity(
-          'C:\\prefix-a\\node_modules\\throughline\\bin\\throughline.mjs',
-        ))}\r\n`);
-      }
-    }
-    if (command === 'C:\\node\\node.exe' && args.at(-1) === '--version') {
-      return ok('0.10.5\r\n');
-    }
-    if (args.at(-2) === 'self-update') childStarted = true;
-    throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
-  };
-
-  assert.equal(run(['--json'], {
-    stdout,
-    stderr: sink(),
-    env: { Path: 'C:\\prefix-a;C:\\prefix-b' },
-    runner,
-    packageVersion: '0.10.4',
-    nodePath: 'C:\\node\\node.exe',
-    platform: 'win32',
-    canonicalizePath: fakeCanonicalizePath,
+test('Windows rejects mismatched public prefix before staging or changing files', () => {
+  const stdout = sink(); let mutated = false;
+  assert.equal(run(['--json'], { stdout, stderr: sink(), env: {}, platform: 'win32',
+    cliPath: 'C:\\a\\node_modules\\throughline\\bin\\throughline.mjs', packageVersion: '0.10.4',
+    canonicalizePath: fakeCanonicalizePath, windowsUpdater() { mutated = true; },
+    runner(command, args) {
+      if (args[4].includes("'root'")) return ok('C:\\b\\node_modules');
+      return ok(JSON.stringify(updateIdentity('C:\\a\\node_modules\\throughline\\bin\\throughline.mjs', '0.10.4')));
+    },
   }), 1);
   assert.equal(JSON.parse(stdout.values.join('')).stage, 'public_cli_mismatch');
-  assert.equal(childStarted, false);
+  assert.equal(mutated, false);
 });
 
 test('Windows post-install registry check also uses pwsh with npm.cmd', () => {

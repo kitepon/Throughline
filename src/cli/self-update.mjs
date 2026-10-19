@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { updateWindowsPackage } from '../os/windows-package-update.mjs';
 import { dirname, join, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -319,6 +321,7 @@ export function run(argv = [], {
   cliPath = DEFAULT_CLI_PATH,
   platform = process.platform,
   canonicalizePath = realpathSync,
+  windowsUpdater = updateWindowsPackage,
 } = {}) {
   let args;
   try {
@@ -335,9 +338,30 @@ export function run(argv = [], {
     });
   }
 
-  const update = npmResult(runner, ['install', '-g', 'throughline@latest'], env, platform);
-  if (!succeeded(update)) {
-    return emitFailure({ ...args, stdout, stderr, stage: 'package_update_failed', version: packageVersion });
+  if (platform === 'win32') {
+    const root = resolveGlobalCliPath(npmResult(runner, ['root', '--global'], env, platform), platform);
+    const current = parseJsonOutput(publicIdentityResult(runner, env, platform));
+    if (!root || !validateSelfUpdateIdentity(current, {
+      version: packageVersion, cliPath: root, platform, canonicalizePath,
+    }) || !validateSelfUpdateIdentity(buildSelfUpdateIdentity({ version: packageVersion, cliPath }), {
+      version: packageVersion, cliPath: root, platform, canonicalizePath,
+    })) {
+      return emitFailure({ ...args, stdout, stderr, stage: 'public_cli_mismatch', version: packageVersion });
+    }
+    const version = parseRegistryVersion(npmResult(runner, ['view', 'throughline', 'version', '--json'], env, platform));
+    if (!version) return emitFailure({ ...args, stdout, stderr, stage: 'version_verification_failed', version: packageVersion });
+    try {
+      windowsUpdater({ target: win32.dirname(win32.dirname(root)), version, beforeVersion: packageVersion,
+        npm: argv => npmResult(runner, argv, env, platform), stderr,
+        recoveryRoot: join(homedir(), '.throughline', 'recovery', 'package-updates') });
+    } catch (error) {
+      stderr.write(`[throughline self-update] ${error.message}\n`);
+      return emitFailure({ ...args, stdout, stderr, stage: 'package_update_failed', version: packageVersion });
+    }
+  } else {
+    const update = npmResult(runner, ['install', '-g', 'throughline@latest'], env, platform);
+    if (!succeeded(update)) return emitFailure(
+      { ...args, stdout, stderr, stage: 'package_update_failed', version: packageVersion });
   }
 
   const globalRootResult = npmResult(runner, ['root', '--global'], env, platform);

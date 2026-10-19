@@ -3,11 +3,12 @@ import { dirname, extname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { loadWindowsTerminalRuntime } from './windows-terminal-runtime.mjs';
 import { portableInvocation, spawnPortableSync } from './portable-spawn-sync.mjs';
 
 /** Own a hidden terminal instead of a shared Claude daemon. Output is deliberately not logged. */
 export async function startClaudeTerminal(args, { sessionId, cwd, env, platform = process.platform,
-  loadPty = () => import('node-pty') } = {}) {
+  loadPty = () => platform === 'win32' ? loadWindowsTerminalRuntime() : import('node-pty') } = {}) {
   const terminalEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('CLAUDE_BG_')));
   const [command, argv] = portableInvocation('claude',
     ['--session-id', sessionId, ...args.filter(arg => arg !== '--bg')], { env: terminalEnv, platform });

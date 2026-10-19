@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.40] — 2026-10-19
+
+### Fixed
+
+- Keep Windows Claude terminal native libraries in verified, immutable product-owned
+  runtimes outside the mutable npm installation. Existing terminal processes are
+  never stopped or restarted by an update.
+- Stage Windows self-updates through official npm in a private prefix, then promote
+  only changed files at the canonical installation path. Identical mapped native
+  libraries remain untouched. Preserve a recovery journal and roll back completed
+  file mutations on failure; reject competing updates and changed entrypoints.
+  See [ADR 0071](docs/adr/0071-windows-update-with-live-terminals.md).
+
 ## [0.16.39] — 2026-10-19
 
 ### Fixed
@@ -2732,7 +2745,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.39...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.40...HEAD
+[0.16.40]: https://github.com/kitepon/Throughline/compare/v0.16.39...v0.16.40
 [0.16.39]: https://github.com/kitepon/Throughline/compare/v0.16.38...v0.16.39
 [0.16.38]: https://github.com/kitepon/Throughline/compare/v0.16.37...v0.16.38
 [0.16.37]: https://github.com/kitepon/Throughline/compare/v0.16.36...v0.16.37

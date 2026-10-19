@@ -910,6 +910,15 @@ actual reply body remain intact.
 | `throughline self-update [--json]`             | Update the official npm package, verify that public PATH resolves to that new CLI/version, reapply product-owned integrations, migrate an existing database, and verify public diagnostics in one call |
 | `throughline uninstall`                        | Remove Throughline-managed Claude hooks/slash commands, only the Throughline-managed Codex hook, and the `$throughline` Codex skill |
 
+On Windows, self-update installs the official release in a private npm prefix and
+promotes changed files at the existing public CLI path. It leaves identical native
+libraries used by active terminals untouched and rolls back file changes on an I/O
+failure. New Claude terminals use a verified runtime outside the npm installation.
+A changed legacy native library that is still locked causes an explicit update
+failure; the updater never stops a conversation. Recovery backups are kept under
+`~/.throughline/recovery/package-updates/`. See
+[Windows update recovery](docs/adr/0071-windows-update-with-live-terminals.md).
+
 Versions before v0.10.5 do not contain `self-update`. Upgrade those versions
 once with `npm install --global throughline@latest`, then run
 `throughline self-update`. Later updates use `throughline self-update` alone.
