@@ -16,11 +16,12 @@ import { getAutoHandoff, requestAutoHandoff, updateAutoHandoff, failAutoHandoff,
   claimAutoHandoff, releaseAutoHandoff, freezeCodexMemory, continuationInput,
   findAutoHandoffForTurn, listDeliveredAutoHandoffsForSource, listUndeliveredAutoHandoffsForSource,
   HANDOFF_TERMINAL_STATES } from './codex-auto-handoff-store.mjs';
-import { ensureAutoHandoffSummaries, renderAutoHandoffMemory } from './codex-auto-handoff-memory.mjs';
+import { ensureAutoHandoffSummaries, renderAutoHandoffMemory, collectAutoHandoffMemory } from './codex-auto-handoff-memory.mjs';
 import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
   settingsMatch, threadStartSettings } from './hosts/codex-handoff-state.mjs';
 import { resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { composeAutoHandoffTitle, markHandedOffTitle, usableAutoHandoffTitle } from './auto-handoff-title.mjs';
+import { logHookFailure } from './hook-failure-log.mjs';
 
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
 const stateRoot = () => join(homedir(), '.throughline', 'codex-auto-handoff');
@@ -219,12 +220,43 @@ function settleUndeliveredAutoHandoff(db, threadId, { rolloutPath, processes, re
   return { kind: null, seen: undelivered };
 }
 
+// 登録済みPreCompactの30秒以内に、停止を許可するか決める。準備中のworkerはhostを操作しない。
+const PREPARATION_TIMEOUT_MS = 20_000;
+export async function waitForCodexHandoffPreparation(db, id, { wait = waitForHandoff } = {}) {
+  return wait(() => {
+    const operation = getAutoHandoff(db, id);
+    if (!operation || HANDOFF_TERMINAL_STATES.has(operation.state)) throw error(operation?.error_code ?? 'handoff_preparation_failed');
+    return operation.runtime?.sourceStopGate?.ready ? operation : null;
+  }, { timeoutMs: PREPARATION_TIMEOUT_MS, timeoutCode: 'handoff_preparation_timeout' });
+}
+
+function keepSourceAfterPreparationFailure(db, id, code) {
+  const failed = failAutoHandoff(db, id, code).operation;
+  return { status: 'failed', operationId: id, reason: failed.error_code, continue: true,
+    systemMessage: `Throughlineの引き継ぎ準備が失敗しました: ${failed.error_code}。元の会話は停止せず、Codexの処理を継続します。引き継ぎは完了していません。` };
+}
+
+function summarizerFailure(cause) {
+  if (!((cause?.source === 'codex-cli' && ['codex_cli_failed', 'empty_output'].includes(cause.reason)) ||
+      cause?.message === 'handoff_l1_unavailable')) return null;
+  const text = String(cause.stderr ?? '');
+  const category = /selected model is at capacity/i.test(text) ? 'capacity'
+    : /rate.?limit|usage limit|quota/i.test(text) ? 'rate_limit'
+    : /unauthori[sz]ed|authentication|401|refresh.token/i.test(text) ? 'authentication'
+    : /timed?\s*out|timeout/i.test(text) ? 'timeout'
+    : /network|connection|stream disconnected|websocket/i.test(text) ? 'transport'
+    : cause.reason === 'empty_output' ? 'empty_output' : 'unclassified';
+  return { at: new Date().toISOString(), source: 'codex-cli', reason: cause.reason ?? 'handoff_l1_unavailable',
+    exit_code: Number.isInteger(cause.exitCode) ? cause.exitCode : null, category };
+}
+
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
   findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
   settleGoal = launchAutoHandoffGoalSettle,
   recordInternalCompaction = recordInternalCompactionStop, recordUnrecordedCompaction = recordUnrecordedCompactionPass,
-  processes = readRuntimeProcesses, readTarget = targetState, now = Date.now() } = {}) {
+  processes = readRuntimeProcesses, readTarget = targetState, now = Date.now(),
+  waitForPreparation = waitForCodexHandoffPreparation } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
   // 記録（rollout）を持たない会話からの合図。Codex Desktop は、ターンの終わりや会話を開いた時に、画面に出ない会話を
@@ -299,6 +331,9 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   }
   if (settled.kind) {
     const pending = settled.operation;
+    if (pending.runtime?.sourceStopGate && !pending.runtime.sourceStopGate.authorized) {
+      return keepSourceAfterPreparationFailure(actualDb, pending.handoff_id, 'handoff_source_advanced');
+    }
     if (settled.kind === 'retry') {
       try { await launchWorker(pending.handoff_id, { resume: pending.state === 'failed' }); }
       catch { throw error('handoff_worker_start_failed'); }
@@ -313,10 +348,24 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   }
   const { operation, inserted } = created;
   if (inserted) {
+    updateAutoHandoff(actualDb, operation.handoff_id, { runtime_json: {
+      sourceStopGate: { ready: false, authorized: false, deadline: Date.now() + PREPARATION_TIMEOUT_MS } } });
     try { await launchWorker(operation.handoff_id); }
     catch {
-      failAutoHandoff(actualDb, operation.handoff_id, 'handoff_worker_start_failed');
-      throw error('handoff_worker_start_failed');
+      return keepSourceAfterPreparationFailure(actualDb, operation.handoff_id, 'handoff_worker_start_failed');
+    }
+  }
+  if (getAutoHandoff(actualDb, operation.handoff_id).runtime?.sourceStopGate &&
+      !getAutoHandoff(actualDb, operation.handoff_id).runtime.sourceStopGate.authorized) {
+    try {
+      await waitForPreparation(actualDb, operation.handoff_id);
+      const prepared = getAutoHandoff(actualDb, operation.handoff_id);
+      if (prepared.state !== 'requested' || !prepared.runtime?.sourceStopGate?.ready) throw error(prepared.error_code ?? 'handoff_preparation_failed');
+      const allowed = updateAutoHandoff(actualDb, operation.handoff_id, { runtime_json: { ...prepared.runtime,
+        sourceStopGate: { ...prepared.runtime.sourceStopGate, authorized: true } } }, { expectedState: 'requested' });
+      if (!allowed.changed) throw error('handoff_preparation_cancelled');
+    } catch (cause) {
+      return keepSourceAfterPreparationFailure(actualDb, operation.handoff_id, cause.code ?? 'handoff_preparation_failed');
     }
   }
   return { status: 'ok', operationId: operation.handoff_id, inserted, continue: false,
@@ -765,6 +814,47 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       throw error('handoff_mutation_outcome_unknown');
     }
     const runtime = { executable: deps.executable(), timeout_ms: 30_000 };
+    if (operation.state === 'requested' && operation.runtime?.sourceStopGate) {
+      // PreCompactが待っている間に記憶を準備する。ここではゴール停止・後継作成・画面操作・配送を行わない。
+      const gate = operation.runtime.sourceStopGate;
+      const check = () => {
+        const current = getAutoHandoff(db, id);
+        if (current.state !== 'requested' || Date.now() > gate.deadline) throw error('handoff_preparation_cancelled');
+        const state = deps.readSource(current);
+        if (state.latestTurnId !== current.source_turn_id) throw error('handoff_source_advanced');
+        if (state.pendingCallCount) throw error('handoff_source_operation_pending');
+        if (state.pendingNativeSessionCount) throw error('handoff_native_session_pending');
+        return state;
+      };
+      const state = check();
+      if (!state.settings) throw error('handoff_settings_unavailable');
+      const native = await deps.nativeState(operation, runtime);
+      check();
+      const captured = deps.capture(db, { threadId: operation.source_thread_id, codexHome: operation.codex_home,
+        projectPath: operation.project_path });
+      if (captured.status !== 'captured') throw error('handoff_memory_unavailable');
+      const inheritedMemory = state.inheritedThroughlineMemory && !operation.previous_handoff_id
+        ? untrackedInheritedMemory(state.inheritedThroughlineMemoryText) : null;
+      const preparedRuntime = { ...operation.runtime, ...native, databasePath: DB_PATH, ...(inheritedMemory ? { inheritedMemory } : {}) };
+      // 停止前のsnapshotは要約cacheを作るための一時値。正規snapshotは停止を実測してから凍結する。
+      const preview = { ...operation, settings: state.settings, runtime: preparedRuntime,
+        snapshot: freezeCodexMemory(db, operation, state.settings, state) };
+      deps.summaries(db, preview, { beforeSummarize: check });
+      check();
+      const ready = updateAutoHandoff(db, id, { settings_json: state.settings, runtime_json: { ...preparedRuntime,
+        sourceStopGate: { ...gate, ready: true } } }, { expectedState: 'requested' });
+      if (!ready.changed) throw error('handoff_preparation_cancelled');
+      await deps.wait(() => {
+        const current = getAutoHandoff(db, id);
+        if (current.state !== 'requested') throw error('handoff_preparation_cancelled');
+        if (!current.runtime?.sourceStopGate?.authorized && Date.now() > gate.deadline) throw error('handoff_preparation_timeout');
+        return current.runtime?.sourceStopGate?.authorized ? current : null;
+      }, { timeoutMs: PREPARATION_TIMEOUT_MS, timeoutCode: 'handoff_preparation_timeout' });
+      operation = getAutoHandoff(db, id);
+      // hookの返答がhostへ届かなかった場合も、ゴールを止めない。元turnの実停止を先に照合する。
+      await deps.wait(() => sourceBoundary(operation, deps.readSource(operation)) || null,
+        { timeoutMs: 30_000, timeoutCode: 'handoff_source_stop_unconfirmed' });
+    }
     // 旧タスクのゴールを先に止める。動いたままだと、止めたターンの直後から Codex が次のターンを起こし続ける。
     // 同じ旧タスクの前の引き継ぎ（途中で止まった物）が止めていたゴールは、動いていた物として後継へ運ぶ (ADR 0059)。
     if (!operation.runtime?.goalCarry) {
@@ -805,12 +895,13 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
         const state = deps.readSource(operation);
         update({ snapshot_json: freezeCodexMemory(db, operation, operation.settings, state) });
       }
-      try { deps.summaries(db, operation); }
+      try {
+        if (operation.runtime?.sourceStopGate) collectAutoHandoffMemory(db, operation);
+        else deps.summaries(db, operation);
+      }
       catch (cause) {
         // 古いturnの要約を作るbackend（Codex CLI）が使えない。通信の断・利用上限・認証切れでも起きる。
         // 汎用の理由にせず、固定の理由で止める。失敗の画面に、失われた物が無い事と再開の仕方を書く（ADR 0041）。
-        if ((cause?.source === 'codex-cli' && ['codex_cli_failed', 'empty_output'].includes(cause.reason)) ||
-            cause?.message === 'handoff_l1_unavailable') throw error('handoff_summarizer_backend_failed');
         throw cause;
       }
       update({ state: 'memory_ready' });
@@ -877,12 +968,19 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
     return operation;
   } catch (cause) {
     operation = getAutoHandoff(db, id);
+    const backend = summarizerFailure(cause);
+    if (backend) {
+      update({ runtime_json: { ...operation.runtime, summarizerFailure: backend } });
+      const diagnostic = Object.assign(error(`handoff_summarizer_${backend.category}`), {
+        reason: backend.reason, hookContext: { session_id: operation.source_session_id } });
+      logHookFailure('CODEX_HANDOFF_SUMMARIZER_FAILED', diagnostic);
+    }
     const knownRejected = cause.delivery_code === 'CODEX_RECEIVER_REJECTED';
     const unknown = !!operation.mutation_stage && !knownRejected;
     if (knownRejected) update({ mutation_stage: null });
-    const code = typeof cause.code === 'string' ? cause.code : cause.delivery_code ?? 'handoff_worker_failed';
+    const code = backend ? 'handoff_summarizer_backend_failed' : typeof cause.code === 'string' ? cause.code : cause.delivery_code ?? 'handoff_worker_failed';
     const failed = failAutoHandoff(db, id, code, { unknown });
-    if (failed.changed) deps.notify(failed.operation);
+    if (failed.changed && (!operation.runtime?.sourceStopGate || operation.runtime.sourceStopGate.authorized)) deps.notify(failed.operation);
     return failed.operation;
   } finally { releaseAutoHandoff(db, id, identity); }
 }

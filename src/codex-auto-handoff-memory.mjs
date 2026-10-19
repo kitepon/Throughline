@@ -58,11 +58,12 @@ function summarySourceHash(rows) {
   return createHash('sha256').update(JSON.stringify(rows.map(r => [r.role, r.text]))).digest('hex');
 }
 
-export function ensureAutoHandoffSummaries(db, operation, { summarize = summarizeToL1, env = process.env } = {}) {
+export function ensureAutoHandoffSummaries(db, operation, { summarize = summarizeToL1, env = process.env, beforeSummarize = () => {} } = {}) {
   const memory = collectAutoHandoffMemory(db, operation, { requireSummaries: false });
   const existing = new Set(memory.olderSummaries.map(turnKey));
   for (const key of memory.oldTurnKeys) {
     if (existing.has(key)) continue;
+    beforeSummarize();
     const rows = memory.bodies.filter(row => turnKey(row) === key);
     const first = rows[0];
     const text = (rows.some(row => row.interrupted) ? 'このターンは作業途中で中断した記録です。\n' : '') +

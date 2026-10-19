@@ -66,6 +66,8 @@ Throughline所有領域を指定する。他製品のprofile・channel・hookへ
 
 ### 発火と停止
 
+**0.16.39 / ADR 0070での変更**: 下記の停止順より先に、hookが最大20秒待って要約の準備を確認する。準備中のworkerは旧ゴール停止・後継作成・画面操作・配送をしない。失敗・時間切れでは元の会話を止めず、警告してCodexの通常処理を継続する。停止を許可した場合だけ、以下の停止観測・正規snapshot凍結・後継作成へ進む。停止後は要約を再生成せずcacheの完全性を確認する。詳細は[ADR 0070](adr/0070-codex-memory-preparation-before-source-stop.md)。
+
 設計案の発火点は `PreCompact` の `trigger=auto` とする。
 固定75%の判定は初版へ接続しない。圧縮前の公式eventを使い、
 使用量の取得時刻と実際の圧縮判断のずれを避ける。

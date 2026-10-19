@@ -14,12 +14,22 @@ import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemor
 import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoffMemory,
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
-import { runAutoHandoffWorker, requestCodexAutoHandoff, sourceBoundary,
+import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHandoff, sourceBoundary,
+  waitForCodexHandoffPreparation,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
   pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
+
+// 既存の要求試験ではlaunchWorkerもfixture。準備の完了も同じ境界のfixtureで返す。
+const requestCodexAutoHandoff = args => realRequestCodexAutoHandoff({
+  waitForPreparation: async (db, id) => {
+    const op = getAutoHandoff(db, id);
+    updateAutoHandoff(db, id, { runtime_json: { ...op.runtime,
+      sourceStopGate: { ...op.runtime.sourceStopGate, ready: true } } });
+  }, ...args,
+});
 
 async function withDb(fn) {
   const home = mkdtempSync(join(tmpdir(), 'tl-auto-handoff-'));
@@ -1277,3 +1287,116 @@ test('公開CLIのsettle-goalは、引き継ぎIDと旧タスクのIDの両方�
     assert.throws(() => parseAutoHandoffArgs(args));
   }
 });
+
+async function pollPreparation(check) {
+  for (let i = 0; i < 200; i++) {
+    const result = await check();
+    if (result) return result;
+    await new Promise(resolve => setTimeout(resolve, 2));
+  }
+  throw new Error('fixture_timeout');
+}
+const fastPreparation = (db, id) => waitForCodexHandoffPreparation(db, id, { wait: pollPreparation });
+
+function gateFixture(db, home) {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const payload = desktopSource(home, thread, turn);
+  const counters = { created: 0, notified: 0, submitted: 0, summaries: 0 };
+  const deps = workerDependencies(db, { cwd: home }, async () => { counters.submitted++; return { queued_submission_id: 'receipt' }; }, counters);
+  const read = deps.readSource;
+  let stopped = false, captured = false, worker;
+  deps.readSource = op => ({ ...read(op), latestTurnId: turn, stoppedAt: stopped ? Date.now() : null });
+  deps.capture = (db, args) => {
+    if (!captured) {
+      captured = true;
+      const session = `codex:${args.threadId}`;
+      db.prepare('INSERT INTO sessions (session_id,project_path,created_at,updated_at) VALUES (?, ?, 1, 1)').run(session, home);
+      db.prepare("INSERT INTO bodies (session_id,origin_session_id,turn_number,role,text,created_at) VALUES (?, ?, 1, 'user', '未完了の元依頼', 1)").run(session, session);
+    }
+    return { status: 'captured' };
+  };
+  deps.summaries = () => { counters.summaries++; assert.equal(stopped, false); assert.equal(counters.goal, undefined); };
+  deps.wait = pollPreparation;
+  const args = { db, payload, config: { enabled: true, projects: [home], openHost: 'desktop' },
+    waitForPreparation: fastPreparation, launchWorker: async id => { worker = runAutoHandoffWorker(id, { db, dependencies: deps }); } };
+  return { args, deps, counters, worker: () => worker, stop: () => { stopped = true; } };
+}
+
+test('要約の混雑は元ターン・ゴールを止める前に失敗し、理由だけを保持して元会話を継続する', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.deps.summaries = () => { throw Object.assign(Error('private-prompt-do-not-log'), {
+    source: 'codex-cli', reason: 'codex_cli_failed', exitCode: 1,
+    stderr: 'private-prompt-do-not-log ERROR: Selected model is at capacity. Please try a different model.' }); };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true); assert.equal(answer.status, 'failed'); assert.match(answer.systemMessage, /元の会話は停止せず/);
+  assert.equal(result.state, 'failed'); assert.equal(result.resume_state, 'requested');
+  assert.equal(result.error_code, 'handoff_summarizer_backend_failed');
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(result.runtime.summarizerFailure.category, 'capacity');
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0); assert.equal(f.counters.goal, undefined); assert.equal(f.counters.notified, 0);
+  const logged = fs.readFileSync(join(home, '.throughline', 'logs', 'hook-failures.log'), 'utf8');
+  assert.ok(logged.includes('handoff_summarizer_capacity')); assert.ok(!logged.includes('private-prompt-do-not-log'));
+}));
+
+test('準備完了を確認してからだけ停止を許可し、停止実測後は外部要約を再実行せず後継を一度起動する', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(answer.continue, false);
+  assert.equal(getAutoHandoff(db, answer.operationId).runtime.sourceStopGate.authorized, true);
+  assert.equal(getAutoHandoff(db, answer.operationId).snapshot, null, '停止前の記憶は正規snapshotにしない');
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+  assert.equal(f.counters.goal, undefined, '停止許可だけでは旧ゴールを止めない');
+  f.stop();
+  const result = await f.worker();
+  assert.equal(result.state, 'continued'); assert.equal(result.snapshot.bodies[0].text, '未完了の元依頼');
+  assert.equal(f.counters.summaries, 1); assert.equal(f.counters.created, 1); assert.equal(f.counters.submitted, 1);
+  await runAutoHandoffWorker(result.handoff_id, { db, dependencies: f.deps });
+  assert.equal(f.counters.submitted, 1);
+}));
+
+test('準備の時間切れ後に遅れて来たworkerは、元会話の継続を取り消さず後継も作らない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  let id;
+  const answer = await realRequestCodexAutoHandoff({ ...f.args, launchWorker: async value => { id = value; },
+    waitForPreparation: async () => { throw Object.assign(Error('timeout'), { code: 'handoff_preparation_timeout' }); } });
+  assert.equal(answer.continue, true); assert.equal(answer.reason, 'handoff_preparation_timeout');
+  const result = await runAutoHandoffWorker(id, { db, dependencies: f.deps });
+  assert.equal(result.state, 'failed'); assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0); assert.equal(f.counters.goal, undefined);
+}));
+
+test('worker起動失敗でも元会話を止めず、同じturnの重複通知でも停止へ変わらない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  const args = { ...f.args, launchWorker: async () => { throw Error('spawn failed'); } };
+  const first = await realRequestCodexAutoHandoff(args), duplicate = await realRequestCodexAutoHandoff(args);
+  assert.equal(first.continue, true); assert.equal(duplicate.continue, true);
+  assert.equal(first.reason, 'handoff_worker_start_failed'); assert.equal(first.operationId, duplicate.operationId);
+}));
+
+test('要約の直後に準備取消になっても、遅れた完了で停止許可を復活させない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.deps.summaries = (db, op) => {
+    db.prepare("UPDATE codex_handoffs SET state='failed', error_code='handoff_preparation_timeout', resume_state='requested' WHERE handoff_id=?").run(op.handoff_id);
+  };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true); assert.equal(result.state, 'failed'); assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0);
+}));
+
+test('停止許可をhostが受け取れず元turnが停止しない場合は、ゴールも後継も操作しない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.deps.wait = async (check, options) => {
+    if (options.timeoutCode === 'handoff_source_stop_unconfirmed') {
+      assert.equal(await check(), null);
+      throw Object.assign(Error('host did not stop'), { code: 'handoff_source_stop_unconfirmed' });
+    }
+    return pollPreparation(check);
+  };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(answer.continue, false);
+  const result = await f.worker();
+  assert.equal(result.state, 'failed'); assert.equal(result.error_code, 'handoff_source_stop_unconfirmed');
+  assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));

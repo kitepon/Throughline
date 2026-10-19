@@ -430,7 +430,9 @@ export async function run(argv = []) {
         }
       }
     }
-    if (parsed.event === 'pre-compact' && result.continue === false) {
+    if (parsed.event === 'pre-compact' && result.continue === true && result.systemMessage) {
+      process.stdout.write(JSON.stringify({ continue: true, systemMessage: result.systemMessage }) + '\n');
+    } else if (parsed.event === 'pre-compact' && result.continue === false) {
       process.stdout.write(JSON.stringify({ continue: false, stopReason: result.stopReason }) + '\n');
     } else if (parsed.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -438,7 +440,7 @@ export async function run(argv = []) {
       process.stdout.write(result.autoRefreshPrompt.output + '\n');
     }
     // continue=falseは、明示した失敗理由を含めてhostへ停止を届けた返答。背景処理の成否は引き継ぎ状態へ記録する。
-    process.exit(result.continue === false || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
+    process.exit(typeof result.continue === 'boolean' || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
     const code = codexHookFailureCode(err);
     if (code === 'L1_SUMMARIZER_BACKEND_FAILED') {

@@ -10,6 +10,20 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.39] — 2026-10-19
+
+### Fixed
+
+- Prepare Codex handoff summaries before authorizing the source turn or goal to
+  stop. A preparation failure, worker launch failure or 20-second deadline leaves
+  the original conversation running and displays an explicit warning. Late workers
+  cannot create or submit successors after preparation is cancelled.
+- Freeze the authoritative snapshot after the actual source stop and reuse the
+  prepared summaries without another model call. Keep unknown submissions from
+  being resent. Preserve a sanitized backend failure category and exit code for
+  local diagnosis without logging conversation content. See
+  [ADR 0070](docs/adr/0070-codex-memory-preparation-before-source-stop.md).
+
 ## [0.16.38] — 2026-10-18
 
 ### Fixed
@@ -2718,7 +2732,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.38...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.39...HEAD
+[0.16.39]: https://github.com/kitepon/Throughline/compare/v0.16.38...v0.16.39
 [0.16.38]: https://github.com/kitepon/Throughline/compare/v0.16.37...v0.16.38
 [0.16.37]: https://github.com/kitepon/Throughline/compare/v0.16.36...v0.16.37
 [0.16.36]: https://github.com/kitepon/Throughline/compare/v0.16.35...v0.16.36
