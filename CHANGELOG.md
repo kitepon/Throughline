@@ -10,6 +10,22 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.42] — 2026-10-22
+
+### Fixed
+
+- Recheck native child work after memory preparation, before authorizing a Codex
+  source stop. If a child starts during preparation, keep the original conversation
+  running without pausing its goal, creating a successor, or delivering an input.
+- Stop reporting harmless failed preparations and failures superseded by actual
+  source work as current `auto-handoff successor` pending operations. Preserve
+  failure history, uncertain mutations, known targets, and unreadable source states.
+  The versioned JSON shape stays unchanged. See
+  [ADR 0072](docs/adr/0072-codex-active-source-after-failed-handoff.md).
+- Identify the same responsible assistant's original conversation in preparation
+  warnings and recovery pages. Do not suggest retrying an obsolete request or
+  replacing the conversation with an internal child or worker.
+
 ## [0.16.41] — 2026-10-19
 
 ### Fixed
@@ -2753,7 +2769,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.41...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.42...HEAD
+[0.16.42]: https://github.com/kitepon/Throughline/compare/v0.16.41...v0.16.42
 [0.16.41]: https://github.com/kitepon/Throughline/compare/v0.16.40...v0.16.41
 [0.16.40]: https://github.com/kitepon/Throughline/compare/v0.16.39...v0.16.40
 [0.16.39]: https://github.com/kitepon/Throughline/compare/v0.16.38...v0.16.39

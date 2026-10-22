@@ -48,6 +48,10 @@ throughline auto-handoff successor --thread <codex-thread-id> --json
 ```
 
 `current_thread_id`が今の続きです（後継が無ければ渡したID自身）。`pending.in_flight`がtrueの間は、引き継ぎの途中です。
+停止前の準備失敗で元の会話が継続する場合、または後継作成前の失敗後に元の会話で実作業を再開した場合は、
+古い失敗を`pending`に返しません。履歴は`status`に残ります。作成・注入の結果不明、既知の後継、
+元記録を確認できない失敗は引き続き返します（[ADR 0072](docs/adr/0072-codex-active-source-after-failed-handoff.md)）。
+準備失敗時は、警告に示す本人の元の会話で続けてください。内部の子作業は担当が管理します。
 
 原因を解消した後の`resume`は同じ引き継ぎと既知の後継を再利用します。配送後の結果不明は実際の入力・開始を観測した場合だけ回復し、作成結果が不明な後継は再作成しません。従来の手動`$throughline`とcurrent-thread実験の設定は独立しています。
 

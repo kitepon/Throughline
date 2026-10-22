@@ -15,7 +15,7 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHandoff, sourceBoundary,
-  waitForCodexHandoffPreparation,
+  waitForCodexHandoffPreparation, renderAutoHandoffFailure,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
@@ -1298,6 +1298,59 @@ async function pollPreparation(check) {
 }
 const fastPreparation = (db, id) => waitForCodexHandoffPreparation(db, id, { wait: pollPreparation });
 
+test('失敗画面は本人の会話を示し、停止未許可・元前進・作用不明に古い要求の再試行を勧めない', () => {
+  const operation = { handoff_id: 'request', source_thread_id: 'source', state: 'failed', error_code: 'handoff_native_child_pending' };
+  for (const fields of [
+    { runtime: { sourceStopGate: { authorized: false } } },
+    { error_code: 'handoff_source_advanced' },
+    { state: 'unknown', mutation_stage: 'create' },
+  ]) {
+    const html = renderAutoHandoffFailure({ ...operation, ...fields });
+    assert.ok(html.includes('href="codex://threads/source"'));
+    assert.ok(!html.includes('auto-handoff resume'));
+    assert.ok(!html.includes('後継の会話を開く'));
+  }
+  const resumable = renderAutoHandoffFailure({ ...operation, target_thread_id: 'target' });
+  assert.ok(resumable.includes('href="codex://threads/target"'));
+  assert.ok(resumable.includes('auto-handoff resume --operation request'));
+});
+
+test('元会話が継続した失敗だけを現在の待ちから除き、不明な作成・後継・元記録不明は保持する', async () => withDb((db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111';
+  const rolloutPath = sourceRollout(home, thread, 'turn', stoppedInput('next', '2026-10-07T00:56:48'));
+  const options = { findThread: () => null, processes: () => [] };
+  const make = (turnId, fields = {}) => updateAutoHandoff(db,
+    request(db, thread, { turnId, rolloutPath }).operation.handoff_id,
+    { state: 'failed', error_code: 'handoff_native_child_pending', ...fields }).operation;
+  const old = make('turn');
+  assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending.handoff_id, old.handoff_id,
+    '入力が来ただけでは復帰と断定しない');
+  fs.appendFileSync(rolloutPath, JSON.stringify({ type: 'response_item', payload: {
+    type: 'message', role: 'assistant', content: [{ text: '元の会話で作業を再開しました' }] } }) + '\n');
+  assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending, null);
+  assert.equal(getAutoHandoff(db, old.handoff_id).state, 'failed', '失敗履歴を書き換えない');
+
+  // 停止を許可していない準備失敗は、元会話の次turnを待たず通話を受けられる。
+  const preparation = make('next', { runtime_json: { sourceStopGate: { authorized: false } } });
+  assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending, null);
+  for (const fields of [
+    { state: 'unknown', mutation_stage: 'create' },
+    { mutation_stage: 'inject' },
+    { target_thread_id: '22222222-2222-2222-2222-222222222222' },
+    { state: 'requested' },
+  ]) {
+    const op = make(`unsafe-${JSON.stringify(fields)}`, { runtime_json: preparation.runtime, ...fields });
+    assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending.handoff_id, op.handoff_id);
+    // より新しい安全な失敗が、不明な作用を隠さない。
+    make(`safe-${op.handoff_id}`, { runtime_json: preparation.runtime });
+    assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending.handoff_id, op.handoff_id);
+    db.prepare('DELETE FROM codex_handoffs WHERE handoff_id = ?').run(op.handoff_id);
+  }
+  const missing = make('missing');
+  rmSync(rolloutPath);
+  assert.equal(resolveAutoHandoffSuccessor(db, thread, options).pending.handoff_id, missing.handoff_id);
+}));
+
 function gateFixture(db, home) {
   const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
   const payload = desktopSource(home, thread, turn);
@@ -1321,6 +1374,35 @@ function gateFixture(db, home) {
     waitForPreparation: fastPreparation, launchWorker: async id => { worker = runAutoHandoffWorker(id, { db, dependencies: deps }); } };
   return { args, deps, counters, worker: () => worker, stop: () => { stopped = true; } };
 }
+
+test('子が未完了なら停止前に拒否し、同じ本人の会話を現在地として配送の待ちを残さない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.deps.nativeState = async () => { throw Object.assign(Error('child active'), { code: 'handoff_native_child_pending' }); };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true); assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0); assert.equal(f.counters.goal, undefined);
+  assert.equal(result.target_thread_id, null); assert.equal(result.queued_submission_id, null);
+  assert.ok(answer.systemMessage.includes(`codex://threads/${f.args.payload.session_id}`));
+  const current = resolveAutoHandoffSuccessor(db, f.args.payload.session_id, { findThread: () => null });
+  assert.equal(current.current_thread_id, f.args.payload.session_id); assert.equal(current.pending, null);
+}));
+
+test('準備中に子が動き始めても、停止を許可する前に再照合して元会話を継続する', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  let active = false;
+  f.deps.nativeState = async () => {
+    if (active) throw Object.assign(Error('child active'), { code: 'handoff_native_child_pending' });
+    return { projectId: null };
+  };
+  f.deps.summaries = () => { active = true; };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true);
+  assert.equal(result.error_code, 'handoff_native_child_pending');
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0); assert.equal(f.counters.goal, undefined);
+}));
 
 test('要約の混雑は元ターン・ゴールを止める前に失敗し、理由だけを保持して元会話を継続する', async () => withDb(async (db, home) => {
   const f = gateFixture(db, home);

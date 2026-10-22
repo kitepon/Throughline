@@ -155,7 +155,7 @@ sequenceDiagram
 | `requested` | フック由来の元thread/turnと要求を保存済み |
 | `source_stopped` | 同じ元turnの停止と、未完了operationの処置を確認済み |
 | `memory_ready` | 最終capture・必要なL1・不変snapshot・実効設定を確定済み |
-| `target_ready` | 新thread IDを保存し、注入済み記憶とDesktop表示後の実効設定一致を確認済み |
+| `target_ready` | 新thread IDを保存し、記憶注入・Desktopへの表示要求・実効設定一致を確認済み（実画面の確認は別） |
 | `submitted` | 一つの配送IDに対する公式キュー受付IDを保存済み |
 | `continued` | その指示に対応する新turnの開始と、実際の継続作業を確認済み |
 
@@ -181,6 +181,10 @@ schemaの版とmigrationは同じ製品releaseで更新する。
 製品が送ったoperation/delivery ID入りの本文と同じturnの進捗を照合する。
 固定sleepの経過、URL handlerのexit 0、関係ないturn開始を成功条件にしない。
 旧タスクの自動再開、current-thread trim、別memory sourceへの切り替えは行わない。
+利用者の受入では、担当本人の会話を実際に見て話せることまで確認する。
+子・workerが実行中という証拠で、本人の会話窓口の復旧を代用しない。
+準備失敗による元会話の継続と古い失敗の`pending`除外は
+[ADR 0072](adr/0072-codex-active-source-after-failed-handoff.md)に従う。
 
 ### 配送方式の採用
 

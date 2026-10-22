@@ -233,7 +233,7 @@ export async function waitForCodexHandoffPreparation(db, id, { wait = waitForHan
 function keepSourceAfterPreparationFailure(db, id, code) {
   const failed = failAutoHandoff(db, id, code).operation;
   return { status: 'failed', operationId: id, reason: failed.error_code, continue: true,
-    systemMessage: `Throughlineの引き継ぎ準備が失敗しました: ${failed.error_code}。元の会話は停止せず、Codexの処理を継続します。引き継ぎは完了していません。` };
+    systemMessage: `Throughlineの引き継ぎ準備が失敗しました: ${failed.error_code}。元の会話は停止せず、Codexの処理を継続します。引き継ぎは完了していません。同じ担当との会話をここで続けてください。\ncodex://threads/${failed.source_thread_id}\n子作業の管理は担当が行います。` };
 }
 
 function summarizerFailure(cause) {
@@ -424,6 +424,16 @@ export async function nameAutoHandoffTarget(request, targetId, name) {
   }
 }
 
+// 失敗履歴と現在の配送待ちは別。元を止めておらず後継への作用も無い失敗、または元で実作業が再開した
+// 同条件の失敗は通話を塞がない。作成・注入の結果不明、既存後継、読取不能は保守的に残す。
+function blocksCurrentSource(operation) {
+  if (operation.state !== 'failed' || operation.target_thread_id || operation.mutation_stage ||
+      operation.queued_submission_id || operation.started_turn_id) return true;
+  if (operation.runtime?.sourceStopGate?.authorized === false) return false;
+  try { return !sourceState(operation).laterTurns.some(turn => turn.activity); }
+  catch { return true; }
+}
+
 /**
  * あるタスクの「今の続き」を引く（ほかの製品が、旧タスクあての連絡を今の続きへ渡すための入口）。読むだけ。
  * 引き継ぎを先までたどり、残っている一番先の後継を返す。消された後継は無い物として扱う。
@@ -433,7 +443,8 @@ export async function nameAutoHandoffTarget(request, targetId, name) {
  *   pending: null | {handoff_id: string, source_thread_id: string, state: string, error_code: string|null, resume_state: string|null,
  *     in_flight: boolean, created_at: number, updated_at: number}
  * }} current_thread_id は、後継が無ければ thread_id 自身。pending は、今の続きのタスクで、後継へ指示を送る前の引き継ぎ
- *   （一番新しい1つ）。in_flight が true なら worker が動いている最中、false なら止まっている（error_code と resume_state を見る）。
+ *   （現在の元会話を止める要因が残る物のうち一番新しい1つ）。準備失敗後に元が継続するだけの履歴は含めない。
+ *   in_flight が true なら worker が動いている最中、false なら止まっている（error_code と resume_state を見る）。
  */
 export function resolveAutoHandoffSuccessor(db, threadId, { findThread = findCodexThreadCandidate,
   processes = readRuntimeProcesses, now = Date.now() } = {}) {
@@ -449,7 +460,7 @@ export function resolveAutoHandoffSuccessor(db, threadId, { findThread = findCod
   const chain = path.map(operation => ({ handoff_id: operation.handoff_id, source_thread_id: operation.source_thread_id,
     target_thread_id: operation.target_thread_id, state: operation.state, created_at: operation.created_at, updated_at: operation.updated_at }));
   const current = leaf ? leaf.target_thread_id : threadId;
-  const undelivered = listUndeliveredAutoHandoffsForSource(db, current)[0] ?? null;
+  const undelivered = listUndeliveredAutoHandoffsForSource(db, current).find(blocksCurrentSource) ?? null;
   const pending = undelivered ? { handoff_id: undelivered.handoff_id, source_thread_id: undelivered.source_thread_id,
     state: undelivered.state, error_code: undelivered.error_code ?? null, resume_state: undelivered.resume_state ?? null,
     in_flight: !HANDOFF_TERMINAL_STATES.has(undelivered.state) && workerActive(undelivered, processes, now),
@@ -764,22 +775,29 @@ function openTarget(operation) {
   if (result.error || result.status !== 0) throw error('handoff_target_open_failed');
 }
 
-export function showAutoHandoffFailure(operation) {
-  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
-  const file = join(stateRoot(), `${operation.handoff_id}.html`);
+export function renderAutoHandoffFailure(operation) {
   // 表示する値は製品の識別子と固定codeだけ。会話・例外本文・tool結果はHTMLへ出さない。
   const escape = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-  writeFileSync(file, `<!doctype html><meta charset="utf-8"><title>Throughline 引き継ぎ失敗</title>
+  const canResume = operation.state === 'failed' && !operation.mutation_stage &&
+    operation.runtime?.sourceStopGate?.authorized !== false && operation.error_code !== 'handoff_source_advanced';
+  return `<!doctype html><meta charset="utf-8"><title>Throughline 引き継ぎ失敗</title>
 <style>body{font:18px system-ui;max-width:800px;margin:64px auto;padding:24px;color:#20252b;background:#f6f7f9}code{word-break:break-all}</style>
 <h1>自動継続を完了できませんでした</h1><p>引き継ぎは下記の工程で止まっています。タスクと記録を確認してください。</p>
-<p><a href="codex://threads/${escape(operation.source_thread_id)}">旧タスクを開く</a>${operation.target_thread_id ? ` / <a href="codex://threads/${escape(operation.target_thread_id)}">後継タスクを開く</a>` : ''}</p>
+<p><a href="codex://threads/${escape(operation.source_thread_id)}">同じ担当の元の会話を開く</a>${operation.target_thread_id ? ` / <a href="codex://threads/${escape(operation.target_thread_id)}">保存された後継の会話を開く</a>` : ''}</p>
+${operation.target_thread_id ? '<p>後継の表示と会話可能な状態を確認してください。</p>' : '<p>後継の会話は確認されていません。子作業の管理は担当が行います。会話の窓口を子やworkerへ変更する必要はありません。</p>'}
 <p>理由: <code>${escape(operation.error_code)}</code></p><p>引き継ぎID: <code>${escape(operation.handoff_id)}</code></p>
 ${operation.error_code === 'handoff_summarizer_backend_failed' ? '<p>記憶の要約に使うCodex CLIが失敗しました。通信の断、利用上限、認証切れなどで起きます。会話の記録と入力は失われていません。Codex CLIが使える様になった後、旧タスクへ入力すると、引き継ぎをもう一度始めます。</p>' : ''}
 ${operation.runtime?.goalCarry?.paused ? '<p>旧タスクのゴール（/goal）は、同じターンが繰り返されない様に一時停止にしてあります。引き継ぎを再開して後継が動けば、ゴールは後継へ運ばれます。旧タスクのまま続ける時は、旧タスクでゴールを再開してください。</p>' : ''}
 <p>状態: ${escape(operation.state)} / 停止した工程: ${escape(operation.resume_state)}</p>
 <p>確認: <code>throughline auto-handoff status --operation ${escape(operation.handoff_id)}</code></p>
-<p>原因を解消した後の再開: <code>throughline auto-handoff resume --operation ${escape(operation.handoff_id)}</code></p>
-<p>送信結果が不明な場合は観測だけを行い、指示を自動で再送しません。</p>`, { mode: 0o600 });
+${canResume ? `<p>元の会話に追加の作業がないことと原因の解消を確認してから、同じ要求を再開: <code>throughline auto-handoff resume --operation ${escape(operation.handoff_id)}</code></p>` : '<p>この要求を繰り返さず、元の会話と保存済みの状態を確認してください。</p>'}
+<p>送信結果が不明な場合は観測だけを行い、指示を自動で再送しません。</p>`;
+}
+
+export function showAutoHandoffFailure(operation) {
+  mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  const file = join(stateRoot(), `${operation.handoff_id}.html`);
+  writeFileSync(file, renderAutoHandoffFailure(operation), { mode: 0o600 });
   const result = openUrlWithOsHandler(pathToFileURL(file).href);
   if (result.error || result.status !== 0) throw error('handoff_failure_display_failed');
 }
@@ -840,6 +858,9 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       const preview = { ...operation, settings: state.settings, runtime: preparedRuntime,
         snapshot: freezeCodexMemory(db, operation, state.settings, state) };
       deps.summaries(db, preview, { beforeSummarize: check });
+      check();
+      // 要約中に子作業やnative状態が変わっていたら、停止許可前に元会話へ戻す。
+      await deps.nativeState(operation, runtime);
       check();
       const ready = updateAutoHandoff(db, id, { settings_json: state.settings, runtime_json: { ...preparedRuntime,
         sourceStopGate: { ...gate, ready: true } } }, { expectedState: 'requested' });
