@@ -15,7 +15,7 @@ import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoff
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHandoff, sourceBoundary,
-  waitForCodexHandoffPreparation, renderAutoHandoffFailure,
+  waitForCodexHandoffPreparation, renderAutoHandoffFailure, codexHandoffRequestFailureResult,
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
@@ -1314,6 +1314,47 @@ test('失敗画面は本人の会話を示し、停止未許可・元前進・�
   assert.ok(resumable.includes('href="codex://threads/target"'));
   assert.ok(resumable.includes('auto-handoff resume --operation request'));
 });
+
+test('本物のPreCompact CLI入口も、要求の照合例外だけでは親を止めず、不明な作用と既存後継は保護する', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const payload = desktopSource(home, '33333333-3333-3333-3333-333333333333', turn);
+  payload.session_id = thread; // hostが渡したIDと記録先頭のIDが違う実例。
+  writeFileSync(join(home, '.throughline', 'codex-auto-handoff.json'), JSON.stringify({
+    schema: 'throughline.codex-auto-handoff.v1', enabled: true, openHost: 'desktop', projects: [] }));
+  const run = () => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/throughline.mjs', import.meta.url)), 'codex-hook', 'pre-compact'], {
+      cwd: home, input: JSON.stringify(payload), encoding: 'utf8', env: { ...process.env,
+        XDG_CONFIG_HOME: join(home, 'config'), XDG_STATE_HOME: join(home, 'state'), LOCALAPPDATA: join(home, 'AppData', 'Local') } });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const safe = run();
+  assert.equal(safe.continue, true); assert.match(safe.systemMessage, /handoff_thread_mismatch/);
+  assert.ok(safe.systemMessage.includes(`codex://threads/${thread}`));
+  assert.equal(db.prepare('SELECT count(*) AS n FROM codex_handoffs').get().n, 0);
+  const op = request(db, thread).operation;
+  for (const fields of [
+    { state: 'requested', runtime_json: { sourceStopGate: { authorized: false } } },
+    { state: 'unknown', mutation_stage: 'create', target_thread_id: null, queued_submission_id: null },
+    { state: 'failed', mutation_stage: null, target_thread_id: '44444444-4444-4444-4444-444444444444' },
+    { state: 'continued', queued_submission_id: 'receipt' },
+  ]) {
+    updateAutoHandoff(db, op.handoff_id, fields);
+    assert.equal(run().continue, false, JSON.stringify(fields));
+  }
+  updateAutoHandoff(db, op.handoff_id, { state: 'failed', mutation_stage: null, target_thread_id: null, queued_submission_id: null });
+  assert.equal(run().continue, true, '後継も作用も無い確定失敗は本人の会話で継続できる');
+}));
+
+test('要求例外の復旧判断は初回DBを作らず、読取不能や識別不能を作用なしと断定しない', async () => withDb((db, home) => {
+  const payload = { session_id: '11111111-1111-1111-1111-111111111111' };
+  const databasePath = join(home, 'missing.db');
+  assert.equal(codexHandoffRequestFailureResult(Error('private'), payload, { databasePath }).continue, true);
+  assert.equal(existsSync(databasePath), false);
+  writeFileSync(databasePath, 'not-a-database');
+  assert.equal(codexHandoffRequestFailureResult(Error('private'), payload, { databasePath }).continue, false);
+  assert.equal(codexHandoffRequestFailureResult(Error('private'), { session_id: 'unknown' }).continue, false);
+}));
 
 test('元会話が継続した失敗だけを現在の待ちから除き、不明な作成・後継・元記録不明は保持する', async () => withDb((db, home) => {
   const thread = '11111111-1111-1111-1111-111111111111';

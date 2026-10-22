@@ -8,7 +8,7 @@ import { withCodexReceiver, verifyCodexParent, submitCodexParentAnswer,
 import { spawnPortable } from './os/portable-spawn-sync.mjs';
 import { openUrlWithOsHandler } from './os/open-url.mjs';
 import { sameProjectPath } from './project-path.mjs';
-import { getDb, DB_PATH } from './db.mjs';
+import { getDb, openReadOnlyDb, DB_PATH } from './db.mjs';
 import { findCodexThreadCandidate } from './codex-thread-index.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
 import { readAutoHandoffConfig, autoHandoffEnabledFor } from './codex-auto-handoff-config.mjs';
@@ -233,7 +233,36 @@ export async function waitForCodexHandoffPreparation(db, id, { wait = waitForHan
 function keepSourceAfterPreparationFailure(db, id, code) {
   const failed = failAutoHandoff(db, id, code).operation;
   return { status: 'failed', operationId: id, reason: failed.error_code, continue: true,
-    systemMessage: `Throughlineの引き継ぎ準備が失敗しました: ${failed.error_code}。元の会話は停止せず、Codexの処理を継続します。引き継ぎは完了していません。同じ担当との会話をここで続けてください。\ncodex://threads/${failed.source_thread_id}\n子作業の管理は担当が行います。` };
+    systemMessage: sourceContinuationWarning(failed.error_code, failed.source_thread_id) };
+}
+
+function sourceContinuationWarning(code, threadId) {
+  return `Throughlineの引き継ぎ準備が失敗しました: ${code}。元の会話は停止せず、Codexの処理を継続します。引き継ぎは完了していません。同じ担当との会話をここで続けてください。\ncodex://threads/${threadId}\n子作業の管理は担当が行います。`;
+}
+
+/** 要求の例外も停止許可ではない。保存済みの作用・所有が無いと確認できる時だけ元を継続する。 */
+export function codexHandoffRequestFailureResult(cause, payload, { databasePath = DB_PATH } = {}) {
+  const code = typeof cause?.code === 'string' && /^[a-zA-Z0-9_]{1,80}$/.test(cause.code) ? cause.code : 'handoff_request_failed';
+  const threadId = payload?.session_id;
+  let safe = false, db;
+  if (CODEX_NATIVE_ID_PATTERN.test(threadId ?? '')) {
+    try {
+      // 初回の照合失敗でDBを新規作成しない。読取不能は「作用なし」にしない。
+      try { statSync(databasePath); }
+      catch (e) { if (e.code === 'ENOENT') safe = true; else throw e; }
+      if (!safe) {
+        db = openReadOnlyDb(databasePath);
+        const delivered = listDeliveredAutoHandoffsForSource(db, threadId);
+        const undelivered = listUndeliveredAutoHandoffsForSource(db, threadId);
+        safe = delivered.length === 0 && undelivered.every(op => op.state === 'failed' &&
+          !op.target_thread_id && !op.mutation_stage && !op.queued_submission_id && !op.started_turn_id);
+      }
+    } catch { safe = false; }
+    finally { db?.close(); }
+  }
+  return safe ? { status: 'failed', reason: code, continue: true, systemMessage: sourceContinuationWarning(code, threadId) }
+    : { status: 'failed', reason: code, continue: false,
+      stopReason: `Throughline自動継続の要求が失敗しました: ${code}。既存の引き継ぎの所有・配送が未確認のため、元の会話の作業を停止しています。担当が保存済みの後継と配送状態を確認してください。` };
 }
 
 function summarizerFailure(cause) {

@@ -10,6 +10,18 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.43] — 2026-10-22
+
+### Fixed
+
+- Apply the source-continuation safeguard at the actual Codex PreCompact CLI
+  exception boundary too. Identity and transcript validation failures no longer
+  stop the original conversation when read-only state checks confirm that there
+  is no active handoff, known successor, delivery, or uncertain mutation.
+- Keep blocking uncertain ownership, active handoffs, known successors, and
+  unreadable state. Do not create a database merely to diagnose a failed request.
+  Log sanitized hook identity metadata for failures before preparation.
+
 ## [0.16.42] — 2026-10-22
 
 ### Fixed
@@ -2769,7 +2781,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.42...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.43...HEAD
+[0.16.43]: https://github.com/kitepon/Throughline/compare/v0.16.42...v0.16.43
 [0.16.42]: https://github.com/kitepon/Throughline/compare/v0.16.41...v0.16.42
 [0.16.41]: https://github.com/kitepon/Throughline/compare/v0.16.40...v0.16.41
 [0.16.40]: https://github.com/kitepon/Throughline/compare/v0.16.39...v0.16.40

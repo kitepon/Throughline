@@ -394,15 +394,16 @@ export async function run(argv = []) {
   try {
     let result;
     if (parsed.event === 'pre-compact') {
+      let handoff;
       try {
-        const { requestCodexAutoHandoff } = await import('../codex-auto-handoff.mjs');
-        result = await requestCodexAutoHandoff({ payload });
+        handoff = await import('../codex-auto-handoff.mjs');
+        result = await handoff.requestCodexAutoHandoff({ payload });
       } catch (error) {
+        if (handoff && error instanceof Error && !error.hookIdentity) error.hookIdentity = handoff.hookIdentityShape(payload);
         recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
         logHookFailure('HOOK_CODEX_FAILED', error);
-        const code = typeof error.code === 'string' ? error.code : 'handoff_request_failed';
-        result = { status: 'failed', continue: false,
-          stopReason: `Throughline自動継続が失敗しました: ${code}。記憶の圧縮を停止します。` };
+        result = handoff?.codexHandoffRequestFailureResult(error, payload) ?? { status: 'failed', continue: false,
+          stopReason: 'Throughlineの要求処理を読み込めず、既存の引き継ぎの所有・配送が確認できません。元の会話の作業を停止しています。担当が保存済みの状態を確認してください。' };
       }
     } else if (parsed.event === 'user-prompt-submit') {
       result = await runCodexUserPromptSubmitHook({
