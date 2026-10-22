@@ -8,7 +8,7 @@ import { withCodexReceiver, verifyCodexParent, submitCodexParentAnswer,
 import { spawnPortable } from './os/portable-spawn-sync.mjs';
 import { openUrlWithOsHandler } from './os/open-url.mjs';
 import { sameProjectPath } from './project-path.mjs';
-import { getDb, openReadOnlyDb, DB_PATH } from './db.mjs';
+import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from './db.mjs';
 import { findCodexThreadCandidate } from './codex-thread-index.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
 import { readAutoHandoffConfig, autoHandoffEnabledFor } from './codex-auto-handoff-config.mjs';
@@ -252,10 +252,11 @@ export function codexHandoffRequestFailureResult(cause, payload, { databasePath 
       catch (e) { if (e.code === 'ENOENT') safe = true; else throw e; }
       if (!safe) {
         db = openReadOnlyDb(databasePath);
-        const delivered = listDeliveredAutoHandoffsForSource(db, threadId);
-        const undelivered = listUndeliveredAutoHandoffsForSource(db, threadId);
-        safe = delivered.length === 0 && undelivered.every(op => op.state === 'failed' &&
-          !op.target_thread_id && !op.mutation_stage && !op.queued_submission_id && !op.started_turn_id);
+        // UUIDの大小文字は同じ所有として照合する。未知のschemaを作用なしと解釈しない。
+        safe = db.prepare('PRAGMA user_version').get().user_version === CURRENT_VERSION &&
+          !db.prepare(`SELECT 1 FROM codex_handoffs WHERE source_thread_id COLLATE NOCASE = ?
+            AND (state <> 'failed' OR target_thread_id IS NOT NULL OR mutation_stage IS NOT NULL
+              OR queued_submission_id IS NOT NULL OR started_turn_id IS NOT NULL) LIMIT 1`).get(threadId);
       }
     } catch { safe = false; }
     finally { db?.close(); }

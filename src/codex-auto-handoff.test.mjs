@@ -1316,14 +1316,14 @@ test('失敗画面は本人の会話を示し、停止未許可・元前進・�
 });
 
 test('本物のPreCompact CLI入口も、要求の照合例外だけでは親を止めず、不明な作用と既存後継は保護する', async () => withDb(async (db, home) => {
-  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const thread = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', turn = '22222222-2222-2222-2222-222222222222';
   const payload = desktopSource(home, '33333333-3333-3333-3333-333333333333', turn);
   payload.session_id = thread; // hostが渡したIDと記録先頭のIDが違う実例。
   writeFileSync(join(home, '.throughline', 'codex-auto-handoff.json'), JSON.stringify({
     schema: 'throughline.codex-auto-handoff.v1', enabled: true, openHost: 'desktop', projects: [] }));
-  const run = () => {
+  const run = (input = payload) => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/throughline.mjs', import.meta.url)), 'codex-hook', 'pre-compact'], {
-      cwd: home, input: JSON.stringify(payload), encoding: 'utf8', env: { ...process.env,
+      cwd: home, input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env,
         XDG_CONFIG_HOME: join(home, 'config'), XDG_STATE_HOME: join(home, 'state'), LOCALAPPDATA: join(home, 'AppData', 'Local') } });
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
@@ -1341,6 +1341,7 @@ test('本物のPreCompact CLI入口も、要求の照合例外だけでは親を
   ]) {
     updateAutoHandoff(db, op.handoff_id, fields);
     assert.equal(run().continue, false, JSON.stringify(fields));
+    assert.equal(run({ ...payload, session_id: thread.toUpperCase() }).continue, false, 'UUIDの表記差で所有確認を回避しない');
   }
   updateAutoHandoff(db, op.handoff_id, { state: 'failed', mutation_stage: null, target_thread_id: null, queued_submission_id: null });
   assert.equal(run().continue, true, '後継も作用も無い確定失敗は本人の会話で継続できる');
@@ -1354,6 +1355,9 @@ test('要求例外の復旧判断は初回DBを作らず、読取不能や識別
   writeFileSync(databasePath, 'not-a-database');
   assert.equal(codexHandoffRequestFailureResult(Error('private'), payload, { databasePath }).continue, false);
   assert.equal(codexHandoffRequestFailureResult(Error('private'), { session_id: 'unknown' }).continue, false);
+  db.exec('PRAGMA user_version = 99');
+  assert.equal(codexHandoffRequestFailureResult(Error('private'), payload,
+    { databasePath: db.prepare('PRAGMA database_list').get().file }).continue, false);
 }));
 
 test('元会話が継続した失敗だけを現在の待ちから除き、不明な作成・後継・元記録不明は保持する', async () => withDb((db, home) => {
