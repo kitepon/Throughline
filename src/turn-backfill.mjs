@@ -45,18 +45,8 @@ export function logBackfill(entry) {
   }
 }
 
-/**
- * Claude Code の project-dir munging から session transcript path を決定的に導出する。
- * macOS/Linux の Claude Code 規約を mirror する。Windows では呼び出し側が state file の
- * transcriptPath に fallback する。
- * @param {string} projectPath
- * @param {string} sessionId
- * @returns {string}
- */
-export function deriveTranscriptPath(projectPath, sessionId) {
-  const mungedProjectPath = `-${String(projectPath).replace(/[/.]/g, '-').replace(/^-+/, '')}`;
-  return join(homedir(), '.claude', 'projects', mungedProjectPath, `${sessionId}.jsonl`);
-}
+// Keep the existing core import path compatible; Claude owns its transcript layout.
+export { deriveClaudeTranscriptPath as deriveTranscriptPath } from './hosts/claude.mjs';
 
 /**
  * 書き直される transcript の、世代1つぶんの turn_number の幅（ADR 0056）。

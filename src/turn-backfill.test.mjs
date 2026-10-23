@@ -212,11 +212,21 @@ test('backfillBodies: sidechain entries and missing or empty paths produce no gr
   );
 });
 
-test('deriveTranscriptPath munges slash and dot characters with one leading dash', () => {
-  assert.equal(
-    deriveTranscriptPath('/Users/example/Developer/Through.line', 'session-id'),
-    join(homedir(), '.claude', 'projects', '-Users-example-Developer-Through-line', 'session-id.jsonl'),
-  );
+test('deriveTranscriptPath preserves the Claude storage path contract', () => {
+  const cases = [
+    ['/Users/example/Developer/Through.line', '-Users-example-Developer-Through-line'],
+    ['/', '-'],
+    ['relative/project', '-relative-project'],
+    ['/work/a..b/日本語 project', '-work-a--b-日本語 project'],
+    [String.raw`C:\Users\example\Project.with.dot`, String.raw`-C:\Users\example\Project-with-dot`],
+  ];
+  for (const [project, directory] of cases) {
+    assert.equal(
+      deriveTranscriptPath(project, 'session-id'),
+      join(homedir(), '.claude', 'projects', directory, 'session-id.jsonl'),
+      project,
+    );
+  }
 });
 
 test('backfillBodies: user row keeps the turn start and assistant row leaves it empty', () => {

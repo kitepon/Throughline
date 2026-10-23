@@ -5,8 +5,22 @@
  * 引き継ぎ注入は UserPromptSubmit hook の stdout でモデルへ渡る。
  */
 import { readFileSync } from 'node:fs';
-import { isAbsolute, posix, win32 } from 'node:path';
+import { isAbsolute, join, posix, win32 } from 'node:path';
+import { homedir } from 'node:os';
 import { CLAUDE_HOST, hostOfSessionId } from './identity.mjs';
+
+/**
+ * Claude Code の project-dir munging から session transcript path を決定的に導出する。
+ * macOS/Linux の Claude Code 規約を mirror する。Windows では呼び出し側が state file の
+ * transcriptPath に fallback する。
+ * @param {string} projectPath
+ * @param {string} sessionId
+ * @returns {string}
+ */
+export function deriveClaudeTranscriptPath(projectPath, sessionId) {
+  const mungedProjectPath = `-${String(projectPath).replace(/[/.]/g, '-').replace(/^-+/, '')}`;
+  return join(homedir(), '.claude', 'projects', mungedProjectPath, `${sessionId}.jsonl`);
+}
 
 // Claude Code の背景 task 通知は user 発言として transcript に入る。識別子・出力 path・
 // 定型の注記と、入力待ち時に付く端末の生出力 (`Last output:` 以降) は記憶に要らない。
