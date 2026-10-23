@@ -1134,7 +1134,7 @@ test('Stop: 受領を確かめられなかった引き継ぎ（unknown）でも�
 
 test('Desktop で開く: 後継が手すきになるのを待って止め、擬似端末の中で claude --desktop --resume を呼ぶ', () => withDir(async dir => {
   const shortId = SUCCESSOR.slice(0, 8);
-  const run = async ({ statuses, stopStatus = 0, opened, beforePoll = () => {} }) => {
+  const run = async ({ statuses, stopStatus = 0, opened, beforePoll = () => {}, idleTimeoutMs }) => {
     writeRecord(dir, SESSION, { desktop: { wanted: true, state: 'requested', error_code: null, opened_at: null } });
     const calls = [];
     const spawn = (command, args, options) => {
@@ -1150,9 +1150,9 @@ test('Desktop で開く: 後継が手すきになるのを待って止め、擬�
     };
     const pty = (command, args, options) => { calls.push(['pty', command, ...args, options.cwd]); return opened; };
     // busy→idle の成功試験は poll の順序を検査する。Windows CI の負荷で60msを越えても打ち切らない。
-    // busy のまま / 一覧無しの期限切れ試験だけは短い実時間を使う。
+    // busy のまま / 一覧無しの期限切れ試験だけは短い実時間を使う。後継の交替を次のpollで見る試験も5秒待つ。
     const record = await runClaudeDesktopOpen(SESSION, { dir, env: { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, spawn, pty,
-      idleTimeoutMs: statuses.length > 1 ? 5_000 : 60, pollMs: 5 });
+      idleTimeoutMs: idleTimeoutMs ?? (statuses.length > 1 ? 5_000 : 60), pollMs: 5 });
     return { record, calls };
   };
   const ok = { status: 0, stdout: `\u0004\b\bOpening session ${SUCCESSOR} in Claude Desktop\r\n`, stderr: '' };
@@ -1174,7 +1174,7 @@ test('Desktop で開く: 後継が手すきになるのを待って止め、擬�
 
   // 待つ間に、後継がさらに引き継ぎを始めた
   const superseded = await run({ statuses: ['busy'], opened: ok,
-    beforePoll: () => writeRecord(dir, SUCCESSOR, { state: 'requested', successor: null }) });
+    beforePoll: () => writeRecord(dir, SUCCESSOR, { state: 'requested', successor: null }), idleTimeoutMs: 5_000 });
   assert.equal(superseded.record.desktop.state, 'superseded');
   assert.equal(superseded.calls.some(call => call[1] === 'stop'), false);
   rmSync(join(dir, `${SUCCESSOR}.json`));
