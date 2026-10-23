@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.44] — 2026-10-23
+
+### Changed
+
+- Move Claude transcript path derivation into the Claude host adapter while
+  preserving the existing core export and path calculation. Conversation storage,
+  handoff context, public CLI contracts, and standalone operation stay unchanged.
+
 ## [0.16.43] — 2026-10-22
 
 ### Fixed
@@ -2781,7 +2789,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.43...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.44...HEAD
+[0.16.44]: https://github.com/kitepon/Throughline/compare/v0.16.43...v0.16.44
 [0.16.43]: https://github.com/kitepon/Throughline/compare/v0.16.42...v0.16.43
 [0.16.42]: https://github.com/kitepon/Throughline/compare/v0.16.41...v0.16.42
 [0.16.41]: https://github.com/kitepon/Throughline/compare/v0.16.40...v0.16.41
