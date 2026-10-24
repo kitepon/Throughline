@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute } from 'node:path';
+import { sameProjectPath } from './project-path.mjs';
 
 const JSON_FIELDS = ['settings_json', 'snapshot_json', 'runtime_json', 'worker_identity_json'];
 const MUTABLE_FIELDS = new Set([
@@ -172,8 +174,10 @@ export function loadFrozenLineage(db, operation) {
     const next = lineage.at(-1)?.operation;
     if (next && current.target_thread_id !== next.source_thread_id) throw new Error('handoff_lineage_invalid');
     // 各辺で、前任の継続場所と後任の元rolloutのprojectを照合する。
-    if (next && current.project_path !== (next.runtime?.sourceCaptureProjectPath ?? next.project_path)) {
-      throw new Error('handoff_lineage_project_mismatch');
+    if (next) {
+      const project = current.project_path, capture = next.runtime?.sourceCaptureProjectPath ?? next.project_path;
+      if (typeof project !== 'string' || !isAbsolute(project) || typeof capture !== 'string' || !isAbsolute(capture) ||
+          !sameProjectPath(project, capture)) throw new Error('handoff_lineage_project_mismatch');
     }
     lineage.push({ operation: current, snapshot: current.snapshot });
     current = current.previous_handoff_id ? getAutoHandoff(db, current.previous_handoff_id) : null;

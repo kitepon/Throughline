@@ -1702,3 +1702,32 @@ test('worktree要求の公開captureは元rolloutの記憶を取り込み、別p
   assert.deepEqual(frozen.bodies.map(row => row.text), ['元projectの依頼', 'worktreeへ続ける回答']);
   assert.throws(() => freezeCodexMemory(db, { ...op, runtime: { sourceCaptureProjectPath: current } }, {}, {}), /handoff_memory_source_mismatch/);
 }));
+
+test('系譜はOS別の同一project表記を継承し、別project・兄弟prefix・相対pathを拒否する', async () => withDb((db, home) => {
+  const project = join(home, 'Worktree'), nextProject = join(home, 'NextWorktree');
+  mkdirSync(project); mkdirSync(nextProject);
+  const alias = process.platform === 'win32' ? project.replaceAll('\\', '/').toLowerCase() : `${project}/.`;
+  const make = (thread, cwd, capture, target) => {
+    let op = request(db, thread, { projectPath: cwd }).operation;
+    op = updateAutoHandoff(db, op.handoff_id, { runtime_json: { sourceCaptureProjectPath: capture } }).operation;
+    db.prepare('INSERT INTO sessions(session_id,project_path,created_at,updated_at) VALUES (?, ?, 1, 1)').run(op.source_session_id, capture);
+    for (const role of ['user', 'assistant']) db.prepare('INSERT INTO bodies(session_id,origin_session_id,turn_number,role,text,created_at) VALUES (?, ?, 1, ?, ?, 1)')
+      .run(op.source_session_id, op.source_session_id, role, `${thread}-${role}`);
+    return updateAutoHandoff(db, op.handoff_id, { snapshot_json: freezeCodexMemory(db, op, { cwd }, { stoppedAt: 2 }),
+      target_thread_id: target, state: 'continued' }).operation;
+  };
+  make('A', project, project, 'B');
+  const b = make('B', nextProject, alias, 'C');
+  const memory = collectAutoHandoffMemory(db, b);
+  assert.equal(memory.turnCount, 2); assert.equal(memory.bodies.length, 4);
+  for (const invalid of [join(home, 'Other'), `${project}-sibling`, 'relative', '', 17]) {
+    assert.throws(() => collectAutoHandoffMemory(db, { ...b, runtime: { sourceCaptureProjectPath: invalid } }), /handoff_lineage_project_mismatch/);
+  }
+  for (const missing of [undefined, null]) {
+    assert.throws(() => collectAutoHandoffMemory(db, { ...b, project_path: missing, runtime: {} }), /handoff_lineage_project_mismatch/);
+  }
+  if (process.platform !== 'win32') {
+    assert.throws(() => collectAutoHandoffMemory(db, { ...b, runtime: { sourceCaptureProjectPath: project.toLowerCase() } }), /handoff_lineage_project_mismatch/);
+  }
+  assert.throws(() => freezeCodexMemory(db, { ...b, runtime: { sourceCaptureProjectPath: project } }, {}, {}), /handoff_memory_source_mismatch/);
+}));

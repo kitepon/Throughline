@@ -93,3 +93,7 @@ session_meta.cwdは作成時の場所であり、Codex Desktopが同じ会話を
 対応するrolloutの完結した最新turn_context.cwdを照合する。一致すれば元projectへ
 記録を保持し、不一致/古いcontext/相対cwdなら取り込まない。Stopの保存を、次の
 PreCompactだけに依存させない。projectを推測して別threadを選ぶことはしない。
+
+系譜のproject辺も要求・native設定と同じsameProjectPathで比較する。両端に絶対pathが
+あることを先に要求し、Windowsの大小文字/区切りの同一性を許す。POSIXの別case、
+別project、兄弟prefix、欠測・相対pathは拒否する。snapshotの元session束縛とthread辺は変えない。
