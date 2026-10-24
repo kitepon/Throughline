@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.45] — 2026-10-24
+
+### Changed
+
+- Defer Codex automatic conversation switching when an active native goal is
+  detected after memory preparation and before source-stop authorization. Leave
+  the original conversation and goal running, keep capturing memory, and return
+  an explicit failure reason. Goal-read failures also preserve the source before
+  stop authorization. Paused or absent goals retain the normal handoff path.
+- This is a temporary restriction of active-goal handoffs, not a complete repair
+  of goal-driven automatic continuation. It avoids adding goal writes or
+  resuming over a user's manual pause; the native API has no conditional resume.
+
 ## [0.16.44] — 2026-10-23
 
 ### Changed
@@ -2789,7 +2802,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.44...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.45...HEAD
+[0.16.45]: https://github.com/kitepon/Throughline/compare/v0.16.44...v0.16.45
 [0.16.44]: https://github.com/kitepon/Throughline/compare/v0.16.43...v0.16.44
 [0.16.43]: https://github.com/kitepon/Throughline/compare/v0.16.42...v0.16.43
 [0.16.42]: https://github.com/kitepon/Throughline/compare/v0.16.41...v0.16.42

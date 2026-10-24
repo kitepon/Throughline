@@ -45,3 +45,26 @@ continue=falseは元ターンを止める。圧縮だけを止めてモデルの
 - schema、hookの命令、timeout、他hostの記録・引き継ぎ契約は変更しない。
 - fixture試験は混雑失敗・起動失敗・時間切れ・取消後の遅延完了・重複要求・正常な
   準備から停止実測後の一度だけの配送、および診断の本文非漏出を検証する。
+
+## Active goalの暫定的な停止前判定（2026-10-24）
+
+Macで元turn停止の83ms後にactive goalが次turnを起こし、workerの停止境界照合が
+`handoff_source_advanced`で失敗した。停止許可前にgoalを一時停止する案は、失敗時の
+復帰と利用者の手動pauseが競合するとpauseを上書きするため採用しない。
+[公式のgoal API](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/src/protocol/v2/thread.rs)に
+expected status/revisionは無く、origin=automaticも条件付き更新ではない。
+[条件付き再開APIの提案](https://github.com/openai/codex/issues/56148)を参照する。
+
+0.16.45では記憶の準備に成功した後、停止を許可する前にgoal/getだけで確認する。
+activeなら`handoff_active_goal_conditional_resume_unavailable`で明示失敗し、
+元会話とgoalを停止せずcontinue=trueで通常処理を続ける。読取失敗も同じ停止前失敗の
+契約に従う。goalの書込み・一時停止・復帰はこの判定で行わない。
+判定後に要求の状態と準備を再確認し、取消済みの要求を許可しない。
+goalなし・paused・complete・budgetLimitedは既存の判定へ進む。
+
+これはactive goal検出時の自動切替を見送る機能制限であり、完全修理ではない。
+goalの読取と停止許可はatomicではなく、確認後にgoalが作成・再開される競合までは
+排除しない。その場合も既存のsource-advanced検査を削除しない。
+後継・配送・結果不明の既存要求をこの処理で再実行・二重再開しない。
+fixtureではactive goalの不変、停止未許可、後継/配送なし、通常goal状態、
+読取失敗と判定中の取消を検証する。3OSの試験と、実行中の本物の会話の受入を区別する。

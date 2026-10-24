@@ -280,13 +280,22 @@ function summarizerFailure(cause) {
     exit_code: Number.isInteger(cause.exitCode) ? cause.exitCode : null, category };
 }
 
+// 条件付きresumeの無いAPIで一時停止/復帰を組み立てない。active検出時は元を止める前に見送る。
+export async function checkAutoHandoffSourceGoal(operation, runtime = null, { connect = withCodexReceiver } = {}) {
+  const goal = await connect(autoHandoffDeliveryProfile,
+    { thread_id: operation.source_thread_id, codex_home: operation.codex_home },
+    async request => (await request('thread/goal/get', { threadId: operation.source_thread_id })).goal,
+    runtime ?? { executable: platformDesktopFinder()(), timeout_ms: 5_000 });
+  if (goal?.status === 'active') throw error('handoff_active_goal_conditional_resume_unavailable');
+}
+
 export async function requestCodexAutoHandoff({ payload, db = null,
   config = readAutoHandoffConfig(), launchWorker = launchAutoHandoffWorker,
   findThread = findCodexThreadCandidate, openThread = openSuccessor, recordRedirect = recordAutoHandoffRedirect,
   settleGoal = launchAutoHandoffGoalSettle,
   recordInternalCompaction = recordInternalCompactionStop, recordUnrecordedCompaction = recordUnrecordedCompactionPass,
   processes = readRuntimeProcesses, readTarget = targetState, now = Date.now(),
-  waitForPreparation = waitForCodexHandoffPreparation } = {}) {
+  waitForPreparation = waitForCodexHandoffPreparation, checkGoal = checkAutoHandoffSourceGoal } = {}) {
   if (payload.trigger !== 'auto' || !autoHandoffEnabledFor(config, payload.cwd)) return { status: 'skipped' };
   const threadId = payload.session_id, turnId = payload.turn_id;
   // 記録（rollout）を持たない会話からの合図。Codex Desktop は、ターンの終わりや会話を開いた時に、画面に出ない会話を
@@ -391,8 +400,11 @@ export async function requestCodexAutoHandoff({ payload, db = null,
       await waitForPreparation(actualDb, operation.handoff_id);
       const prepared = getAutoHandoff(actualDb, operation.handoff_id);
       if (prepared.state !== 'requested' || !prepared.runtime?.sourceStopGate?.ready) throw error(prepared.error_code ?? 'handoff_preparation_failed');
-      const allowed = updateAutoHandoff(actualDb, operation.handoff_id, { runtime_json: { ...prepared.runtime,
-        sourceStopGate: { ...prepared.runtime.sourceStopGate, authorized: true } } }, { expectedState: 'requested' });
+      await checkGoal(prepared);
+      const current = getAutoHandoff(actualDb, operation.handoff_id);
+      if (current.state !== 'requested' || !current.runtime?.sourceStopGate?.ready) throw error('handoff_preparation_cancelled');
+      const allowed = updateAutoHandoff(actualDb, operation.handoff_id, { runtime_json: { ...current.runtime,
+        sourceStopGate: { ...current.runtime.sourceStopGate, authorized: true } } }, { expectedState: 'requested' });
       if (!allowed.changed) throw error('handoff_preparation_cancelled');
     } catch (cause) {
       return keepSourceAfterPreparationFailure(actualDb, operation.handoff_id, cause.code ?? 'handoff_preparation_failed');

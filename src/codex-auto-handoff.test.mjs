@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { testTempDir } from './test-temp-dir.mjs';
 import { requestAutoHandoff, updateAutoHandoff, getAutoHandoff, freezeCodexMemory,
-  claimAutoHandoff, continuationInput } from './codex-auto-handoff-store.mjs';
+  claimAutoHandoff, continuationInput, failAutoHandoff } from './codex-auto-handoff-store.mjs';
 import { collectAutoHandoffMemory, ensureAutoHandoffSummaries, renderAutoHandoffMemory,
   renderFrozenDetail } from './codex-auto-handoff-memory.mjs';
 import { readCodexHandoffState, settingsMatch, threadStartSettings, resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
@@ -19,11 +19,12 @@ import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHa
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
-  pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
+  checkAutoHandoffSourceGoal, pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 // 既存の要求試験ではlaunchWorkerもfixture。準備の完了も同じ境界のfixtureで返す。
 const requestCodexAutoHandoff = args => realRequestCodexAutoHandoff({
+  checkGoal: async () => {},
   waitForPreparation: async (db, id) => {
     const op = getAutoHandoff(db, id);
     updateAutoHandoff(db, id, { runtime_json: { ...op.runtime,
@@ -1415,7 +1416,7 @@ function gateFixture(db, home) {
   };
   deps.summaries = () => { counters.summaries++; assert.equal(stopped, false); assert.equal(counters.goal, undefined); };
   deps.wait = pollPreparation;
-  const args = { db, payload, config: { enabled: true, projects: [home], openHost: 'desktop' },
+  const args = { db, payload, checkGoal: async () => {}, config: { enabled: true, projects: [home], openHost: 'desktop' },
     waitForPreparation: fastPreparation, launchWorker: async id => { worker = runAutoHandoffWorker(id, { db, dependencies: deps }); } };
   return { args, deps, counters, worker: () => worker, stop: () => { stopped = true; } };
 }
@@ -1526,4 +1527,51 @@ test('停止許可をhostが受け取れず元turnが停止しない場合は、
   const result = await f.worker();
   assert.equal(result.state, 'failed'); assert.equal(result.error_code, 'handoff_source_stop_unconfirmed');
   assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+
+test('停止前goal判定: active goalは停止前に明示失敗し、goalと元会話を動かしたままにする', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home), goals = { [f.args.payload.session_id]: { status: 'active', objective: 'fixture goal' } }, sent = [];
+  const connect = goalReceiver(goals, sent);
+  const before = JSON.stringify(goals);
+  f.args.checkGoal = op => checkAutoHandoffSourceGoal(op, {}, { connect });
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true);
+  assert.equal(answer.reason, 'handoff_active_goal_conditional_resume_unavailable');
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(JSON.stringify(goals), before);
+  assert.equal(sent.some(([method]) => method === 'thread/goal/set'), false);
+  assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+test('停止前goal判定: goalなし・既存paused・完了では何も書かず通常の引き継ぎ判定へ返す', async () => {
+  for (const goal of [null, { status: 'paused' }, { status: 'complete' }, { status: 'budgetLimited' }]) {
+    const sent = [];
+    await checkAutoHandoffSourceGoal({ source_thread_id: 'S' }, {}, { connect: goalReceiver({ S: goal }, sent) });
+    assert.deepEqual(sent, [['thread/goal/get', { threadId: 'S' }]]);
+  }
+});
+
+
+test('goal読取失敗は停止前に元会話へ戻し、後継やgoal書込みを行わない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.args.checkGoal = op => checkAutoHandoffSourceGoal(op, {}, { connect: async () => {
+    throw Object.assign(new Error('fixture read failed'), { code: 'fixture_goal_read_failed' });
+  } });
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true); assert.equal(answer.reason, 'fixture_goal_read_failed');
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+test('goal判定中に要求が失敗した場合、遅れて停止を許可しない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.args.checkGoal = async op => { failAutoHandoff(db, op.handoff_id, 'fixture_cancelled'); };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true);
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
 }));
