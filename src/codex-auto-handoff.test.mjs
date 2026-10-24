@@ -19,11 +19,12 @@ import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHa
   autoHandoffTargetName, nameAutoHandoffTarget, findLiveAutoHandoffSuccessor,
   markAutoHandoffSource, markAutoHandoffSources, autoHandoffSourceFallbackTitle, carryAutoHandoffQueue,
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
-  pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
+  prepareAutoHandoffSourceGoal, restoreAutoHandoffSourceGoal, pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 
 // 既存の要求試験ではlaunchWorkerもfixture。準備の完了も同じ境界のfixtureで返す。
 const requestCodexAutoHandoff = args => realRequestCodexAutoHandoff({
+  prepareGoal: async () => {}, restoreGoal: async () => {},
   waitForPreparation: async (db, id) => {
     const op = getAutoHandoff(db, id);
     updateAutoHandoff(db, id, { runtime_json: { ...op.runtime,
@@ -1415,7 +1416,21 @@ function gateFixture(db, home) {
   };
   deps.summaries = () => { counters.summaries++; assert.equal(stopped, false); assert.equal(counters.goal, undefined); };
   deps.wait = pollPreparation;
+  const restoreGoal = async (db, operation) => {
+    if (!operation.runtime?.goalCarry?.paused) return 'none';
+    (counters.restored ??= []).push(operation.handoff_id);
+    updateAutoHandoff(db, operation.handoff_id, { runtime_json: { ...operation.runtime,
+      goalCarry: { ...operation.runtime.goalCarry, paused: false, restored: 'restored' } } });
+    return 'restored';
+  };
+  deps.restoreGoal = restoreGoal;
   const args = { db, payload, config: { enabled: true, projects: [home], openHost: 'desktop' },
+    prepareGoal: async (db, operation) => {
+      const result = await deps.pauseGoal(operation, {});
+      if (result === 'failed') throw Object.assign(Error('goal pause failed'), { code: 'handoff_goal_pause_failed' });
+      updateAutoHandoff(db, operation.handoff_id, { runtime_json: { ...getAutoHandoff(db, operation.handoff_id).runtime,
+        goalCarry: { paused: result === 'paused' } } });
+    }, restoreGoal,
     waitForPreparation: fastPreparation, launchWorker: async id => { worker = runAutoHandoffWorker(id, { db, dependencies: deps }); } };
   return { args, deps, counters, worker: () => worker, stop: () => { stopped = true; } };
 }
@@ -1473,7 +1488,7 @@ test('準備完了を確認してからだけ停止を許可し、停止実測�
   assert.equal(getAutoHandoff(db, answer.operationId).runtime.sourceStopGate.authorized, true);
   assert.equal(getAutoHandoff(db, answer.operationId).snapshot, null, '停止前の記憶は正規snapshotにしない');
   assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
-  assert.equal(f.counters.goal, undefined, '停止許可だけでは旧ゴールを止めない');
+  assert.deepEqual(f.counters.goal, ['pause:requested'], '記憶準備後・停止許可前にゴールを扱う');
   f.stop();
   const result = await f.worker();
   assert.equal(result.state, 'continued'); assert.equal(result.snapshot.bodies[0].text, '未完了の元依頼');
@@ -1512,8 +1527,9 @@ test('要約の直後に準備取消になっても、遅れた完了で停止�
   assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0);
 }));
 
-test('停止許可をhostが受け取れず元turnが停止しない場合は、ゴールも後継も操作しない', async () => withDb(async (db, home) => {
+test('停止許可をhostが受け取れず元turnが停止しない場合は、自分が停止したゴールだけ戻し後継を作らない', async () => withDb(async (db, home) => {
   const f = gateFixture(db, home);
+  f.deps.pauseGoal = async () => 'paused';
   f.deps.wait = async (check, options) => {
     if (options.timeoutCode === 'handoff_source_stop_unconfirmed') {
       assert.equal(await check(), null);
@@ -1525,5 +1541,203 @@ test('停止許可をhostが受け取れず元turnが停止しない場合は、
   assert.equal(answer.continue, false);
   const result = await f.worker();
   assert.equal(result.state, 'failed'); assert.equal(result.error_code, 'handoff_source_stop_unconfirmed');
-  assert.equal(f.counters.goal, undefined); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+  assert.equal(f.counters.restored.length, 1); assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+
+test('ゴールの次turnは停止許可直後に始まれるので、停止許可前にゴールを一時停止する', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  let goalPaused = false;
+  const readSource = f.deps.readSource;
+  f.deps.pauseGoal = async operation => {
+    goalPaused = true;
+    (f.counters.goal ??= []).push(`pause:${operation.state}`);
+    return 'paused';
+  };
+  f.deps.readSource = operation => {
+    const state = readSource(operation);
+    const current = getAutoHandoff(db, operation.handoff_id);
+    if (current.runtime?.sourceStopGate?.authorized && !goalPaused) {
+      return { ...state, latestTurnId: 'goal-continued-immediately',
+        laterTurns: [{ turnId: 'goal-continued-immediately', activity: true, closed: false }] };
+    }
+    return state;
+  };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(answer.continue, false);
+  f.stop();
+  const operation = await f.worker();
+  assert.equal(operation.state, 'continued');
+  assert.equal(f.counters.created, 1);
+  assert.equal(f.counters.submitted, 1);
+}));
+
+function preparedGoalOperation(db, thread = 'goal-source') {
+  const op = request(db, thread).operation;
+  return updateAutoHandoff(db, op.handoff_id, { runtime_json: {
+    sourceStopGate: { ready: true, authorized: false, deadline: Date.now() + 20_000 },
+  } }).operation;
+}
+
+test('停止前のgoal pauseは変更前に所有を保存し、同じactive goalだけを確認・復帰する', async () => withDb(async db => {
+  const op = preparedGoalOperation(db), goals = { 'goal-source': { status: 'active', createdAt: 1, objective: 'fixture goal', tokenBudget: 1000, tokensUsed: 10 } }, sent = [];
+  const receiver = goalReceiver(goals, sent);
+  const connect = (profile, parent, action) => receiver(profile, parent, request => action(async (method, params) => {
+    if (method === 'thread/goal/set' && params.status === 'paused') {
+      const stored = getAutoHandoff(db, op.handoff_id);
+      assert.equal(stored.runtime.goalCarry.pausePending, true);
+      assert.equal(stored.runtime.sourceStopGate.authorized, false);
+      assert.equal(stored.snapshot, null);
+    }
+    return request(method, params);
+  }));
+  await prepareAutoHandoffSourceGoal(db, op, {}, { connect });
+  const paused = getAutoHandoff(db, op.handoff_id);
+  assert.equal(paused.runtime.goalCarry.paused, true);
+  assert.equal(goals['goal-source'].status, 'paused');
+  goals['goal-source'].tokensUsed = 15; // the current turn can still finish using tokens
+  assert.equal(await restoreAutoHandoffSourceGoal(db, paused, {}, { connect: receiver }), 'restored');
+  assert.equal(goals['goal-source'].status, 'active');
+  assert.equal(goals['goal-source'].tokensUsed, 15);
+  assert.equal(await restoreAutoHandoffSourceGoal(db, getAutoHandoff(db, op.handoff_id), {}, { connect: receiver }), 'none');
+  assert.equal(sent.filter(([m,p]) => m === 'thread/goal/set' && p.status === 'active').length, 1);
+}));
+
+test('goalの無い・利用者が止めた・終了済みの会話は停止前準備でも書き換えない', async () => withDb(async db => {
+  for (const status of [null, 'paused', 'complete', 'budgetLimited']) {
+    const op = preparedGoalOperation(db, `source-${status}`), sent = [];
+    const goals = { [op.source_thread_id]: status ? { status, objective: 'fixture goal' } : null };
+    const connect = goalReceiver(goals, sent);
+    await prepareAutoHandoffSourceGoal(db, op, {}, { connect });
+    assert.equal(await restoreAutoHandoffSourceGoal(db, getAutoHandoff(db, op.handoff_id), {}, { connect }), 'none');
+    assert.equal(sent.some(([method]) => method === 'thread/goal/set'), false);
+  }
+}));
+
+test('pause結果が不明でも、同じgoalが実際にpausedなら元へ戻し、別goalや終了状態を再開しない', async () => withDb(async db => {
+  for (const change of ['same', 'objective', 'budget', 'id', 'createdAt', 'complete', 'budgetLimited']) {
+    const op = preparedGoalOperation(db, `uncertain-${change}`), sent = [];
+    const goals = { [op.source_thread_id]: { id: 'original', status: 'active', createdAt: 1, objective: 'fixture goal', tokenBudget: 1000 } };
+    const receiver = goalReceiver(goals, sent);
+    const connect = (profile, parent, action) => receiver(profile, parent, request => action(async (method, params) => {
+      const result = await request(method, params);
+      if (method === 'thread/goal/set' && params.status === 'paused') throw Object.assign(Error('response lost'), { code: 'fixture_lost' });
+      return result;
+    }));
+    await assert.rejects(prepareAutoHandoffSourceGoal(db, op, {}, { connect }), /response lost/);
+    if (change === 'objective') goals[op.source_thread_id].objective = 'new user goal';
+    if (change === 'budget') goals[op.source_thread_id].tokenBudget = 2000;
+    if (change === 'id') goals[op.source_thread_id].id = 'replacement';
+    if (change === 'createdAt') goals[op.source_thread_id].createdAt = 2;
+    if (['complete', 'budgetLimited'].includes(change)) goals[op.source_thread_id].status = change;
+    assert.equal(await restoreAutoHandoffSourceGoal(db, getAutoHandoff(db, op.handoff_id), {}, { connect: receiver }), change === 'same' ? 'restored' : 'kept');
+    assert.equal(sent.filter(([m,p]) => m === 'thread/goal/set' && p.status === 'active').length, change === 'same' ? 1 : 0);
+  }
+}));
+
+test('後継・配送・凍結・作用不明のある引継ぎでは元goalを二重再開しない', async () => withDb(async db => {
+  const op = preparedGoalOperation(db), goals = { 'goal-source': { status: 'active', createdAt: 1, objective: 'fixture goal' } }, sent = [];
+  const connect = goalReceiver(goals, sent);
+  await prepareAutoHandoffSourceGoal(db, op, {}, { connect });
+  const paused = getAutoHandoff(db, op.handoff_id);
+  for (const fields of [{ target_thread_id: 'target' }, { queued_submission_id: 'receipt' }, { snapshot: {} },
+    { mutation_stage: 'submit' }, { state: 'unknown' }, { state: 'continued' }]) {
+    assert.equal(await restoreAutoHandoffSourceGoal(db, { ...paused, ...fields }, {}, { connect }), 'blocked');
+  }
+  assert.equal(sent.some(([m,p]) => m === 'thread/goal/set' && p.status === 'active'), false);
+}));
+
+test('goalを止めた後に準備を取り消した場合は、停止を許可せず自分のgoalだけ戻す', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.counters.goalPause = 'paused';
+  const prepare = f.args.prepareGoal;
+  f.args.prepareGoal = async (db, op) => {
+    await prepare(db, op);
+    failAutoHandoff(db, op.handoff_id, 'handoff_preparation_timeout');
+  };
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const result = await f.worker();
+  assert.equal(answer.continue, true);
+  assert.equal(result.runtime.sourceStopGate.authorized, false);
+  assert.equal(result.runtime.goalCarry.paused, false);
+  assert.equal(f.counters.restored.length, 1);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+test('実goal APIの境界でも、準備後・停止許可前にpauseし、一度だけ後継へ運ぶ', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home), thread = f.args.payload.session_id;
+  const goals = { [thread]: { createdAt: 1, objective: 'fixture goal', status: 'active', tokenBudget: 1000 } }, sent = [];
+  const connect = goalReceiver(goals, sent);
+  f.args.prepareGoal = (db, op) => prepareAutoHandoffSourceGoal(db, op, {}, { connect });
+  f.args.restoreGoal = f.deps.restoreGoal = (db, op) => restoreAutoHandoffSourceGoal(db, op, {}, { connect });
+  f.deps.pauseGoal = async () => { throw Error('must not pause after the source stop'); };
+  const originalRead = f.deps.readSource;
+  f.deps.readSource = op => getAutoHandoff(db, op.handoff_id).runtime.sourceStopGate.authorized && goals[thread].status === 'active'
+    ? { ...originalRead(op), latestTurnId: 'native-goal-next', laterTurns: [{ turnId: 'native-goal-next', activity: true, closed: false }] }
+    : originalRead(op);
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(answer.continue, false);
+  assert.equal(goals[thread].status, 'paused');
+  f.stop();
+  const result = await f.worker();
+  assert.equal(result.state, 'continued');
+  assert.equal(result.runtime.goalCarry.paused, true);
+  assert.deepEqual(f.counters.goal, ['carry:continued:true']);
+  assert.equal(f.counters.created, 1); assert.equal(f.counters.submitted, 1);
+  assert.deepEqual(sent.filter(([method]) => method === 'thread/goal/set'), [
+    ['thread/goal/set', { threadId: thread, status: 'paused', origin: 'automatic' }],
+  ]);
+}));
+
+test('goal復帰を確認できなければ所有を保持し、利用者の停止を自動再開として偽らない', async () => withDb(async db => {
+  const op = preparedGoalOperation(db), goals = { 'goal-source': { createdAt: 1, objective: 'fixture goal', status: 'active' } }, sent = [];
+  const connect = goalReceiver(goals, sent);
+  await prepareAutoHandoffSourceGoal(db, op, {}, { connect });
+  const rejected = goalReceiver(goals, sent, 'thread/goal/set');
+  assert.equal(await restoreAutoHandoffSourceGoal(db, getAutoHandoff(db, op.handoff_id), {}, { connect: rejected }), 'failed');
+  assert.equal(goals['goal-source'].status, 'paused');
+  assert.equal(getAutoHandoff(db, op.handoff_id).runtime.goalCarry.restored, 'failed');
+  assert.equal(getAutoHandoff(db, op.handoff_id).runtime.goalCarry.paused, true);
+}));
+
+test('不明なgoal identityと確認できないpauseは停止を許可せず、同じ会話の作業を残す', async () => withDb(async db => {
+  const op = preparedGoalOperation(db), goals = { 'goal-source': { objective: 'fixture goal', status: 'active' } }, sent = [];
+  const connect = goalReceiver(goals, sent);
+  await assert.rejects(prepareAutoHandoffSourceGoal(db, op, {}, { connect }), /handoff_goal_identity_unavailable/);
+  assert.equal(sent.some(([m]) => m === 'thread/goal/set'), false);
+  goals['goal-source'].createdAt = 1;
+  const noMutation = (profile, parent, action) => connect(profile, parent, request => action((method, params) =>
+    method === 'thread/goal/set' ? { goal: goals['goal-source'] } : request(method, params)));
+  await assert.rejects(prepareAutoHandoffSourceGoal(db, op, {}, { connect: noMutation }), /handoff_goal_pause_unconfirmed/);
+  assert.equal(await restoreAutoHandoffSourceGoal(db, getAutoHandoff(db, op.handoff_id), {}, { connect }), 'already_active');
+}));
+
+test('別hookが先に停止を許可した時は、その引継ぎを失敗へ変えて元会話を解放しない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.args.prepareGoal = async (db, op) => {
+    updateAutoHandoff(db, op.handoff_id, { runtime_json: { ...op.runtime,
+      sourceStopGate: { ...op.runtime.sourceStopGate, authorized: true } } });
+    throw Object.assign(Error('concurrent owner'), { code: 'fixture_concurrent' });
+  };
+  await assert.rejects(realRequestCodexAutoHandoff(f.args), /concurrent owner/);
+  f.stop();
+  const result = await f.worker();
+  assert.equal(result.state, 'continued');
+  assert.equal(f.counters.created, 1);
+}));
+
+
+test('停止を観測できなかった確定失敗を同じturnへ繰り返しても再停止を許可しない', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home);
+  f.deps.wait = async (check, options) => {
+    if (options.timeoutCode === 'handoff_source_stop_unconfirmed') throw Object.assign(Error('no stop'), { code: 'handoff_source_stop_unconfirmed' });
+    return pollPreparation(check);
+  };
+  const first = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(first.continue, false);
+  await f.worker();
+  const again = await realRequestCodexAutoHandoff(f.args);
+  assert.equal(again.continue, true);
+  assert.equal(again.operationId, first.operationId);
+  assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
 }));

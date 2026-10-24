@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.45] — 2026-10-24
+
+### Fixed
+
+- Pause an active Codex goal after memory preparation and before allowing the
+  source turn to stop, preventing the goal from starting another turn before the
+  handoff worker observes the stop. Record ownership before the native mutation.
+- Restore only the same automatically paused goal when preparation is cancelled
+  or the stop is not observed, before any target, frozen handoff, or uncertain
+  delivery exists. Preserve user-paused, changed, and completed goals; report
+  unconfirmed restoration instead of claiming success.
+
+
 ## [0.16.44] — 2026-10-23
 
 ### Changed
@@ -2789,7 +2802,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.44...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.45...HEAD
+[0.16.45]: https://github.com/kitepon/Throughline/compare/v0.16.44...v0.16.45
 [0.16.44]: https://github.com/kitepon/Throughline/compare/v0.16.43...v0.16.44
 [0.16.43]: https://github.com/kitepon/Throughline/compare/v0.16.42...v0.16.43
 [0.16.42]: https://github.com/kitepon/Throughline/compare/v0.16.41...v0.16.42
