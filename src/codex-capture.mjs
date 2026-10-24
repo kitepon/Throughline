@@ -1,4 +1,7 @@
 import { parseCodexRolloutFile } from './codex-rollout-memory.mjs';
+import { readCodexHandoffState } from './hosts/codex-handoff-state.mjs';
+import { sameProjectPath } from './project-path.mjs';
+import { isAbsolute } from 'node:path';
 import { defaultCodexHome, findCodexThreadCandidate } from './codex-thread-index.mjs';
 import {
   CODEX_SESSION_PREFIX,
@@ -29,12 +32,20 @@ export function captureCodexRolloutToDb(
     throw new Error('threadId is required');
   }
 
-  const candidate = findCodexThreadCandidate({
+  const found = findCodexThreadCandidate({
     threadId: threadId.trim(),
     codexHome,
     projectPath,
-    requireProjectMatch: true,
+    requireProjectMatch: false,
   });
+  // 元projectと異なる場所へ移った同一threadは、現在turnの完結したcontextで束縛を確認する。
+  let candidate = found?.matchesProject ? found : null;
+  if (found && !candidate) {
+    const state = readCodexHandoffState(found.rolloutPath, { threadId: threadId.trim() });
+    const context = state.context;
+    if (typeof context?.cwd === 'string' && isAbsolute(context.cwd) &&
+        context.turn_id === state.latestTurnId && sameProjectPath(context.cwd, projectPath)) candidate = found;
+  }
   if (!candidate) {
     return {
       status: 'unavailable',

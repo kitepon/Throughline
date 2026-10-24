@@ -22,6 +22,7 @@ import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHa
   checkAutoHandoffSourceGoal, pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
+import { runCodexStopHook } from './cli/codex-hook.mjs';
 
 // 既存の要求試験ではlaunchWorkerもfixture。準備の完了も同じ境界のfixtureで返す。
 const requestCodexAutoHandoff = args => realRequestCodexAutoHandoff({
@@ -1680,7 +1681,14 @@ test('worktree要求の公開captureは元rolloutの記憶を取り込み、別p
   ].map(row => JSON.stringify({ timestamp: '2026-10-24T12:30:00.000Z', ...row })).join('\n') + '\n');
   const answer = await requestCodexAutoHandoff({ db, payload, config: { enabled: true, projects: [], openHost: 'desktop' }, launchWorker: async () => {} });
   const op = getAutoHandoff(db, answer.operationId);
+  assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: current }).status, 'captured');
+  assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: join(home, 'unrelated') }).status, 'unavailable');
+  const complete = fs.readFileSync(file, 'utf8');
+  fs.appendFileSync(file, JSON.stringify({ type: 'turn_context', payload: { turn_id: 'stale', cwd: current } }) + '\n');
   assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: current }).status, 'unavailable');
+  writeFileSync(file, complete);
+  const stopped = await runCodexStopHook({ db, payload, env: {}, ensureMonitorTask: () => {}, writeMonitorState: () => {}, buildMonitorUsage: () => null });
+  assert.equal(stopped.status, 'ok'); assert.equal(stopped.captured.projectPath, home);
   const captured = captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: op.runtime.sourceCaptureProjectPath });
   assert.equal(captured.status, 'captured'); assert.equal(captured.capturedRows, 2);
   const frozen = freezeCodexMemory(db, op, { cwd: current }, { stoppedAt: Date.now() });

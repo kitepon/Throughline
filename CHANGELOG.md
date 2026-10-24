@@ -19,6 +19,8 @@ shipped to npm but were not individually tagged on GitHub.
   project bound to memory capture, while continuing in the verified current
   working directory. Preserve memory across successive worktree handoffs by
   validating each predecessor's project and target-thread link.
+- Apply the same verified current-turn project binding to normal Codex capture,
+  including Stop hooks, so memory continues to be saved before the next handoff.
 - Keep rejecting stale turns, unrelated projects, incomplete context records,
   and broken predecessor chains. Local failure diagnostics identify which
   comparison failed without recording working-directory values.

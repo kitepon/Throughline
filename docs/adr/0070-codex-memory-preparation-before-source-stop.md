@@ -88,3 +88,8 @@ session_meta.cwdは作成時の場所であり、Codex Desktopが同じ会話を
 試験はworktree移動の拒否再現、停止前captureから後継配送までの合成受入、
 複数のworktreeを通るA→B→Cの全記憶保持、および別thread/古いturn/任意cwd/
 欠測cwd/途中行/壊れた系譜の拒否を検証する。本物の自然発火の回復確認は別に行う。
+
+通常のCodex hookによるcaptureでも、元projectと現在cwdが異なる時は、明示threadに
+対応するrolloutの完結した最新turn_context.cwdを照合する。一致すれば元projectへ
+記録を保持し、不一致/古いcontext/相対cwdなら取り込まない。Stopの保存を、次の
+PreCompactだけに依存させない。projectを推測して別threadを選ぶことはしない。
