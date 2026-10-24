@@ -1727,7 +1727,14 @@ test('系譜はOS別の同一project表記を継承し、別project・兄弟pref
     assert.throws(() => collectAutoHandoffMemory(db, { ...b, project_path: missing, runtime: {} }), /handoff_lineage_project_mismatch/);
   }
   if (process.platform !== 'win32') {
-    assert.throws(() => collectAutoHandoffMemory(db, { ...b, runtime: { sourceCaptureProjectPath: project.toLowerCase() } }), /handoff_lineage_project_mismatch/);
+    // 存在する同じ実体のcase差はMacのfilesystemで解決される。未作成pathではPOSIXの別caseを区別する。
+    const lexicalProject = join(home, 'UncreatedCase');
+    make('case-A', lexicalProject, lexicalProject, 'case-B');
+    const differentCase = make('case-B', nextProject, lexicalProject.toLowerCase(), 'case-C');
+    assert.throws(() => collectAutoHandoffMemory(db, differentCase), /handoff_lineage_project_mismatch/);
+    if (existsSync(project.toLowerCase())) {
+      assert.equal(collectAutoHandoffMemory(db, { ...b, runtime: { sourceCaptureProjectPath: project.toLowerCase() } }).turnCount, 2);
+    }
   }
   assert.throws(() => freezeCodexMemory(db, { ...b, runtime: { sourceCaptureProjectPath: project } }, {}, {}), /handoff_memory_source_mismatch/);
 }));
