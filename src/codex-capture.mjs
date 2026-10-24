@@ -44,6 +44,7 @@ export function captureCodexRolloutToDb(
     const state = readCodexHandoffState(found.rolloutPath, { threadId: threadId.trim() });
     const context = state.context;
     if (typeof context?.cwd === 'string' && isAbsolute(context.cwd) &&
+        typeof context.turn_id === 'string' && context.turn_id.length > 0 &&
         context.turn_id === state.latestTurnId && sameProjectPath(context.cwd, projectPath)) candidate = found;
   }
   if (!candidate) {

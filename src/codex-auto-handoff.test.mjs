@@ -1686,6 +1686,12 @@ test('worktree要求の公開captureは元rolloutの記憶を取り込み、別p
   const complete = fs.readFileSync(file, 'utf8');
   fs.appendFileSync(file, JSON.stringify({ type: 'turn_context', payload: { turn_id: 'stale', cwd: current } }) + '\n');
   assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: current }).status, 'unavailable');
+  const unidentified = complete.trim().split('\n').map(JSON.parse).map(row => {
+    if (row.type === 'turn_context' || row.payload?.type === 'task_started') delete row.payload.turn_id;
+    return row;
+  });
+  writeFileSync(file, unidentified.map(JSON.stringify).join('\n') + '\n');
+  assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: current }).status, 'unavailable');
   writeFileSync(file, complete);
   const stopped = await runCodexStopHook({ db, payload, env: {}, ensureMonitorTask: () => {}, writeMonitorState: () => {}, buildMonitorUsage: () => null });
   assert.equal(stopped.status, 'ok'); assert.equal(stopped.captured.projectPath, home);
