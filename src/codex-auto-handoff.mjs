@@ -322,7 +322,13 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const rolloutPath = realpathSync.native(payload.transcript_path);
   const state = readCodexHandoffState(rolloutPath, { threadId, turnId });
   if (state.meta.originator !== 'Codex Desktop' || state.meta.source !== 'vscode') return { status: 'skipped', reason: 'handoff_host_unsupported' };
-  if (!sameProjectPath(state.meta.cwd, payload.cwd) || state.latestTurnId !== turnId) throw error('handoff_hook_source_mismatch');
+  // session_metaは作成時の場所。worktreeへの移動後は、同じturnの完結したcontextを照合する。
+  const projectPath = state.context ? state.context.cwd : state.meta.cwd;
+  const projectMatches = typeof projectPath === 'string' && isAbsolute(projectPath) && sameProjectPath(projectPath, payload.cwd);
+  const turnMatches = state.latestTurnId === turnId;
+  if (!projectMatches || !turnMatches) throw Object.assign(error('handoff_hook_source_mismatch'), {
+    hookIdentity: { ...hookIdentityShape(payload), project_match: String(projectMatches), turn_match: String(turnMatches),
+      project_basis: state.context ? 'turn_context' : 'session_meta' } });
   const sessionPart = /[\\/]sessions[\\/]/.exec(rolloutPath);
   if (!sessionPart) throw error('handoff_codex_home_unavailable');
   const codexHome = rolloutPath.slice(0, sessionPart.index);
@@ -360,7 +366,7 @@ export async function requestCodexAutoHandoff({ payload, db = null,
       const raced = sameTurn ? null : listUndeliveredAutoHandoffsForSource(actualDb, threadId)
         .find(operation => !seen.has(operation.handoff_id) && !HANDOFF_TERMINAL_STATES.has(operation.state));
       if (raced) settled = { kind: 'in_flight', operation: raced };
-      else created = requestAutoHandoff(actualDb, { threadId, turnId, projectPath: state.meta.cwd,
+      else created = requestAutoHandoff(actualDb, { threadId, turnId, projectPath,
         rolloutPath, codexHome, openHost: config.openHost });
       actualDb.exec('COMMIT');
     } catch (cause) {
@@ -388,6 +394,8 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const { operation, inserted } = created;
   if (inserted) {
     updateAutoHandoff(actualDb, operation.handoff_id, { runtime_json: {
+      // 記憶の検索は元rolloutのprojectへ束縛し、後継の作業場所とは分ける。
+      sourceCaptureProjectPath: state.meta.cwd,
       sourceStopGate: { ready: false, authorized: false, deadline: Date.now() + PREPARATION_TIMEOUT_MS } } });
     try { await launchWorker(operation.handoff_id); }
     catch {
@@ -891,7 +899,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       const native = await deps.nativeState(operation, runtime);
       check();
       const captured = deps.capture(db, { threadId: operation.source_thread_id, codexHome: operation.codex_home,
-        projectPath: operation.project_path });
+        projectPath: operation.runtime?.sourceCaptureProjectPath ?? operation.project_path });
       if (captured.status !== 'captured') throw error('handoff_memory_unavailable');
       const inheritedMemory = state.inheritedThroughlineMemory && !operation.previous_handoff_id
         ? untrackedInheritedMemory(state.inheritedThroughlineMemoryText) : null;
@@ -953,7 +961,7 @@ export async function runAutoHandoffWorker(id, { db = getDb(), resume = false, d
       await confirmSourceBoundary();
       if (!operation.snapshot) {
         const captured = deps.capture(db, { threadId: operation.source_thread_id, codexHome: operation.codex_home,
-          projectPath: operation.project_path });
+          projectPath: operation.runtime?.sourceCaptureProjectPath ?? operation.project_path });
         if (captured.status !== 'captured') throw error('handoff_memory_unavailable');
         const state = deps.readSource(operation);
         update({ snapshot_json: freezeCodexMemory(db, operation, operation.settings, state) });

@@ -143,7 +143,8 @@ function turnsAfterSourceStop(bodies, details, source) {
 export function freezeCodexMemory(db, operation, settings, source) {
   const session = db.prepare('SELECT session_id, project_path FROM sessions WHERE session_id = ?')
     .get(operation.source_session_id);
-  if (!session || session.project_path !== operation.project_path) throw new Error('handoff_memory_source_mismatch');
+  const captureProject = operation.runtime?.sourceCaptureProjectPath ?? operation.project_path;
+  if (!session || session.project_path !== captureProject) throw new Error('handoff_memory_source_mismatch');
   const load = table => db.prepare(`SELECT * FROM ${table} WHERE session_id = ? ORDER BY created_at, id`)
     .all(operation.source_session_id);
   const all = { bodies: load('bodies'), skeletons: load('skeletons'), details: load('details') };
@@ -168,7 +169,12 @@ export function loadFrozenLineage(db, operation) {
     if (seen.has(current.handoff_id)) throw new Error('handoff_lineage_invalid');
     seen.add(current.handoff_id);
     if (!current.snapshot || current.snapshot.version !== 1) throw new Error('handoff_snapshot_unavailable');
-    if (current.project_path !== operation.project_path) throw new Error('handoff_lineage_project_mismatch');
+    const next = lineage.at(-1)?.operation;
+    if (next && current.target_thread_id !== next.source_thread_id) throw new Error('handoff_lineage_invalid');
+    // 各辺で、前任の継続場所と後任の元rolloutのprojectを照合する。
+    if (next && current.project_path !== (next.runtime?.sourceCaptureProjectPath ?? next.project_path)) {
+      throw new Error('handoff_lineage_project_mismatch');
+    }
     lineage.push({ operation: current, snapshot: current.snapshot });
     current = current.previous_handoff_id ? getAutoHandoff(db, current.previous_handoff_id) : null;
     if (lineage.at(-1).operation.previous_handoff_id && !current) throw new Error('handoff_lineage_missing');

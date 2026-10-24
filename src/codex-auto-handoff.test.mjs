@@ -21,6 +21,7 @@ import { runAutoHandoffWorker, requestCodexAutoHandoff as realRequestCodexAutoHa
   untrackedInheritedMemory, resolveAutoHandoffSuccessor, hookIdentityShape,
   checkAutoHandoffSourceGoal, pauseAutoHandoffSourceGoal, carryAutoHandoffGoal, settleAutoHandoffSourceGoal, launchAutoHandoffGoalSettle } from './codex-auto-handoff.mjs';
 import { parseAutoHandoffArgs } from './cli/auto-handoff.mjs';
+import { captureCodexRolloutToDb } from './codex-capture.mjs';
 
 // 既存の要求試験ではlaunchWorkerもfixture。準備の完了も同じ境界のfixtureで返す。
 const requestCodexAutoHandoff = args => realRequestCodexAutoHandoff({
@@ -1574,4 +1575,116 @@ test('goal判定中に要求が失敗した場合、遅れて停止を許可し�
   assert.equal(answer.continue, true);
   assert.equal(result.runtime.sourceStopGate.authorized, false);
   assert.equal(f.counters.created, 0); assert.equal(f.counters.submitted, 0);
+}));
+
+function moveDesktopSource(payload, cwd, extra = []) {
+  const rows = fs.readFileSync(payload.transcript_path, 'utf8').trim().split('\n').map(JSON.parse);
+  rows.push({ type: 'turn_context', payload: { turn_id: payload.turn_id, cwd } }, ...extra);
+  writeFileSync(payload.transcript_path, rows.map(JSON.stringify).join('\n') + '\n');
+  return { ...payload, cwd };
+}
+
+test('worktree移動後は現在turnのcwdで要求し、元projectから記憶を取得して現在cwdへ継続する', async () => withDb(async (db, home) => {
+  const f = gateFixture(db, home), current = join(home, 'worktree'); mkdirSync(current);
+  f.args.payload = moveDesktopSource(f.args.payload, current);
+  f.args.config.projects = [current];
+  f.deps.nativeState = async op => { assert.equal(op.project_path, current); return { projectId: null }; };
+  const capture = f.deps.capture, capturedProjects = [];
+  f.deps.capture = (db, args) => { capturedProjects.push(args.projectPath); return capture(db, args); };
+  const read = f.deps.readSource;
+  f.deps.readSource = op => ({ ...read(op), settings: { cwd: current } });
+  const create = f.deps.createTarget;
+  f.deps.createTarget = async (db, op) => {
+    assert.equal(op.project_path, current); assert.equal(op.settings.cwd, current);
+    await create(db, op);
+    const fresh = getAutoHandoff(db, op.handoff_id);
+    updateAutoHandoff(db, op.handoff_id, { runtime_json: { ...fresh.runtime, preparedSettings: { cwd: current } } });
+  };
+  f.deps.readTarget = op => ({ settings: { cwd: current },
+    latestTurnId: op.state === 'submitted' ? 'new-turn' : null,
+    correlatedTurnId: op.state === 'submitted' ? 'new-turn' : null, progress: true });
+  const answer = await realRequestCodexAutoHandoff(f.args);
+  const op = getAutoHandoff(db, answer.operationId);
+  assert.equal(op.project_path, current); assert.equal(op.runtime.sourceCaptureProjectPath, home);
+  f.stop();
+  const result = await f.worker();
+  assert.equal(result.state, 'continued', JSON.stringify(result)); assert.deepEqual(capturedProjects, [home, home]);
+  assert.ok(renderAutoHandoffMemory(db, result).includes(`作業ディレクトリ: ${current}`));
+  assert.equal(f.counters.created, 1); assert.equal(f.counters.submitted, 1);
+}));
+
+test('現在turnのcwdがある時は古いprojectや任意cwdを拒否し、別turnのcontextで照合を緩めない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const current = join(home, 'worktree'); mkdirSync(current);
+  let launched = 0;
+  const run = payload => requestCodexAutoHandoff({ db, payload, config: { enabled: true, projects: [], openHost: 'desktop' }, launchWorker: async () => { launched++; } });
+  const base = desktopSource(home, thread, turn);
+  const moved = moveDesktopSource(base, current, [{ type: 'turn_context', payload: { turn_id: 'other', cwd: home } }]);
+  for (const cwd of [home, join(home, 'arbitrary')]) await assert.rejects(run({ ...moved, cwd }), /handoff_hook_source_mismatch/);
+  await assert.rejects(run({ ...moved, session_id: '33333333-3333-3333-3333-333333333333' }), /handoff_thread_mismatch/);
+  await assert.rejects(run({ ...moved, turn_id: '33333333-3333-3333-3333-333333333333' }), /handoff_hook_source_mismatch/);
+  assert.equal(launched, 0); assert.equal(db.prepare('SELECT count(*) AS n FROM codex_handoffs').get().n, 0);
+  const accepted = await run(moved);
+  assert.equal(accepted.continue, false); assert.equal(launched, 1);
+}));
+
+test('欠けたcwd・相対cwd・途中行を現在turnの移動根拠として採用しない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const current = join(home, 'worktree'); mkdirSync(current);
+  const base = desktopSource(home, thread, turn);
+  const run = payload => requestCodexAutoHandoff({ db, payload, config: { enabled: true, projects: [], openHost: 'desktop' }, launchWorker: async () => { throw Error('must not launch'); } });
+  for (const cwd of [null, '', 'relative', undefined]) {
+    moveDesktopSource(desktopSource(home, thread, turn), cwd);
+    await assert.rejects(run({ ...base, cwd: current }), /handoff_hook_source_mismatch/);
+  }
+  desktopSource(home, thread, turn);
+  fs.appendFileSync(base.transcript_path, JSON.stringify({ type: 'turn_context', payload: { turn_id: turn, cwd: current } }));
+  await assert.rejects(run({ ...base, cwd: current }), /handoff_hook_source_mismatch/);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM codex_handoffs').get().n, 0);
+}));
+
+test('worktreeをまたぐA→B→Cの記憶は各前任とのprojectとthreadを検証し、無関係な系譜を拒否する', async () => withDb(db => {
+  const make = (thread, project, captureProject, target) => {
+    let op = request(db, thread, { projectPath: project }).operation;
+    op = updateAutoHandoff(db, op.handoff_id, { runtime_json: { sourceCaptureProjectPath: captureProject } }).operation;
+    db.prepare('INSERT INTO sessions(session_id,project_path,created_at,updated_at) VALUES (?, ?, 1, 1)').run(op.source_session_id, captureProject);
+    for (const role of ['user', 'assistant']) db.prepare('INSERT INTO bodies(session_id,origin_session_id,turn_number,role,text,created_at) VALUES (?, ?, 1, ?, ?, 1)')
+      .run(op.source_session_id, op.source_session_id, role, `${thread}-${role}`);
+    return updateAutoHandoff(db, op.handoff_id, { snapshot_json: freezeCodexMemory(db, op, { cwd: project }, { stoppedAt: 2 }),
+      target_thread_id: target, state: 'continued' }).operation;
+  };
+  const a = make('A', '/root-project', '/root-project', 'B');
+  const b = make('B', '/worktree-one', '/root-project', 'C');
+  const c = make('C', '/worktree-two', '/worktree-one', 'D');
+  const memory = collectAutoHandoffMemory(db, c);
+  assert.equal(memory.turnCount, 3); assert.equal(memory.bodies.length, 6);
+  assert.deepEqual(memory.lineage.map(x => x.operation.handoff_id), [a.handoff_id, b.handoff_id, c.handoff_id]);
+  assert.throws(() => freezeCodexMemory(db, { ...c, runtime: { sourceCaptureProjectPath: '/unrelated' } }, {}, {}), /handoff_memory_source_mismatch/);
+  updateAutoHandoff(db, b.handoff_id, { runtime_json: { sourceCaptureProjectPath: '/unrelated' } });
+  assert.throws(() => collectAutoHandoffMemory(db, c), /handoff_lineage_project_mismatch/);
+  updateAutoHandoff(db, b.handoff_id, { runtime_json: b.runtime });
+  updateAutoHandoff(db, a.handoff_id, { target_thread_id: 'unrelated-thread' });
+  assert.throws(() => collectAutoHandoffMemory(db, c), /handoff_lineage_invalid/);
+}));
+
+
+test('worktree要求の公開captureは元rolloutの記憶を取り込み、別projectの記憶を凍結しない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const current = join(home, 'worktree'); mkdirSync(current);
+  let payload = moveDesktopSource(desktopSource(home, thread, turn), current);
+  const file = join(home, 'codex', 'sessions', `rollout-2026-10-24T12-00-00-${thread}.jsonl`);
+  fs.renameSync(payload.transcript_path, file); payload = { ...payload, transcript_path: file };
+  fs.appendFileSync(file, [
+    { type: 'event_msg', payload: { type: 'user_message', message: '元projectの依頼' } },
+    { type: 'event_msg', payload: { type: 'agent_message', message: 'worktreeへ続ける回答' } },
+  ].map(row => JSON.stringify({ timestamp: '2026-10-24T12:30:00.000Z', ...row })).join('\n') + '\n');
+  const answer = await requestCodexAutoHandoff({ db, payload, config: { enabled: true, projects: [], openHost: 'desktop' }, launchWorker: async () => {} });
+  const op = getAutoHandoff(db, answer.operationId);
+  assert.equal(captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: current }).status, 'unavailable');
+  const captured = captureCodexRolloutToDb(db, { threadId: thread, codexHome: op.codex_home, projectPath: op.runtime.sourceCaptureProjectPath });
+  assert.equal(captured.status, 'captured'); assert.equal(captured.capturedRows, 2);
+  const frozen = freezeCodexMemory(db, op, { cwd: current }, { stoppedAt: Date.now() });
+  assert.equal(frozen.session.project_path, home);
+  assert.deepEqual(frozen.bodies.map(row => row.text), ['元projectの依頼', 'worktreeへ続ける回答']);
+  assert.throws(() => freezeCodexMemory(db, { ...op, runtime: { sourceCaptureProjectPath: current } }, {}, {}), /handoff_memory_source_mismatch/);
 }));

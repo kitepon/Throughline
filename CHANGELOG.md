@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.46] — 2026-10-24
+
+### Fixed
+
+- Validate automatic Codex handoffs against the matching current turn's working
+  directory after a conversation moves to a worktree. Keep the original rollout
+  project bound to memory capture, while continuing in the verified current
+  working directory. Preserve memory across successive worktree handoffs by
+  validating each predecessor's project and target-thread link.
+- Keep rejecting stale turns, unrelated projects, incomplete context records,
+  and broken predecessor chains. Local failure diagnostics identify which
+  comparison failed without recording working-directory values.
+
 ## [0.16.45] — 2026-10-24
 
 ### Changed
@@ -2802,7 +2815,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.45...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.46...HEAD
+[0.16.46]: https://github.com/kitepon/Throughline/compare/v0.16.45...v0.16.46
 [0.16.45]: https://github.com/kitepon/Throughline/compare/v0.16.44...v0.16.45
 [0.16.44]: https://github.com/kitepon/Throughline/compare/v0.16.43...v0.16.44
 [0.16.43]: https://github.com/kitepon/Throughline/compare/v0.16.42...v0.16.43

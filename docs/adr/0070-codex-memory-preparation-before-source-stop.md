@@ -68,3 +68,23 @@ goalの読取と停止許可はatomicではなく、確認後にgoalが作成・
 後継・配送・結果不明の既存要求をこの処理で再実行・二重再開しない。
 fixtureではactive goalの不変、停止未許可、後継/配送なし、通常goal状態、
 読取失敗と判定中の取消を検証する。3OSの試験と、実行中の本物の会話の受入を区別する。
+
+## Worktreeへ移動した会話の照合（2026-10-24）
+
+session_meta.cwdは作成時の場所であり、Codex Desktopが同じ会話をworktreeへ移すと
+現在のturn_context.cwdと異なる。同じthread/turnの完結したcontextがある時は、
+そのcwdとhook.cwdを照合する。contextが無い既存記録ではsession_meta.cwdを用いる。
+存在するcontextのcwdが欠測・相対であれば拒否し、別turnや途中行は採用しない。
+最新turnの一致、native threadの主会話/現在cwdの照合、停止前準備は維持する。
+
+要求のproject_pathは検証した現在cwdとし、runtime.sourceCaptureProjectPathに
+元rolloutのprojectを保存する。停止前・停止後のcaptureとsnapshotのsession照合は
+この元projectへ束縛し、後継の作業場所や設定と混ぜない。既存要求にこの値が無い時は
+従来どおりproject_pathへ束縛する。記録の移動やschema変更はしない。
+系譜の各辺では前任target_thread_idと後任source_thread_id、および前任の継続projectと
+後任の元capture projectの一致を確認する。違うprojectやthreadの記憶は合流しない。
+ローカル失敗ログにはproject/turnの比較結果と比較元だけを記録し、cwd値は足さない。
+
+試験はworktree移動の拒否再現、停止前captureから後継配送までの合成受入、
+複数のworktreeを通るA→B→Cの全記憶保持、および別thread/古いturn/任意cwd/
+欠測cwd/途中行/壊れた系譜の拒否を検証する。本物の自然発火の回復確認は別に行う。
