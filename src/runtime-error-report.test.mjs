@@ -78,7 +78,11 @@ async function startReceiver(respond) {
       };
       requests.push(entry);
       const reply = respond(entry);
-      response.writeHead(reply.status, { 'content-type': 'application/json' });
+      // Production sends once from a short-lived process. This in-process
+      // receiver must not retain a pooled socket across synchronous Windows
+      // ACL/state work: its idle-close callback can race the next fetch and
+      // produce ECONNRESET unrelated to the reporting policy under test.
+      response.writeHead(reply.status, { 'content-type': 'application/json', connection: 'close' });
       response.end(JSON.stringify(reply.body));
     });
   });
