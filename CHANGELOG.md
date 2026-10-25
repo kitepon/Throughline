@@ -10,6 +10,8 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.47] — 2026-10-25
+
 ### Fixed
 
 - Include safe, product-owned operation, expected result, observed failure and
@@ -2825,7 +2827,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.46...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.47...HEAD
+[0.16.47]: https://github.com/kitepon/Throughline/compare/v0.16.46...v0.16.47
 [0.16.46]: https://github.com/kitepon/Throughline/compare/v0.16.45...v0.16.46
 [0.16.45]: https://github.com/kitepon/Throughline/compare/v0.16.44...v0.16.45
 [0.16.44]: https://github.com/kitepon/Throughline/compare/v0.16.43...v0.16.44
