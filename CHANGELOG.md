@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+### Fixed
+
+- Include safe, product-owned operation, expected result, observed failure and
+  hook response in the latest Codex failure's existing report message. Preserve
+  fingerprints, severity and aggregate counts, label user impact as unknown,
+  and prevent earlier occurrence details from leaking into a later aggregate.
+  Keep raw errors, paths and conversation data out of reports.
+
 ## [0.16.46] — 2026-10-24
 
 ### Fixed

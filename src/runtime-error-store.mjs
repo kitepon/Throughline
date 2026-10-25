@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  bindRuntimeErrorContext, runtimeErrorMessageWithContext,
+  validateRuntimeErrorContext, validateRuntimeErrorContextState,
+} from './runtime-error-context.mjs';
+import {
   chmodSync,
   existsSync,
   lstatSync,
@@ -28,6 +32,8 @@ export const RUNTIME_ERROR_DIAGNOSTIC = '[throughline:runtime-errors] store_unav
 const DEFAULT_SNAPSHOT_LIMIT = 256;
 const BEST_EFFORT_TIMEOUT_MS = 5_000;
 const WINDOWS_BEST_EFFORT_TIMEOUT_MS = 5_000;
+// A contextual observation publishes two private atomic files (one additional ACL transition).
+const CONTEXT_BEST_EFFORT_TIMEOUT_MS = 10_000;
 const RESOLUTION_REASONS = new Set(['manual', 'recovered']);
 const PRIVATE_DIRECTORY_CAPABILITY = Symbol('throughline.private-directory');
 
@@ -156,10 +162,11 @@ export function writeRuntimeErrorPrivateConfig(path, config, env = process.env) 
 }
 
 export function observeRuntimeError(input, options = {}) {
-  assertExactInput(input, ['code', 'now']);
+  assertExactInput(input, ['code', 'now', 'context']);
   assertExactOptions(options, ['env', 'configPath', 'storePath', 'version', 'platform', 'arch']);
   const definition = DEFINITIONS[input.code];
   if (!definition) throw new TypeError('未登録の runtime error code です');
+  if (input.context !== undefined) validateRuntimeErrorContext(input.code, input.context);
   if (!collectionEnabled(options)) return { status: 'disabled' };
 
   return withStoreLock(options, (privateDirectory) => {
@@ -190,6 +197,10 @@ export function observeRuntimeError(input, options = {}) {
       });
     }
     writeStore(store, options, privateDirectory);
+    if (input.context !== undefined) {
+      const record = store.records.find((item) => item.fingerprint === fingerprint);
+      writePrivateStateFile(runtimeErrorContextPath(options), bindRuntimeErrorContext(record, input.context), options.env, privateDirectory);
+    }
     return { status: 'recorded', fingerprint, sequence };
   });
 }
@@ -291,6 +302,9 @@ export function readRuntimeErrorSnapshot({
     .filter((record) => record.sequence > afterCursor)
     .sort((left, right) => left.sequence - right.sequence);
   const selected = candidates.slice(0, limit);
+  const context = selected.some((record) => record.status === 'open' && record.error_code === 'HOOK_CODEX_FAILED')
+    ? readRuntimeErrorPrivateState(runtimeErrorContextPath(options), env) : null;
+  if (context !== null) validateRuntimeErrorContextState(context);
   return {
     schema: RUNTIME_ERROR_STORE_SCHEMA,
     product: 'throughline',
@@ -301,7 +315,7 @@ export function readRuntimeErrorSnapshot({
       acknowledged_through: store.acknowledged_through,
       next: selected.at(-1)?.sequence ?? afterCursor,
     },
-    runtime_errors: selected.filter((record) => record.status === 'open').map(toPublicRuntimeError),
+    runtime_errors: selected.filter((record) => record.status === 'open').map((record) => toPublicRuntimeError(record, context)),
     resolutions: selected.filter((record) => record.status === 'resolved').map((record) => ({
       fingerprint: record.fingerprint,
       resolved_at: record.resolved_at,
@@ -333,13 +347,15 @@ export function resolveRecoveredRuntimeErrorBestEffort(code, options = {}) {
 }
 
 export function recordRuntimeErrorBestEffort(code, options = {}) {
-  const { stderr = process.stderr, action = null, ...storeOptions } = options;
+  const { stderr = process.stderr, action = null, context, ...storeOptions } = options;
   try {
-    const child = childProcess.spawnSync(process.execPath, [fileURLToPath(new URL('./runtime-error-observer.mjs', import.meta.url)), code, ...(action ? [action] : [])], {
+    if (context !== undefined) validateRuntimeErrorContext(code, context);
+    const child = childProcess.spawnSync(process.execPath, [fileURLToPath(new URL('./runtime-error-observer.mjs', import.meta.url)), code, ...(context !== undefined ? ['observe', JSON.stringify(context)] : action ? [action] : [])], {
       env: storeOptions.env ?? process.env,
       encoding: 'utf8',
       stdio: 'ignore',
-      timeout: isWindows(storeOptions.env) ? WINDOWS_BEST_EFFORT_TIMEOUT_MS : BEST_EFFORT_TIMEOUT_MS,
+      timeout: context !== undefined ? CONTEXT_BEST_EFFORT_TIMEOUT_MS
+        : isWindows(storeOptions.env) ? WINDOWS_BEST_EFFORT_TIMEOUT_MS : BEST_EFFORT_TIMEOUT_MS,
       windowsHide: true,
     });
     if (child.status === 0) return { status: 'recorded' };
@@ -595,14 +611,18 @@ function nextSequence(store) {
   return current;
 }
 
-function toPublicRuntimeError(record) {
+function runtimeErrorContextPath(options) {
+  return `${options.storePath || defaultRuntimeErrorStorePath(options.env)}.context.json`;
+}
+
+function toPublicRuntimeError(record, context) {
   return {
     error_code: record.error_code,
     component: record.component,
     status: record.status,
     severity: record.severity,
     fingerprint: record.fingerprint,
-    message_template: record.message_template,
+    message_template: runtimeErrorMessageWithContext(record, context),
     occurrence_count: record.count,
     first_seen: record.first_seen,
     last_seen: record.last_seen,

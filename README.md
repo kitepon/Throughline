@@ -1009,6 +1009,14 @@ throughline runtime-errors report --json
 throughline runtime-errors report-status --json
 ```
 
+For new Codex hook failures, the existing `message_template` also identifies the
+latest occurrence's hook event, expected result, observed failure, and hook response.
+It explicitly leaves user impact unknown and labels the observation `diagnostic_only`.
+Earlier occurrences keep their original counts and are not characterized by this
+latest description. Raw errors, paths, prompts, and session identifiers stay out of
+the report; see [ADR 0025](docs/adr/0025-runtime-error-reporting.md).
+
+
 Once enabled, the Claude and Codex hook entry points start a detached sender at
 most once per hour; the hooks do not wait for it. It contacts the receiver when
 unacknowledged records exist, or once after the installed version changed (a

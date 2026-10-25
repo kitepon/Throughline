@@ -222,7 +222,7 @@ test('runtime error store: observation API rejects raw or arbitrary fields', () 
   ]) {
     assert.throws(
       () => observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED', ...forbidden }, { env: box.env }),
-      /固定 code と時刻だけ/,
+      Object.hasOwn(forbidden, 'context') ? /context invalid/ : /固定 code と時刻だけ/,
     );
   }
   assert.throws(

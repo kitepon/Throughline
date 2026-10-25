@@ -11,6 +11,7 @@ release判定まで完結する。dotagentsは工場への配線と統合契約�
 状態や製品寿命を所有・制御しない。runtime-error collectionはThroughline自身の
 `runtime-errors enable|disable --json`と製品所有configが管理し、工場側は公開JSON契約だけを使う。
 runtime errorを外へ送るのは、利用者が`runtime-errors report-enable`で明示して有効にした端末だけで、既定では通信しない（[ADR 0025](docs/adr/0025-runtime-error-reporting.md)）。
+Codex固定エラーの最新一回はADR 0025の私有補足を既message_templateへ投影する。旧指紋/件数を変えず、利用者影響unknown/diagnostic_onlyを明示する。
 
 版番号の正本は `package.json`、公開版はnpm、schemaの正本は `src/db.mjs` の `CURRENT_VERSION` とする。Claude Code、Codex、Grok、Cursorをfirst-class hostとして扱う。現行host契約はREADMEとADR 0021／0022／0023、release gateはdocs/04_public_release_plan.mdを正とする。版ごとの変更・公開commit・CI・npm・tag・smoke履歴はCHANGELOG.mdとdocs/archive/, evidence/に置き、この常時読込正本へ複製しない。
 

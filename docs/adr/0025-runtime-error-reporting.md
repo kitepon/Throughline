@@ -53,3 +53,31 @@ BugHub は、端末に入る CLI 製品が自分の分だけを送る受け口�
 - `observed_at` はミリ秒まで持ち、載せる記録のどの時刻よりも前にしない（2026-10-03、0.12.3）。0.12.0 は秒へ切り捨てていて、
   発生や解決と同じ1秒の中で送ると受け口の順序検査（422 `invalid_report`）に当たり、次の送信が24時間後になった。
   断られた実例は無い。署名の `ts` は同じ時刻の秒で、`observed_at` との差は1秒未満。
+
+
+## Codex の最新発生の報告補足（2026-10-25）
+
+`HOOK_CODEX_FAILED` は複数のCodex hookを同じ指紋で集約する。汎用文面と累計だけでは、
+どの操作で何が起きたか区別できない。以後の新しい発生では通常のCodex hook入口が
+固定語彙のevent・処理段階・返答の種類を観測し、公開snapshot/reportの既存
+`message_template` にoperation / expected / actual / effectと発生時刻を自動補足する。
+任意JSON項目、`safe_context`、`diagnostic_context`は送信契約へ追加しない。
+
+補足は**最新の一回だけ**を説明し、過去の集計全体の現象や影響を説明しない。
+利用者への実害は観測できていないので `user_impact=unknown`、
+`classification=diagnostic_only`を明示する。`continue_requested` / `stop_requested`は
+hookが返した要求だけを意味し、hostでの実行や回復の証明にはしない。
+原因不明と現象不明を区別し、この診断だけで対応可能な利用者バグと判定しない。
+
+既store v1の形・固定文面・fingerprint・件数・重大度・sequence/ackは保持する。
+補足は同じ私有directoryの `runtime-errors.json.context.json` に別保存し、
+fingerprint/count/first_seen/last_seen/product_versionが一致した一回だけへ投影する。
+旧版や補足無しの新発生が来た時は、古い補足を表示しない。過去の記録へは補完しない。
+補足fileが無い旧storeは従来の文面を出し、破損・権限不正は明示失敗して未送信記録を残す。
+基礎記録→補足の順に同じlockの下でprivate atomic保存する。補足保存が失敗しても基礎記録を
+消さず、既storage diagnosticを返す。補足のあるobserverだけは二つの私有file保存のため
+上限10秒（従来の補足無しは5秒）の有限時間を持つ。
+
+値は製品の固定enumだけで、payload、path、args、例外本文、stack、会話やsessionを
+補足へ入れない。端末内の従来理由ログは保持する。この変更の隔離CLI検査を、実native
+PreCompact、撤回済みWindows登録の再現・回復・修理成功として扱わない。

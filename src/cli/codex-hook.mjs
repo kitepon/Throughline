@@ -384,7 +384,9 @@ export async function run(argv = []) {
     parsed = parseArgs(argv);
     payload = parsePayload(await readStdin());
   } catch (err) {
-    recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
+    recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context: {
+      event: parsed?.event ?? 'unknown', stage: parsed ? 'payload' : 'arguments', effect: 'hook_exit_nonzero',
+    } });
     logHookFailure('HOOK_CODEX_FAILED', err);
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[codex-hook] ${msg}\n`);
@@ -400,10 +402,13 @@ export async function run(argv = []) {
         result = await handoff.requestCodexAutoHandoff({ payload });
       } catch (error) {
         if (handoff && error instanceof Error && !error.hookIdentity) error.hookIdentity = handoff.hookIdentityShape(payload);
-        recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env });
         logHookFailure('HOOK_CODEX_FAILED', error);
         result = handoff?.codexHandoffRequestFailureResult(error, payload) ?? { status: 'failed', continue: false,
           stopReason: 'Throughlineの要求処理を読み込めず、既存の引き継ぎの所有・配送が確認できません。元の会話の作業を停止しています。担当が保存済みの状態を確認してください。' };
+        recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context: {
+          event: 'pre-compact', stage: 'handoff_request',
+          effect: result.continue === true ? 'continue_requested' : result.continue === false ? 'stop_requested' : 'unknown',
+        } });
       }
     } else if (parsed.event === 'user-prompt-submit') {
       result = await runCodexUserPromptSubmitHook({
@@ -452,7 +457,9 @@ export async function run(argv = []) {
         recordRuntimeErrorBestEffort('L1_SUMMARIZER_BACKEND_UNRECOVERED', { env: process.env });
       }
     } else {
-      recordRuntimeErrorBestEffort(code, { env: process.env });
+      recordRuntimeErrorBestEffort(code, { env: process.env, context: {
+        event: parsed.event, stage: 'processing', effect: 'hook_exit_nonzero',
+      } });
     }
     logHookFailure(code, err);
     const msg = err instanceof Error ? err.message : 'unknown';
