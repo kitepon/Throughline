@@ -398,6 +398,25 @@ test('runtime error report: with nothing pending, the installed version is repor
   const installed = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
   let reply = (entry) => accept(entry);
   const receiver = await startReceiver((entry) => reply(entry));
+  const transport = [];
+  const send = async (options) => reportRuntimeErrors({ ...options, fetch: async (...args) => {
+    const start = performance.now();
+    const attempt = { index: transport.length, receivedBefore: receiver.requests.length };
+    transport.push(attempt);
+    try {
+      const response = await fetch(...args);
+      attempt.httpStatus = response.status;
+      const read = response.arrayBuffer.bind(response);
+      response.arrayBuffer = async () => {
+        try { return await read(); }
+        catch (error) { attempt.bodyError = { name: error.name, code: error.cause?.code ?? null }; throw error; }
+      };
+      return response;
+    } catch (error) {
+      attempt.error = { name: error.name, code: error.cause?.code ?? null };
+      throw error;
+    } finally { attempt.elapsedMs = Math.round(performance.now() - start); }
+  } });
   const statePath = defaultRuntimeErrorReportStatePath(env);
   const readState = () => JSON.parse(readFileSync(statePath, 'utf8'));
   try {
@@ -406,12 +425,12 @@ test('runtime error report: with nothing pending, the installed version is repor
 
     // 断られた時は届いた版として覚えない。次の送信でもう一度送る。
     reply = () => ({ status: 429, body: { error: 'rate_limited' } });
-    assert.equal((await reportRuntimeErrors({ env, now: NOW })).status, 'rate_limited');
+    assert.equal((await send({ env, now: NOW })).status, 'rate_limited');
     assert.equal(readState().last_reported_version, null);
 
     // 記録が1件も無い端末（0.12.7以前から上げた直後のstateも同じ）: 版と時刻だけのreportを1回送る。
     reply = (entry) => accept(entry);
-    const first = await reportRuntimeErrors({ env, now: NOW + 1000 });
+    const first = await send({ env, now: NOW + 1000 });
     assert.equal(first.status, 'sent');
     assert.equal(first.runtime_errors, 0);
     assert.equal(first.resolutions, 0);
@@ -431,32 +450,33 @@ test('runtime error report: with nothing pending, the installed version is repor
     assert.equal(readRuntimeErrorSnapshot({ env }).cursor.acknowledged_through, 0);
 
     // 同じ版のままなら、記録が無い間は通信しない。
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 2000 })).status, 'nothing_pending');
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 2 * REPORT_INTERVAL_MS, background: true })).status, 'nothing_pending');
+    assert.equal((await send({ env, now: NOW + 2000 })).status, 'nothing_pending');
+    assert.equal((await send({ env, now: NOW + 2 * REPORT_INTERVAL_MS, background: true })).status, 'nothing_pending');
     assert.equal(receiver.requests.length, 2);
 
     // 記録を送ったreportも、その版を届けたことになる。
     observeRuntimeError({ code: 'HOOK_CODEX_FAILED' }, { env });
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 3 * REPORT_INTERVAL_MS })).status, 'sent');
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 3 * REPORT_INTERVAL_MS + 1000 })).status, 'nothing_pending');
+    const occurrenceReport = await send({ env, now: NOW + 3 * REPORT_INTERVAL_MS });
+    assert.equal(occurrenceReport.status, 'sent', JSON.stringify({ transport, received: receiver.requests.length }));
+    assert.equal((await send({ env, now: NOW + 3 * REPORT_INTERVAL_MS + 1000 })).status, 'nothing_pending');
     assert.equal(receiver.requests.length, 3);
 
     // 版が変わった（最後に届いた版が今の版と違う）時は、もう1回だけ送る。
     writeFileSync(statePath, JSON.stringify({ ...readState(), last_reported_version: '0.0.1' }));
-    const afterUpdate = await reportRuntimeErrors({ env, now: NOW + 4 * REPORT_INTERVAL_MS });
+    const afterUpdate = await send({ env, now: NOW + 4 * REPORT_INTERVAL_MS });
     assert.equal(afterUpdate.status, 'sent');
     assert.deepEqual(receiver.requests[3].report.runtime_errors, []);
     assert.equal(receiver.requests[3].report.installed_version, installed);
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 4 * REPORT_INTERVAL_MS + 1000 })).status, 'nothing_pending');
+    assert.equal((await send({ env, now: NOW + 4 * REPORT_INTERVAL_MS + 1000 })).status, 'nothing_pending');
     assert.equal(receiver.requests.length, 4);
 
     // 記録を無効にした端末と、送信を無効にした端末は、版も送らない。
     writeFileSync(statePath, JSON.stringify({ ...readState(), last_reported_version: '0.0.1' }));
     setRuntimeErrorCollectionEnabled(false, { env });
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 5 * REPORT_INTERVAL_MS })).status, 'collection_disabled');
+    assert.equal((await send({ env, now: NOW + 5 * REPORT_INTERVAL_MS })).status, 'collection_disabled');
     setRuntimeErrorCollectionEnabled(true, { env });
     setRuntimeErrorReportingEnabled(false, { env });
-    assert.equal((await reportRuntimeErrors({ env, now: NOW + 6 * REPORT_INTERVAL_MS })).status, 'reporting_disabled');
+    assert.equal((await send({ env, now: NOW + 6 * REPORT_INTERVAL_MS })).status, 'reporting_disabled');
     assert.equal(receiver.requests.length, 4);
   } finally {
     await receiver.close();
