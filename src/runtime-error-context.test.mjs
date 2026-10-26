@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import childProcess, { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,4 +120,69 @@ test('context observer has a separate finite two-file deadline and never seriali
   assert.equal(recordRuntimeErrorBestEffort(CODE, { context: { ...context, secret: 'private' }, stderr: { write: (s) => { diagnostic += s; } } }).status, 'store_unavailable');
   assert.equal(calls.length, 2);
   assert.equal(diagnostic, '[throughline:runtime-errors] store_unavailable\n');
+});
+
+test('source-check context has a versioned fixed shape and preserves legacy reads and latest-only binding', () => {
+  const box = sandbox();
+  const source_check = { project_match: 'false', turn_match: 'true', project_basis: 'session_meta' };
+  const detail = { event: 'pre-compact', stage: 'handoff_request', effect: 'continue_requested', source_check };
+  occurrence(box, detail);
+  const sourcePath = `${box.contextPath}.source-check.json`;
+  const state = JSON.parse(readFileSync(sourcePath));
+  assert.equal(state.schema, 'throughline.runtime_error_context.v2');
+  const legacy = JSON.parse(readFileSync(box.contextPath));
+  assert.equal(legacy.schema, 'throughline.runtime_error_context.v1');
+  assert.deepEqual(legacy.context, { event: detail.event, stage: detail.stage, effect: detail.effect });
+  assert.match(publicError(box).message_template, /failure_reason=handoff_hook_source_mismatch; source_project_match=false; source_turn_match=true; source_project_basis=session_meta/);
+  assert.ok(publicError(box).message_template.length <= 1024);
+  const raw = readFileSync(box.storePath);
+  for (const invalid of [
+    { ...detail, stage: 'processing' },
+    { ...detail, source_check: { ...source_check, project_basis: '/PRIVATE_SENTINEL' } },
+    { ...detail, source_check: { ...source_check, project_match: false } },
+    { ...detail, source_check: { ...source_check, session_id: 'PRIVATE_SENTINEL' } },
+  ]) {
+    assert.throws(() => observeRuntimeError({ code: CODE, context: invalid }, box.options), /context invalid/);
+    assert.deepEqual(readFileSync(box.storePath), raw);
+  }
+  writeFileSync(sourcePath, JSON.stringify({ ...state, schema: 'throughline.runtime_error_context.v1' }));
+  assert.throws(() => publicError(box), /context state invalid/);
+  writeFileSync(sourcePath, JSON.stringify(state));
+  occurrence(box, null, '2026-10-25T09:01:00.000Z');
+  assert.equal(publicError(box).message_template, BASE);
+  occurrence(box, context, '2026-10-25T09:02:00.000Z');
+  assert.equal(JSON.parse(readFileSync(box.contextPath)).schema, 'throughline.runtime_error_context.v1');
+  assert.doesNotMatch(publicError(box).message_template, /source_project_match|failure_reason/);
+});
+
+test('ordinary pre-compact source rejection reports comparisons without exporting identity or changing continuation', () => {
+  const box = sandbox();
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const sessions = join(box.root, 'codex', 'sessions'); mkdirSync(sessions, { recursive: true });
+  const transcript = join(sessions, `rollout-${thread}.jsonl`);
+  mkdirSync(join(box.root, '.throughline'), { recursive: true });
+  writeFileSync(join(box.root, '.throughline', 'codex-auto-handoff.json'), JSON.stringify({
+    schema: 'throughline.codex-auto-handoff.v1', enabled: true, openHost: 'desktop', projects: [],
+  }));
+  writeFileSync(transcript, [
+    { type: 'session_meta', payload: { id: thread, originator: 'Codex Desktop', source: 'vscode', cwd: join(box.root, 'PRIVATE_SOURCE_SENTINEL') } },
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
+  ].map(JSON.stringify).join('\n') + '\n');
+  const result = spawnSync(process.execPath, [BIN, 'codex-hook', 'pre-compact'], {
+    env: box.env, cwd: box.root, encoding: 'utf8', timeout: 30_000,
+    input: JSON.stringify({ trigger: 'auto', cwd: box.root, session_id: thread, turn_id: turn, transcript_path: transcript }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).continue, true);
+  const entry = publicError(box);
+  assert.equal(entry.fingerprint, runtimeErrorFingerprint(CODE));
+  assert.equal(entry.severity, 'high');
+  assert.equal(entry.occurrence_count, 1);
+  assert.match(entry.message_template, /actual=handoff_request_failed; effect=continue_requested; failure_reason=handoff_hook_source_mismatch; source_project_match=false; source_turn_match=true; source_project_basis=session_meta/);
+  const report = buildRuntimeErrorReport({ snapshot: readRuntimeErrorSnapshot({ env: box.env }), reportId: '00000000-0000-4000-8000-000000000001', nowMs: Date.now() });
+  assert.equal(report.schema_version, '1.0');
+  assert.equal(report.runtime_errors[0].message_template, entry.message_template);
+  assert.doesNotMatch(JSON.stringify(report), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
+  assert.doesNotMatch(readFileSync(box.contextPath, 'utf8'), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
+  assert.doesNotMatch(readFileSync(`${box.contextPath}.source-check.json`, 'utf8'), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
 });

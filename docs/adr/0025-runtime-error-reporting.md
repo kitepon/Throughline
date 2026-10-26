@@ -81,3 +81,12 @@ fingerprint/count/first_seen/last_seen/product_versionが一致した一回だ�
 値は製品の固定enumだけで、payload、path、args、例外本文、stack、会話やsessionを
 補足へ入れない。端末内の従来理由ログは保持する。この変更の隔離CLI検査を、実native
 PreCompact、撤回済みWindows登録の再現・回復・修理成功として扱わない。
+
+2026-10-26のMac最新報告で、引き継ぎ要求の拒否理由と既知の照合状態が補足から落ちることを確認した。
+`handoff_hook_source_mismatch`だけは固定の理由名とproject/turnの一致結果（true/false/unknown）、
+照合元（session_meta/turn_context/unknown）を最新一回へ追加する。例外文や識別子は使わない。
+追加の私有補足は `runtime-errors.json.context.json.source-check.json` のcontext v2へ保存する。
+従来のcontext v1も同じlockで保存し、旧版へ戻しても従来のsnapshot/reportを読めるようにする。
+両方を同じ最新一回のbindingで照合し、古い比較結果は新しい発生へ転用しない。
+3つの私有fileを保存する場合も既存の上限10秒を保つ。外部wireは1.0のまま。
+一致結果は拒否時点の比較であり、拒否の正誤、利用者影響や復旧を証明しない。

@@ -10,6 +10,16 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.48] — 2026-10-26
+
+### Fixed
+
+- Preserve the fixed reason and project/turn comparison results when a Codex
+  handoff request rejects its source. Include these details only for the latest
+  matching occurrence, without exporting paths, thread IDs or error text.
+  Keep source validation, continuation decisions, report identity and wire
+  format unchanged, and retain a readable context file for older packages.
+
 ## [0.16.47] — 2026-10-25
 
 ### Fixed
@@ -2827,7 +2837,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.47...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.48...HEAD
+[0.16.48]: https://github.com/kitepon/Throughline/compare/v0.16.47...v0.16.48
 [0.16.47]: https://github.com/kitepon/Throughline/compare/v0.16.46...v0.16.47
 [0.16.46]: https://github.com/kitepon/Throughline/compare/v0.16.45...v0.16.46
 [0.16.45]: https://github.com/kitepon/Throughline/compare/v0.16.44...v0.16.45

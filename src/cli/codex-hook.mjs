@@ -405,10 +405,16 @@ export async function run(argv = []) {
         logHookFailure('HOOK_CODEX_FAILED', error);
         result = handoff?.codexHandoffRequestFailureResult(error, payload) ?? { status: 'failed', continue: false,
           stopReason: 'Throughlineの要求処理を読み込めず、既存の引き継ぎの所有・配送が確認できません。元の会話の作業を停止しています。担当が保存済みの状態を確認してください。' };
-        recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context: {
+        const context = {
           event: 'pre-compact', stage: 'handoff_request',
           effect: result.continue === true ? 'continue_requested' : result.continue === false ? 'stop_requested' : 'unknown',
-        } });
+        };
+        if (error?.code === 'handoff_hook_source_mismatch') {
+          context.source_check = Object.fromEntries(Object.entries({
+            project_match: ['true', 'false'], turn_match: ['true', 'false'], project_basis: ['session_meta', 'turn_context'],
+          }).map(([key, values]) => [key, values.includes(error.hookIdentity?.[key]) ? error.hookIdentity[key] : 'unknown']));
+        }
+        recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context });
       }
     } else if (parsed.event === 'user-prompt-submit') {
       result = await runCodexUserPromptSubmitHook({

@@ -32,7 +32,7 @@ export const RUNTIME_ERROR_DIAGNOSTIC = '[throughline:runtime-errors] store_unav
 const DEFAULT_SNAPSHOT_LIMIT = 256;
 const BEST_EFFORT_TIMEOUT_MS = 5_000;
 const WINDOWS_BEST_EFFORT_TIMEOUT_MS = 5_000;
-// A contextual observation publishes two private atomic files (one additional ACL transition).
+// Context uses two private atomic files; source comparisons add a third within the same finite deadline.
 const CONTEXT_BEST_EFFORT_TIMEOUT_MS = 10_000;
 const RESOLUTION_REASONS = new Set(['manual', 'recovered']);
 const PRIVATE_DIRECTORY_CAPABILITY = Symbol('throughline.private-directory');
@@ -199,7 +199,11 @@ export function observeRuntimeError(input, options = {}) {
     writeStore(store, options, privateDirectory);
     if (input.context !== undefined) {
       const record = store.records.find((item) => item.fingerprint === fingerprint);
-      writePrivateStateFile(runtimeErrorContextPath(options), bindRuntimeErrorContext(record, input.context), options.env, privateDirectory);
+      const { source_check, ...legacyContext } = input.context;
+      // Keep the v1 file readable after a package downgrade; richer state has its own occurrence binding.
+      writePrivateStateFile(runtimeErrorContextPath(options), bindRuntimeErrorContext(record, legacyContext), options.env, privateDirectory);
+      if (source_check) writePrivateStateFile(`${runtimeErrorContextPath(options)}.source-check.json`,
+        bindRuntimeErrorContext(record, input.context), options.env, privateDirectory);
     }
     return { status: 'recorded', fingerprint, sequence };
   });
@@ -305,6 +309,9 @@ export function readRuntimeErrorSnapshot({
   const context = selected.some((record) => record.status === 'open' && record.error_code === 'HOOK_CODEX_FAILED')
     ? readRuntimeErrorPrivateState(runtimeErrorContextPath(options), env) : null;
   if (context !== null) validateRuntimeErrorContextState(context);
+  const sourceCheck = context !== null
+    ? readRuntimeErrorPrivateState(`${runtimeErrorContextPath(options)}.source-check.json`, env) : null;
+  if (sourceCheck !== null) validateRuntimeErrorContextState(sourceCheck);
   return {
     schema: RUNTIME_ERROR_STORE_SCHEMA,
     product: 'throughline',
@@ -315,7 +322,7 @@ export function readRuntimeErrorSnapshot({
       acknowledged_through: store.acknowledged_through,
       next: selected.at(-1)?.sequence ?? afterCursor,
     },
-    runtime_errors: selected.filter((record) => record.status === 'open').map((record) => toPublicRuntimeError(record, context)),
+    runtime_errors: selected.filter((record) => record.status === 'open').map((record) => toPublicRuntimeError(record, context, sourceCheck)),
     resolutions: selected.filter((record) => record.status === 'resolved').map((record) => ({
       fingerprint: record.fingerprint,
       resolved_at: record.resolved_at,
@@ -615,14 +622,15 @@ function runtimeErrorContextPath(options) {
   return `${options.storePath || defaultRuntimeErrorStorePath(options.env)}.context.json`;
 }
 
-function toPublicRuntimeError(record, context) {
+function toPublicRuntimeError(record, context, sourceCheck) {
+  const detail = runtimeErrorMessageWithContext(record, sourceCheck);
   return {
     error_code: record.error_code,
     component: record.component,
     status: record.status,
     severity: record.severity,
     fingerprint: record.fingerprint,
-    message_template: runtimeErrorMessageWithContext(record, context),
+    message_template: detail !== record.message_template ? detail : runtimeErrorMessageWithContext(record, context),
     occurrence_count: record.count,
     first_seen: record.first_seen,
     last_seen: record.last_seen,
