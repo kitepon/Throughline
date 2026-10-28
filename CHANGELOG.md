@@ -10,6 +10,16 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.49] — 2026-10-28
+
+### Fixed
+
+- Record the observation time, current-turn context availability and normalized
+  path SHA-256 digests in the local Codex source-rejection log. These diagnostics
+  allow comparison with a turn context written after PreCompact without logging
+  raw paths or exporting path digests in runtime reports. Source validation and
+  continuation behavior remain unchanged.
+
 ## [0.16.48] — 2026-10-26
 
 ### Fixed
@@ -2837,7 +2847,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.48...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.49...HEAD
+[0.16.49]: https://github.com/kitepon/Throughline/compare/v0.16.48...v0.16.49
 [0.16.48]: https://github.com/kitepon/Throughline/compare/v0.16.47...v0.16.48
 [0.16.47]: https://github.com/kitepon/Throughline/compare/v0.16.46...v0.16.47
 [0.16.46]: https://github.com/kitepon/Throughline/compare/v0.16.45...v0.16.46

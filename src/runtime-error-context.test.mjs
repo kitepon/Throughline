@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { normalizeProjectPathForCompare } from './project-path.mjs';
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import childProcess, { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -174,6 +176,18 @@ test('ordinary pre-compact source rejection reports comparisons without exportin
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).continue, true);
+  const failure = JSON.parse(readFileSync(join(box.root, '.throughline', 'logs', 'hook-failures.log'), 'utf8').trim());
+  const digest = path => createHash('sha256').update(normalizeProjectPathForCompare(path)).digest('hex');
+  assert.equal(failure.identity.hook_cwd_sha256, digest(box.root));
+  assert.equal(failure.identity.source_cwd_sha256, digest(join(box.root, 'PRIVATE_SOURCE_SENTINEL')));
+  assert.equal(failure.identity.context_present, 'false');
+  assert.ok(Number.isFinite(Date.parse(failure.identity.observed_at)));
+  assert.equal(failure.identity.turn_started_at, 'unavailable');
+  assert.doesNotMatch(JSON.stringify(failure.identity), /PRIVATE_SOURCE_SENTINEL/);
+  // hook後に書かれたcontextのcwdと、hook時のcwdを同じ正規化で比較できる。
+  const laterContext = { type: 'turn_context', payload: { turn_id: turn, cwd: box.root } };
+  writeFileSync(transcript, readFileSync(transcript, 'utf8') + JSON.stringify(laterContext) + '\n');
+  assert.equal(failure.identity.hook_cwd_sha256, digest(laterContext.payload.cwd));
   const entry = publicError(box);
   assert.equal(entry.fingerprint, runtimeErrorFingerprint(CODE));
   assert.equal(entry.severity, 'high');
@@ -183,6 +197,7 @@ test('ordinary pre-compact source rejection reports comparisons without exportin
   assert.equal(report.schema_version, '1.0');
   assert.equal(report.runtime_errors[0].message_template, entry.message_template);
   assert.doesNotMatch(JSON.stringify(report), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
+  assert.doesNotMatch(JSON.stringify(report), new RegExp(`${failure.identity.hook_cwd_sha256}|${failure.identity.source_cwd_sha256}|observed_at.*context_present`));
   assert.doesNotMatch(readFileSync(box.contextPath, 'utf8'), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
   assert.doesNotMatch(readFileSync(`${box.contextPath}.source-check.json`, 'utf8'), new RegExp(`PRIVATE_SOURCE_SENTINEL|${thread}|${turn}|rollout-`));
 });

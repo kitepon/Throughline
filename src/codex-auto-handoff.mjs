@@ -1,5 +1,6 @@
 import { mkdirSync, openSync, closeSync, writeFileSync, appendFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -7,7 +8,7 @@ import { withCodexReceiver, verifyCodexParent, submitCodexParentAnswer,
   platformDesktopFinder, readRuntimeProcesses } from 'aiterm-steer-delivery';
 import { spawnPortable } from './os/portable-spawn-sync.mjs';
 import { openUrlWithOsHandler } from './os/open-url.mjs';
-import { sameProjectPath } from './project-path.mjs';
+import { sameProjectPath, normalizeProjectPathForCompare } from './project-path.mjs';
 import { getDb, openReadOnlyDb, DB_PATH, CURRENT_VERSION } from './db.mjs';
 import { findCodexThreadCandidate } from './codex-thread-index.mjs';
 import { captureCodexRolloutToDb } from './codex-capture.mjs';
@@ -328,7 +329,13 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const turnMatches = state.latestTurnId === turnId;
   if (!projectMatches || !turnMatches) throw Object.assign(error('handoff_hook_source_mismatch'), {
     hookIdentity: { ...hookIdentityShape(payload), project_match: String(projectMatches), turn_match: String(turnMatches),
-      project_basis: state.context ? 'turn_context' : 'session_meta' } });
+      project_basis: state.context ? 'turn_context' : 'session_meta',
+      // 後から書かれたturn_contextとの比較用。生のpathを残さず、端末内ログだけに保存する。
+      hook_cwd_sha256: createHash('sha256').update(normalizeProjectPathForCompare(payload.cwd)).digest('hex'),
+      source_cwd_sha256: typeof projectPath === 'string' && isAbsolute(projectPath)
+        ? createHash('sha256').update(normalizeProjectPathForCompare(projectPath)).digest('hex') : 'unavailable',
+      context_present: String(state.context !== null), observed_at: new Date().toISOString(),
+      turn_started_at: Number.isFinite(state.turnStartAt) ? new Date(state.turnStartAt).toISOString() : 'unavailable' } });
   const sessionPart = /[\\/]sessions[\\/]/.exec(rolloutPath);
   if (!sessionPart) throw error('handoff_codex_home_unavailable');
   const codexHome = rolloutPath.slice(0, sessionPart.index);
