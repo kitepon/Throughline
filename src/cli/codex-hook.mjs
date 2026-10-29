@@ -411,7 +411,7 @@ export async function run(argv = []) {
         };
         if (error?.code === 'handoff_hook_source_mismatch') {
           context.source_check = Object.fromEntries(Object.entries({
-            project_match: ['true', 'false'], turn_match: ['true', 'false'], project_basis: ['session_meta', 'turn_context'],
+            project_match: ['true', 'false'], turn_match: ['true', 'false'], project_basis: ['session_meta', 'turn_context', 'thread_settings'],
           }).map(([key, values]) => [key, values.includes(error.hookIdentity?.[key]) ? error.hookIdentity[key] : 'unknown']));
         }
         recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context });

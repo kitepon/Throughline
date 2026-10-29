@@ -5,7 +5,7 @@ const SOURCE_CHECK_SCHEMA = 'throughline.runtime_error_context.v2';
 const SOURCE_CHECK_VALUES = {
   project_match: ['true', 'false', 'unknown'],
   turn_match: ['true', 'false', 'unknown'],
-  project_basis: ['session_meta', 'turn_context', 'unknown'],
+  project_basis: ['session_meta', 'turn_context', 'thread_settings', 'unknown'],
 };
 const EVENTS = new Set(['unknown', 'stop', 'user-prompt-submit', 'post-tool-use', 'pre-compact']);
 const STAGES = new Set(['arguments', 'payload', 'processing', 'handoff_request']);

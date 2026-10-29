@@ -18,6 +18,9 @@ shipped to npm but were not individually tagged on GitHub.
   when the current turn context has not been written yet. Keep current-turn
   context authoritative when present, reject mismatched turns and directories,
   and retain native source checks before allowing the source to stop.
+- Preserve the fixed `thread_settings` comparison basis through local and
+  public runtime diagnostics. Earlier v2 readers reject this new fixed value;
+  use 0.16.50 or later to read a state containing it.
 
 ## [0.16.49] — 2026-10-28
 

@@ -157,7 +157,7 @@ test('source-check context has a versioned fixed shape and preserves legacy read
   assert.doesNotMatch(publicError(box).message_template, /source_project_match|failure_reason/);
 });
 
-test('ordinary pre-compact source rejection reports comparisons without exporting identity or changing continuation', () => {
+for (const basis of ['session_meta', 'thread_settings']) test(`ordinary pre-compact source rejection reports ${basis} without exporting identity or changing continuation`, () => {
   const box = sandbox();
   const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
   const sessions = join(box.root, 'codex', 'sessions'); mkdirSync(sessions, { recursive: true });
@@ -168,6 +168,10 @@ test('ordinary pre-compact source rejection reports comparisons without exportin
   }));
   writeFileSync(transcript, [
     { type: 'session_meta', payload: { id: thread, originator: 'Codex Desktop', source: 'vscode', cwd: join(box.root, 'PRIVATE_SOURCE_SENTINEL') } },
+    ...(basis === 'thread_settings' ? [{ type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: {
+      model: 'model', cwd: join(box.root, 'PRIVATE_SOURCE_SENTINEL'), model_provider_id: 'openai',
+      approval_policy: 'never', permission_profile: { type: 'disabled' },
+    } } }] : []),
     { type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
   ].map(JSON.stringify).join('\n') + '\n');
   const result = spawnSync(process.execPath, [BIN, 'codex-hook', 'pre-compact'], {
@@ -181,6 +185,7 @@ test('ordinary pre-compact source rejection reports comparisons without exportin
   assert.equal(failure.identity.hook_cwd_sha256, digest(box.root));
   assert.equal(failure.identity.source_cwd_sha256, digest(join(box.root, 'PRIVATE_SOURCE_SENTINEL')));
   assert.equal(failure.identity.context_present, 'false');
+  assert.equal(failure.identity.project_basis, basis);
   assert.ok(Number.isFinite(Date.parse(failure.identity.observed_at)));
   assert.equal(failure.identity.turn_started_at, 'unavailable');
   assert.doesNotMatch(JSON.stringify(failure.identity), /PRIVATE_SOURCE_SENTINEL/);
@@ -192,7 +197,7 @@ test('ordinary pre-compact source rejection reports comparisons without exportin
   assert.equal(entry.fingerprint, runtimeErrorFingerprint(CODE));
   assert.equal(entry.severity, 'high');
   assert.equal(entry.occurrence_count, 1);
-  assert.match(entry.message_template, /actual=handoff_request_failed; effect=continue_requested; failure_reason=handoff_hook_source_mismatch; source_project_match=false; source_turn_match=true; source_project_basis=session_meta/);
+  assert.match(entry.message_template, new RegExp(`actual=handoff_request_failed; effect=continue_requested; failure_reason=handoff_hook_source_mismatch; source_project_match=false; source_turn_match=true; source_project_basis=${basis}`));
   const report = buildRuntimeErrorReport({ snapshot: readRuntimeErrorSnapshot({ env: box.env }), reportId: '00000000-0000-4000-8000-000000000001', nowMs: Date.now() });
   assert.equal(report.schema_version, '1.0');
   assert.equal(report.runtime_errors[0].message_template, entry.message_template);

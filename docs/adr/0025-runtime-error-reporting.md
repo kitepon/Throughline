@@ -111,5 +111,7 @@ current turnのturn_contextはPreCompactの返答後に記録される場合が�
 thread_settings_applied、どちらも無ければsession_metaを用いる。要求payloadのcwdだけで
 照合を通さず、不正・異なるcontextがある時に別の根拠へ切り替えない。
 thread/turn識別と停止前のnative primary/project照合は維持する。
-追加の端末内診断のproject_basisはthread_settingsとなる場合がある。公開source-checkの
-既存v2語彙へ追加せず、この新しい私有basisは従来のunknownへ投影して旧reader互換を保つ。
+端末内診断と公開source-checkの固定project_basis語彙にthread_settingsを追加し、
+適用済み設定による照合だったことを通常snapshot/reportまで保持する。任意値は許可しない。
+既存v1/v2の状態は引き続き読める。thread_settingsを含む新v2状態は旧.49のreaderが
+明示的に拒否するため、その状態を読む時は.50以降を使う。基礎記録とv1補足は保持される。
