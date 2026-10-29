@@ -115,3 +115,14 @@ thread/turn識別と停止前のnative primary/project照合は維持する。
 適用済み設定による照合だったことを通常snapshot/reportまで保持する。任意値は許可しない。
 既存v1/v2の状態は引き続き読める。thread_settingsを含む新v2状態は旧.49のreaderが
 明示的に拒否するため、その状態を読む時は.50以降を使う。基礎記録とv1補足は保持される。
+
+## 観測世代を指定した解決（2026-10-29）
+
+修理判断後の新発生を古い判断で解決しないため、resolveに任意の--expected-cursorを用意する。
+通常snapshotで対象fingerprint/count/last_seen/product_versionとcursor.high_watermarkを
+読み、今回の修理対象と照合した上で、そのhigh_watermarkを渡す。解決と同じstore lock内で
+next_sequence - 1と一致した場合だけ既存の解決処理を進め、不一致は非0終了/記録無変更とする。
+別fingerprintが更新された場合も保守的に拒否するため、再観測して対象世代を再評価する。
+既存の自動回復呼出しと指定なしCLIの契約は維持する。wireや報告先は変えない。
+解決後は通常の署名reportを使い、accepted/report_id/応答署名だけでなく中央の実際の
+source反映を読戻しで確認する。古い報告がacceptedでも未適用の場合は完了を主張しない。

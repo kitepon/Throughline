@@ -35,6 +35,8 @@ export function parseArgs(argv = []) {
       options.afterCursor = parseInteger(argv[++index], '--after-cursor');
     } else if (command === 'snapshot' && arg === '--limit' && argv[index + 1]) {
       options.limit = parseInteger(argv[++index], '--limit');
+    } else if (command === 'resolve' && arg === '--expected-cursor' && argv[index + 1] && !Object.hasOwn(options, 'expectedCursor')) {
+      options.expectedCursor = parseInteger(argv[++index], '--expected-cursor');
     } else if (['ack', 'resolve', 'reopen'].includes(command) && options.value === null && !arg.startsWith('-')) {
       options.value = arg;
     } else {
@@ -124,7 +126,9 @@ export function run(argv = [], dependencies = {}) {
         { env },
       );
     } else if (options.command === 'resolve') {
-      result = (dependencies.resolve ?? resolveRuntimeError)(options.value, { env });
+      result = (dependencies.resolve ?? resolveRuntimeError)(options.value, {
+        env, ...(options.expectedCursor === undefined ? {} : { expectedCursor: options.expectedCursor }),
+      });
     } else if (options.command === 'reopen') {
       result = (dependencies.reopen ?? reopenRuntimeError)(options.value, { env });
     } else {

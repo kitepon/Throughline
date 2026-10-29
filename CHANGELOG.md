@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.51] — 2026-10-29
+
+### Fixed
+
+- Add optional `runtime-errors resolve --expected-cursor <high_watermark>`
+  observation guarding under the same store lock as resolution. Refuse a stale
+  cursor without modifying records so a newly observed error is not resolved
+  using an older repair judgment. Existing unguarded callers remain compatible.
+
 ## [0.16.50] — 2026-10-29
 
 ### Fixed
@@ -2859,7 +2868,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.50...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.51...HEAD
+[0.16.51]: https://github.com/kitepon/Throughline/compare/v0.16.50...v0.16.51
 [0.16.50]: https://github.com/kitepon/Throughline/compare/v0.16.49...v0.16.50
 [0.16.49]: https://github.com/kitepon/Throughline/compare/v0.16.48...v0.16.49
 [0.16.48]: https://github.com/kitepon/Throughline/compare/v0.16.47...v0.16.48
