@@ -947,7 +947,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline runtime-errors snapshot --json`   | Read the bounded product-owned runtime error aggregate; this command performs no network I/O |
 | `throughline runtime-errors diagnostics --json` | Read bounded collection/store status without exposing the state path or raw errors |
 | `throughline runtime-errors ack <cursor> --json` | Explicitly acknowledge records through a monotonic cursor; unacknowledged records are never compacted |
-| `throughline runtime-errors resolve <fingerprint> --json` | Explicitly resolve an aggregate; observing the same fingerprint again reopens it |
+| `throughline runtime-errors resolve <fingerprint> [--expected-cursor <high_watermark>] --json` | Explicitly resolve an aggregate; optionally require the snapshot store cursor to remain unchanged under the resolution lock. A stale cursor exits non-zero without modifying records. New occurrences reopen the aggregate |
 | `throughline runtime-errors reopen <fingerprint> --json` | Explicitly reopen a resolved aggregate without fabricating a new occurrence |
 | `throughline runtime-errors compact --json`    | Remove only acknowledged, resolved aggregates after retention; open or unacknowledged records remain |
 | `throughline runtime-errors report-enable --credential-file <path> --json` | Opt in to sending aggregates to the receiver named in that credential file; sending is disabled by default |

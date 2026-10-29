@@ -210,11 +210,17 @@ export function observeRuntimeError(input, options = {}) {
 }
 
 export function resolveRuntimeError(fingerprint, options = {}) {
-  assertExactOptions(options, ['env', 'configPath', 'storePath', 'now', 'reasonCode']);
+  assertExactOptions(options, ['env', 'configPath', 'storePath', 'now', 'reasonCode', 'expectedCursor']);
   assertFingerprint(fingerprint);
+  if (options.expectedCursor !== undefined && (!Number.isSafeInteger(options.expectedCursor) || options.expectedCursor < 0)) {
+    throw new TypeError('expectedCursor invalid');
+  }
   if (!collectionEnabled(options)) return { status: 'disabled' };
   return withStoreLock(options, (privateDirectory) => {
     const store = readStore(options, { privateDirectory });
+    if (options.expectedCursor !== undefined && store.next_sequence - 1 !== options.expectedCursor) {
+      throw new Error('runtime_error_observation_conflict');
+    }
     const record = store.records.find((candidate) => candidate.fingerprint === fingerprint);
     if (!record) return { status: 'not_found' };
     if (record.status === 'resolved') return { status: 'resolved', sequence: record.sequence };

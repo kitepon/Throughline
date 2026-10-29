@@ -239,6 +239,21 @@ test('runtime error store: observation API rejects raw or arbitrary fields', () 
   assert.throws(() => statSync(box.storePath), { code: 'ENOENT' });
 });
 
+test('runtime error store: guarded resolution rejects a newer observation without changing the store', () => {
+  const box = sandbox(); enableCollection(box);
+  const first = observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED' }, { env: box.env });
+  const cursor = readRuntimeErrorSnapshot({ env: box.env }).cursor.high_watermark;
+  observeRuntimeError({ code: 'HOOK_PROCESS_TURN_FAILED' }, { env: box.env });
+  const before = readFileSync(box.storePath);
+  assert.throws(() => resolveRuntimeError(first.fingerprint, { env: box.env, expectedCursor: cursor }), /observation_conflict/);
+  assert.throws(() => resolveRuntimeError(first.fingerprint, { env: box.env, expectedCursor: -1 }), /expectedCursor invalid/);
+  assert.deepEqual(readFileSync(box.storePath), before);
+  const current = readRuntimeErrorSnapshot({ env: box.env });
+  assert.equal(current.runtime_errors[0].occurrence_count, 2);
+  assert.equal(resolveRuntimeError(first.fingerprint, { env: box.env, expectedCursor: current.cursor.high_watermark }).status, 'resolved');
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors.length, 0);
+});
+
 test('runtime error store: fixed template SHA-256 fingerprint aggregates and reopens', () => {
   const box = sandbox();
   enableCollection(box);
