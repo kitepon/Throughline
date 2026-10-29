@@ -323,13 +323,13 @@ export async function requestCodexAutoHandoff({ payload, db = null,
   const rolloutPath = realpathSync.native(payload.transcript_path);
   const state = readCodexHandoffState(rolloutPath, { threadId, turnId });
   if (state.meta.originator !== 'Codex Desktop' || state.meta.source !== 'vscode') return { status: 'skipped', reason: 'handoff_host_unsupported' };
-  // session_metaは作成時の場所。worktreeへの移動後は、同じturnの完結したcontextを照合する。
-  const projectPath = state.context ? state.context.cwd : state.meta.cwd;
+  // PreCompact時は現turnのcontextが未記録になり得る。適用済み設定を作成時metadataより優先する。
+  const projectPath = state.context ? state.context.cwd : state.rawSettings ? state.rawSettings.cwd : state.meta.cwd;
   const projectMatches = typeof projectPath === 'string' && isAbsolute(projectPath) && sameProjectPath(projectPath, payload.cwd);
   const turnMatches = state.latestTurnId === turnId;
   if (!projectMatches || !turnMatches) throw Object.assign(error('handoff_hook_source_mismatch'), {
     hookIdentity: { ...hookIdentityShape(payload), project_match: String(projectMatches), turn_match: String(turnMatches),
-      project_basis: state.context ? 'turn_context' : 'session_meta',
+      project_basis: state.context ? 'turn_context' : state.rawSettings ? 'thread_settings' : 'session_meta',
       // 後から書かれたturn_contextとの比較用。生のpathを残さず、端末内ログだけに保存する。
       hook_cwd_sha256: createHash('sha256').update(normalizeProjectPathForCompare(payload.cwd)).digest('hex'),
       source_cwd_sha256: typeof projectPath === 'string' && isAbsolute(projectPath)

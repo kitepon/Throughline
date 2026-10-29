@@ -859,10 +859,10 @@ function sourceRollout(home, thread, turn, later = [], stoppedAt = '2026-10-07T0
 }
 
 // hookが止めたturnの、Codex Desktop 0.160.1 の実物の並び（入力を受けて、1秒ほどで止まる）。
-function stoppedInput(turn, at, { closed = true } = {}) {
+function stoppedInput(turn, at, { closed = true, cwd = '/project' } = {}) {
   return [
     { timestamp: `${at}.071Z`, type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: {
-      model: 'model', cwd: '/project', model_provider_id: 'openai', approval_policy: 'never', permission_profile: { type: 'disabled' } } } },
+      model: 'model', cwd, model_provider_id: 'openai', approval_policy: 'never', permission_profile: { type: 'disabled' } } } },
     { timestamp: `${at}.078Z`, type: 'event_msg', payload: { type: 'task_started', turn_id: turn } },
     { timestamp: `${at}.206Z`, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '動いてる？' }] } },
     { timestamp: `${at}.207Z`, type: 'event_msg', payload: { type: 'item_completed', turn_id: turn, item: { type: 'UserMessage' } } },
@@ -963,7 +963,7 @@ test('後継が出来たまま止まった引き継ぎは、次の入力で同�
     return { trigger: 'auto', cwd: home, session_id: thread, turn_id: turn, transcript_path: file };
   };
   const failed = fail(turnA, {});
-  const open = stoppedInput(turnB, '2026-10-07T00:56:48', { closed: false });
+  const open = stoppedInput(turnB, '2026-10-07T00:56:48', { closed: false, cwd: home });
 
   // 後継が残っていて、まだ誰も使っておらず、旧タスクに動きが無い。同じ引き継ぎを再開する。
   const resumed = await requestCodexAutoHandoff({ ...base, readTarget: () => ({ latestTurnId: null }), payload: input(turnB, open) });
@@ -1233,7 +1233,7 @@ test('引き継ぎ済みの旧タスクへゴールの続行が来た時は、�
     handoff_id: first.handoff_id, target_thread_id: 'successor-1', opened: false, internal: true, goal_settle: true });
 
   // 人の入力では、今までどおり後継を開く。ゴールの片付けは、起こす側が間隔を空ける（ここでは2回めを起こさない）。
-  const person = await requestCodexAutoHandoff({ ...args, payload: payload(personTurn, stoppedInput(personTurn, '2026-10-07T00:51:00')) });
+  const person = await requestCodexAutoHandoff({ ...args, payload: payload(personTurn, stoppedInput(personTurn, '2026-10-07T00:51:00', { cwd: home })) });
   assert.equal(person.opened, true); assert.deepEqual(seen.opened, ['successor-1']);
   assert.equal(seen.recorded[1].internal, undefined); assert.equal(seen.recorded[1].goal_settle, undefined);
   // 片付けを起こせなくても、ターンは止める。
@@ -1584,6 +1584,34 @@ function moveDesktopSource(payload, cwd, extra = []) {
   writeFileSync(payload.transcript_path, rows.map(JSON.stringify).join('\n') + '\n');
   return { ...payload, cwd };
 }
+
+test('PreCompactのcontext記録前は適用済み設定のcwdを照合し、古いmetadataや任意cwdでは受け付けない', async () => withDb(async (db, home) => {
+  const thread = '11111111-1111-1111-1111-111111111111', turn = '22222222-2222-2222-2222-222222222222';
+  const current = join(home, 'worktree'); mkdirSync(current);
+  const payload = desktopSource(home, thread, turn);
+  const rows = fs.readFileSync(payload.transcript_path, 'utf8').trim().split('\n').map(JSON.parse);
+  rows.splice(1, 0, { type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: {
+    model: 'model', cwd: current, model_provider_id: 'openai', approval_policy: 'never', permission_profile: { type: 'disabled' },
+  } } });
+  writeFileSync(payload.transcript_path, rows.map(JSON.stringify).join('\n') + '\n');
+  let launched = 0;
+  const run = extra => requestCodexAutoHandoff({ db, payload: { ...payload, cwd: current, ...extra },
+    config: { enabled: true, projects: [], openHost: 'desktop' }, launchWorker: async () => { launched++; } });
+  assert.equal(readCodexHandoffState(payload.transcript_path, { threadId: thread, turnId: turn }).context, null);
+  for (const cwd of [home, join(home, 'arbitrary')]) await assert.rejects(run({ cwd }), /handoff_hook_source_mismatch/);
+  await assert.rejects(run({ turn_id: '33333333-3333-3333-3333-333333333333' }), /handoff_hook_source_mismatch/);
+  for (const cwd of [null, 'relative', home]) {
+    writeFileSync(payload.transcript_path, [...rows, { type: 'turn_context', payload: { turn_id: turn, cwd } }]
+      .map(JSON.stringify).join('\n') + '\n');
+    await assert.rejects(run({}), /handoff_hook_source_mismatch|handoff_settings_unavailable/);
+  }
+  writeFileSync(payload.transcript_path, rows.map(JSON.stringify).join('\n') + '\n');
+  assert.equal(launched, 0);
+  const result = await run({});
+  assert.equal(result.inserted, true); assert.equal(launched, 1);
+  const operation = getAutoHandoff(db, result.operationId);
+  assert.equal(operation.project_path, current); assert.equal(operation.runtime.sourceCaptureProjectPath, home);
+}));
 
 test('worktree移動後は現在turnのcwdで要求し、元projectから記憶を取得して現在cwdへ継続する', async () => withDb(async (db, home) => {
   const f = gateFixture(db, home), current = join(home, 'worktree'); mkdirSync(current);

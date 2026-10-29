@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.50] — 2026-10-29
+
+### Fixed
+
+- Validate PreCompact project identity against already-applied thread settings
+  when the current turn context has not been written yet. Keep current-turn
+  context authoritative when present, reject mismatched turns and directories,
+  and retain native source checks before allowing the source to stop.
+
 ## [0.16.49] — 2026-10-28
 
 ### Fixed
@@ -2847,7 +2856,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.49...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.50...HEAD
+[0.16.50]: https://github.com/kitepon/Throughline/compare/v0.16.49...v0.16.50
 [0.16.49]: https://github.com/kitepon/Throughline/compare/v0.16.48...v0.16.49
 [0.16.48]: https://github.com/kitepon/Throughline/compare/v0.16.47...v0.16.48
 [0.16.47]: https://github.com/kitepon/Throughline/compare/v0.16.46...v0.16.47

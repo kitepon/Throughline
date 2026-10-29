@@ -103,3 +103,13 @@ source-check補足へは投影しない。生のフォルダ名、会話本文�
 これで次の発生時に、後から観測したcontextのフォルダを同じ正規化でハッシュ化して
 hook要求と照合できる。後から書かれたcontextだけで、過去のhook要求を推測しない。
 これらのログ追加を、照合拒否の修理成功や、元会話の回復とは扱わない。
+
+## PreCompactの設定照合（2026-10-29）
+
+current turnのturn_contextはPreCompactの返答後に記録される場合がある。
+照合は同一turnのcontextがあればそれを優先し、まだ無ければhostが記録した最新の
+thread_settings_applied、どちらも無ければsession_metaを用いる。要求payloadのcwdだけで
+照合を通さず、不正・異なるcontextがある時に別の根拠へ切り替えない。
+thread/turn識別と停止前のnative primary/project照合は維持する。
+追加の端末内診断のproject_basisはthread_settingsとなる場合がある。公開source-checkの
+既存v2語彙へ追加せず、この新しい私有basisは従来のunknownへ投影して旧reader互換を保つ。
