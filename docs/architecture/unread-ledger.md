@@ -13,9 +13,9 @@
 
 | 本文確認状態 | 件数 |
 | --- | ---: |
-| body_read | 96 |
+| body_read | 126 |
 | reference_same_blob | 1 |
-| unread | 320 |
+| unread | 290 |
 
 | path | 機械役割 | 本文確認状態 | 確認範囲/残確認 |
 | --- | --- | --- | --- |
@@ -71,7 +71,7 @@
 | codex/skills/throughline/agents/openai.yaml | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/00_overview.md | documentation | body_read | 全体索引本文を読取。全リンク先の読了ではない |
 | docs/01_l1_l2_l3_redesign.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/02_clear_auto_handoff_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/02_clear_auto_handoff_plan.md | documentation | body_read | 全文。host別/二相/注入契約。step4 backfill→merge説明と実executor merge→accepted→backfillの相違を照合事項として記録。訂正は未実施 |
 | docs/04_public_release_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/05_codex_first_roadmap.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/06_codex_trim_rollback_fix_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -87,7 +87,7 @@
 | docs/adr/0005-observer-read-pagination.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0006-observer-page-offset-proof.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0007-observer-read-cli-contract.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0008-observer-wait-deadline-cancel.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0008-observer-wait-deadline-cancel.md | documentation | body_read | 全文。monotonic最終確認/1..3600秒/取消/親消失/cleanup/固定errorをsource/test本文へ照合。実試験未実行 |
 | docs/adr/0009-observer-integration-regression-and-docs.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0010-observer-o1-phase-acceptance.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0011-observer-o1-control-lane-reconciliation.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -103,7 +103,7 @@
 | docs/adr/0021-grok-host-capture.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0022-cursor-host-capture.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0023-handoff-disclosure-policy.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0024-observer-read-wire-v2.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0024-observer-read-wire-v2.md | documentation | body_read | 全文。v1不変/v2全文・実harness・turn_start/cursor共通/Claude project境界をsourceと照合。全consumer受入は未確認 |
 | docs/adr/0025-runtime-error-reporting.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0026-stop-flush-barrier-next-user.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0027-stop-flush-barrier-trimmed-marker.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -114,7 +114,7 @@
 | docs/adr/0032-claude-compact-continuation.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0033-claude-auto-handoff-new-session.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0034-project-recent-sessions-context.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0035-observer-cursor-prefix-only.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0035-observer-cursor-prefix-only.md | documentation | body_read | 全文。history_floor形を保持しprefixだけで位置検証。source/test本文と対応、関連試験は未実行 |
 | docs/adr/0036-first-read-retry-on-io-error.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0037-auto-handoff-successor-title.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0038-stop-flush-barrier-head-lost-transcript.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -213,15 +213,15 @@
 | scripts/verify-pack-markdown-links.mjs | config-support | body_read | 全文。npm pack dry-run/ignore-scriptsのfile集合と相対target照合。verify:docsとして実行 |
 | scripts/verify-release-commit.mjs | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | scripts/verify-release-commit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/auditor-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/auditor-context.mjs | source | body_read | 全文。freshness導出/read-only schema9..current/project子孫/ordered全pair照合、bounded/full projection、1s busy、finally close。大きなtestと全consumer未読 |
 | src/auditor-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/auto-handoff-title.mjs | source | body_read | 全文。project/title/継続制御文除外/Unicode制限/印冪等。AI起動なし。test本文確認・未実行 |
 | src/auto-handoff-title.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
 | src/baton.mjs | source | body_read | 全文。project upsert、誕生時刻TTL、未来baton保持、独立consume/discard。関連test本文確認・未実行 |
 | src/baton.test.mjs | test | body_read | 本文全体を確認。fixture/期待値のsource読取のみ、未実行。全caller/設定/exportの網羅照合は未了 |
 | src/body-digest.mjs | source | body_read | 全文。NFC/改行/trim/SHA256。全caller/test未了 |
-| src/caveat-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/caveat-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/caveat-context.mjs | source | body_read | 全文。完了3pair/取得可能Thinkingのみ、任意host freshness/pending、上限/read-only/close。test本文確認・未実行 |
+| src/caveat-context.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/claude-auto-handoff-config.mjs | source | body_read | 全文。専用schema/private file、既定disabled、project照合、temp→rename。Codex設定と別所有。test/全caller閉包未了 |
 | src/claude-auto-handoff.mjs | source | body_read | 全文。requested/stopped/launching/launched/sent/failed/unknown、席除外、途中snapshot/初回capture/accepted、Windows terminal/Unix bg、wake/forward/Desktop表示。全test/consumer閉包未了 |
 | src/claude-auto-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -230,10 +230,10 @@
 | src/claude-forward.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
 | src/claude-pre-compact.mjs | source | body_read | 全文。payload EOF/auto要求/log、block exit2、例外固定code/私有log/exit1。installと全fixture未了 |
 | src/claude-pre-tool-use.mjs | source | body_read | 全文。軽量file判定/並行停止待ち/forward context、書切り後done、例外exit1。installと全fixture未了 |
-| src/cli/auditor-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/auditor-context.mjs | source | body_read | 全文。host+transcript又は明示pairの排他入力、固定error JSONと成功status。全test/consumer未読 |
 | src/cli/auditor-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/auto-handoff.mjs | source | body_read | 全文。host別action/引数/公開field、enable信用後config、read-only status/detail close、resume/worker/exit。install側と全test未了 |
-| src/cli/caveat-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/caveat-context.mjs | source | body_read | 全文。strict args/任意host pair/固定JSON errorとready。root側test本文確認・未実行 |
 | src/cli/codex-capture.mjs | source | body_read | 全文。引数/identity/候補capture、JSON/textとexit契約。全caller/test未了 |
 | src/cli/codex-handoff-model-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-handoff-model-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -247,7 +247,7 @@
 | src/cli/codex-host-primitive-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-restore-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-restore-source-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-resume.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-resume.mjs | source | body_read | 全文。getDb→record→text/handoff/item-json、memo stdin、旧制限引数保持、同project最新。下流manual起動/trimと全test未了 |
 | src/cli/codex-rollback-model-visible-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-rollback-model-visible-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-summarize.mjs | source | body_read | 全文。20turn窓、最古origin+turnのCodex-primary L1、hook max1/単独CLI max、JSON/exit。全caller/test未了 |
@@ -259,25 +259,25 @@
 | src/cli/doctor.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/factory-diagnostics.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/factory-diagnostics.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/grok-continue.mjs | source | body_read | 全文。公開context/project→最初の指示/新session→mac Terminal、rulesなし、起動artifactと後始末未確認。全caller/test未了 |
+| src/cli/grok-continue.mjs | source | body_read | 全文。read-only公開context/project→最初の指示/新session→mac Terminal、rulesなし。context内部も本文確認、artifact保持/全test/consumerは未了 |
 | src/cli/grok-continue.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/handoff-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/handoff-context.mjs | source | body_read | 全文。明示session/project/recent、read-only/finally close、project補足と9500字合算、ready/empty/構文2/失敗1。全consumer/test未了 |
 | src/cli/handoff-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/handoff-preview.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/handoff-preview.mjs | source | body_read | 全文。getDb→record→versioned block、同project最新選択/引数/失敗exit。pure rendererとDB接続初期化の作用を区別。全test未読 |
 | src/cli/help.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/install.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/install.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/latest-session.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/latest-session.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/latest-session.mjs | source | body_read | 全文。同project最新ID/read-only/close、本文の有無を見ない意味。関連test本文確認・未実行 |
+| src/cli/latest-session.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/cli/migrate.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/migrate.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/observer-read.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/observer-read.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/observer-wait.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/observer-wait.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/recall.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/observer-read.mjs | source | body_read | 全文。strict args/limit1..100/wire/JSON-only、既知状態exit0/hard固定JSON exit1。test本文確認・未実行 |
+| src/cli/observer-read.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
+| src/cli/observer-wait.mjs | source | body_read | 全文。strict timeout/既存絶対project、signal/IPC/親watch→abort、EPERM非不在、finally除去。test本文確認・未実行 |
+| src/cli/observer-wait.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
+| src/cli/recall.mjs | source | body_read | 全文。明示session/before strict-ms/last/skip、read-only/close、L1未要約明示/L2全文/L3参照。注入時境界を再計算しない。全test/consumer未読 |
 | src/cli/recall.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/room-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/room-context.mjs | source | body_read | 全文。stdin EOF JSON→writer→固定schema/args/input/record error、commit後出力不明を保存取消にしない。root側test本文確認・未実行 |
 | src/cli/runtime-errors.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/runtime-errors.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/self-update.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -299,7 +299,7 @@
 | src/codex-handoff-model-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-handoff-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-handoff-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-handoff.mjs | source | body_read | 全文。既handoff record→active/new thread text/developer item/versioned block、表示制限と旧maxDetailRefs検証互換。record生成/全caller/test未読 |
+| src/codex-handoff.mjs | source | body_read | 全文。record→manual context/developer item/versioned block、表示制限互換。record生成/CLIも本文確認、下流manual/trimと全test未読 |
 | src/codex-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-host-primitive-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-host-primitive-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -335,9 +335,9 @@
 | src/grok-history-inject.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/haiku-summarizer.mjs | source | body_read | 全文。Codex-primary明示失敗、Claude-primary既存fallback順、再帰guard/model/effort/ratio/timeout。実backend起動なし |
 | src/haiku-summarizer.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/handoff-executor.mjs | source | body_read | 全文。pending/baton/mergeの別commit、auto source実入力時capture、merge後accepted→backfill→文脈生成→adapter出力。resume-context内部と全caller/test未了 |
+| src/handoff-executor.mjs | source | body_read | 全文。pending/baton/merge独立commit、auto source実入力時capture、merge後accepted→backfill→context→adapter出力。context本体も確認、全caller/test未了 |
 | src/handoff-preview.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/handoff-record.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/handoff-record.mjs | source | body_read | 全文。DB読取のみのrecord v1、L2直近20turn/古L1/Thinking/L3参照、query例外→空/nullの既互換。全caller/test未了 |
 | src/handoff-record.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/hook-entrypoints.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/hook-failure-log.mjs | source | body_read | 全文。private詳細/stack/SQLite code/identity/stderr上限、固定aggregateから分離。全caller/test未了 |
@@ -355,11 +355,11 @@
 | src/hosts/index.mjs | source | body_read | 全文。BOM/JSON/envelope選別、adapterと再export。外部hook設定の対応未了 |
 | src/l1-backend-recovery.mjs | source | body_read | 全文。24h失敗窓、atomic状態と復帰削除。Codex hookの呼出条件を本文確認。全test/config/export閉包未了 |
 | src/l3-summary.mjs | source | body_read | 全文。kind別表示集計。全caller/test未了 |
-| src/observer-codex-projection.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/observer-turn-feed.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/observer-turn-feed.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/observer-turn-wait.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/observer-turn-wait.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/observer-codex-projection.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
+| src/observer-turn-feed.mjs | source | body_read | 全文。receipt/Codex完了chain、opaque cursor prefix/固定through/page token、全pair projection_pending、v1 lane/v2全文実harness/turn_start。core/wire/Codex projection test本文確認・未実行 |
+| src/observer-turn-feed.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
+| src/observer-turn-wait.mjs | source | body_read | 全文。1..3600秒/monotonic最終poll/AbortSignal/固定wire/timerとlistener除去、DB本文待ちと区別。test本文確認・未実行 |
+| src/observer-turn-wait.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/os/app-dirs.mjs | source | body_read | 全文。OSのconfig/state path基底。全caller/test未了 |
 | src/os/claude-terminal.mjs | source | body_read | 全文。PTY/session/env/capability/ended、同一remote登録、WMI env stdin/bootstrap自己削除、起動不明を確定失敗にしない。test本文確認・未実行 |
 | src/os/claude-terminal.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
@@ -390,10 +390,10 @@
 | src/project-path.mjs | source | body_read | 全文。realpath/字句fallback/Windows大小文字。全caller/test未了 |
 | src/prompt-submit.mjs | source | body_read | 全文。EOF/host/初回引継ぎ/forwarded入力/command/baton/spike。auto/forward/Grok起動先は本文確認、context/spike内部と全test/caller未了 |
 | src/prompt-submit.test.mjs | test | body_read | 本文全体を確認。fixture/期待値のsource読取のみ、未実行。全caller/設定/exportの網羅照合は未了 |
-| src/resume-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/resume-context.mjs | source | body_read | 全文。record→無制限/9500字push/現在地・案内・L2turn原子、recentの予算/重複除外、途中turnと背景/未実行道具のアンカー。全caller/test/export未了 |
 | src/resume-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/room-context.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/room-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/room-context.mjs | source | body_read | 全文。既定DB評価後に入力検証、project/room/message同一性、conflict rollback、指定rowまで3発言COMMIT。test本文確認・未実行 |
+| src/room-context.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/runtime-error-context.mjs | source | body_read | 全文。固定enum/private sidecar binding/最新発生だけの公開message。store/report側未読 |
 | src/runtime-error-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/runtime-error-hook.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -403,7 +403,7 @@
 | src/runtime-error-report.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/runtime-error-store.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/runtime-error-store.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/sc-detail.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/sc-detail.mjs | source | body_read | 全文。日付/時刻range/最終該当日/project検索→L2/L3一括表示、getDb経由。Thinking専用表示枝とREADME/test整合は照合未了 |
 | src/sc-detail.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/session-merger.mjs | source | body_read | 全文。循環/最大10hop解決、同project/時系列検証、3層付替えtransaction。関連test本文確認・未実行 |
 | src/session-merger.test.mjs | test | body_read | 本文全体を確認。fixture/期待値のsource読取のみ、未実行。全caller/設定/exportの網羅照合は未了 |

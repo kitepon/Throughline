@@ -50,7 +50,7 @@ flowchart TD
   Merge --> Rows[L1/L2/L3付替えとmerged_into: 同一transaction]
   Rows --> Accept[auto継続ならaccepted sidecar: 詳細は自動継続図]
   Accept --> Fill[backfillBodies: 別transaction / 失敗log後継続]
-  Fill --> Context[resume又はauto continuation文脈生成: 依存内部は未読]
+  Fill --> Context[resume又はauto continuation文脈生成: 文脈復元詳細へ]
   Context --> Deliver[hostAdapter.deliverHandoffInjection]
   Deliver --> Visible[stdout / Cursor JSON / Grok履歴書換へ返す]
   Visible -.-> UI[hostが利用・画面表示: この返却だけでは未確認]
@@ -58,13 +58,13 @@ flowchart TD
   Rows -->|後続が失敗| Partial
 ```
 
-この図は全体を一つのtransactionとして描かない。pending消費・baton消費・memory merge・backfillは独立しており、注入失敗時に先行確定を一括rollbackするコードではない。auto source照合/途中turn捕捉とaccepted sidecarは[自動継続の詳細](current-continuation.md)へ結ぶ。acceptedはbackfill/文脈生成/adapter出力より前であり、注入完了と同義ではない。文脈生成の内部は未調査、点線のhost表示も未検証。
+この図は全体を一つのtransactionとして描かない。pending消費・baton消費・memory merge・backfillは独立しており、注入失敗時に先行確定を一括rollbackするコードではない。auto source照合/途中turn捕捉とaccepted sidecarは[自動継続の詳細](current-continuation.md)へ結ぶ。acceptedはbackfill/文脈生成/adapter出力より前であり、注入完了と同義ではない。文脈生成は[復元詳細](current-projections.md)、点線のhost表示は未検証。
 
 | file/関数 | 所有/入力/副作用と返却 | 保持する条件・未確認 |
 | --- | --- | --- |
 | [pending-handoff](../../src/pending-handoff.mjs):registerPendingHandoff/consumePendingHandoff | intentを登録。consumeはBEGIN IMMEDIATE下でselect/delete/commitし、無ければnull。失敗rollback後throw | 幽霊sessionのintentをSessionStartだけでmergeへ進めない。消費後の後続失敗と再試行は別問題 |
 | [baton](../../src/baton.mjs):writeBaton/consumeBaton/discardBatonOf | project単位upsert、bornAt基準TTL。未来batonを残し、期限超/有効なbatonをconsume時に削除 | 状態所有は製品DB。TTL・大小文字照合・未来保持を維持。後続の配送成功を保証しない |
-| [handoff-executor](../../src/handoff-executor.mjs):executeFirstPromptHandoff | pendingを消費し、auto source→baton→凍結前任の選択とmerge/backfill/context生成を調停 | auto source照合は自動継続詳細へ接続。resume/context内部と全caller testは未完。backfill失敗を記録し継続する既存動作を勝手に変更しない |
+| [handoff-executor](../../src/handoff-executor.mjs):executeFirstPromptHandoff | pendingを消費し、auto source→baton→凍結前任の選択とmerge/backfill/context生成を調停 | auto source/文脈復元の詳細へ接続。全caller testは未完。backfill失敗を記録し継続する既存動作を勝手に変更しない |
 | [session-merger](../../src/session-merger.mjs):resolveMergeTarget/mergeSpecificPredecessor | cycle/depth、同project/時系列等を検証。3層rowを新sessionへ移し旧session.merged_into更新 | originは保持。L2 table不在の旧schema互換例外以外はrollback/throw。新側/既merge/自己mergeのno-opを保持 |
 | [prompt-submit](../../src/prompt-submit.mjs):run/commandTextFromPrompt/isBatonCommand/isClearCommand/maybeRunPromptSpike | payload解析、引継ぎ/forwarded human入力、slash判定、batonとhost後処理。実験spikeのmarker/log/state/注入も同居 | 通常入口と実験機能の混在は整理候補の観測。採否はAstra設計で決める。自動継続/Grok起動先は自動継続詳細へ接続 |
 | [host index](../../src/hosts/index.mjs):parseHookPayload/hostAdapterForSessionId | Grok/Cursor envelopeを正規化、4host adapterへ委譲。identityがprefix正本 | Codex専用hookは下節の別経路。Grok/Cursorのstate表現とClaude識別を同一視しない |
@@ -92,11 +92,11 @@ flowchart TD
   Receipt -->|失敗| Fail
   L1 -->|失敗| Fail
   L3 -->|失敗| Fail
-  Private -.-> Observer[observer projection / 本文freshnessの照合: 内部未読]
+  Private --> Observer[observer projection / 本文freshnessの照合: 投影詳細へ]
   Observer -.-> Consumer[consumer保存や画面反映: 別所有]
 ```
 
-本文保存、完了receipt、L1、L3、最終stateは同時確定しない。L1/L3で失敗してもL2と公開済みreceiptを取り消す処理ではない。receiptは完了pairのidentity/hashであり、全機能完了・consumer消費・本文freshness・画面反映を代弁しない。Grok/Cursor/Codex全経路が同じreceiptを公開するとは扱わない。publish関数内のhost判定と、下節のreceiptを呼ばないCodex専用captureを区別する。
+本文保存、完了receipt、L1、L3、最終stateは同時確定しない。L1/L3で失敗してもL2と公開済みreceiptを取り消す処理ではない。receiptは完了pairのidentity/hashであり、全機能完了・consumer消費・本文freshness・画面反映を代弁しない。共通Stopのreceipt laneにはGrok/Cursorも含まれ、observer v2で実harnessへ投影する。下節のCodex専用captureとは異なり、Codex完了chainはrolloutのtask_completeを根拠にする。[投影詳細](current-projections.md)へ接続する。
 
 | file/関数 | 所有/入力/副作用と返却 | 保持する条件・未確認 |
 | --- | --- | --- |
@@ -166,6 +166,6 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 ## 次に読む順
 
 1. 記録/引継ぎ/DB/host/Codex captureと自動継続/OSの本文確認は本図と自動継続図へ。関連試験/fixtureと全caller/設定/exportの閉包は未了。
-2. resume/context/projection/observer、手動handoff/trimとapp-serverの未読を埋める。
+2. resume/context/projection/observerの本文は投影詳細へ接続。手動handoff/trimとapp-serverの未読を埋める。
 3. 導入/診断/更新/報告とmonitorの未読を埋める。
 4. 各機能の全caller/試験/fixture/config/exportを索引へ戻し、Astra適用後に責務整理を設計する。
