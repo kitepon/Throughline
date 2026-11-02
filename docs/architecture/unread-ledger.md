@@ -13,9 +13,9 @@
 
 | 本文確認状態 | 件数 |
 | --- | ---: |
-| body_read | 126 |
+| body_read | 150 |
 | reference_same_blob | 1 |
-| unread | 290 |
+| unread | 266 |
 
 | path | 機械役割 | 本文確認状態 | 確認範囲/残確認 |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@
 | docs/01_l1_l2_l3_redesign.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/02_clear_auto_handoff_plan.md | documentation | body_read | 全文。host別/二相/注入契約。step4 backfill→merge説明と実executor merge→accepted→backfillの相違を照合事項として記録。訂正は未実施 |
 | docs/04_public_release_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/05_codex_first_roadmap.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/05_codex_first_roadmap.md | documentation | body_read | 全文。現行auto新thread/手動/trim/無効refreshと過去Phase/実測を分離。新図のsource順を旧記録へ合わせない。実測再走無し |
 | docs/06_codex_trim_rollback_fix_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/08_codex_dual_support.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/09_rollback_context_trim_insight.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -235,26 +235,26 @@
 | src/cli/auto-handoff.mjs | source | body_read | 全文。host別action/引数/公開field、enable信用後config、read-only status/detail close、resume/worker/exit。install側と全test未了 |
 | src/cli/caveat-context.mjs | source | body_read | 全文。strict args/任意host pair/固定JSON errorとready。root側test本文確認・未実行 |
 | src/cli/codex-capture.mjs | source | body_read | 全文。引数/identity/候補capture、JSON/textとexit契約。全caller/test未了 |
-| src/cli/codex-handoff-model-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-handoff-model-smoke.mjs | source | body_read | 全文。env gate→DB/構造ready→dry-run又はモデルsmoke。memo/command/proofScope。実行無し/関連test未読 |
 | src/cli/codex-handoff-model-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-handoff-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-handoff-smoke.mjs | source | body_read | 全文。argv/memo/session/DBと構造検査、JSON/text/exit。getDb初期化作用、関連test未読 |
 | src/cli/codex-handoff-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-handoff-start.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-handoff-start.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-handoff-start.mjs | source | body_read | 全文。DB記憶/structural smoke後だけ新thread developer注入、turn開始無し、host選択/表示と部分失敗。関連test本文確認・未実行 |
+| src/cli/codex-handoff-start.test.mjs | test | body_read | 全文。host優先/案内/memoとfake app-server新thread/developer注入/turn非開始。一時DB fixture内包。未実行 |
 | src/cli/codex-hook.mjs | source | body_read | 全文。EOF/event/capture/monitor/Stop要約、refresh無効、pre-compact停止/継続、backend24h失敗/復帰分類。auto本体も本文確認、全test/設定未了 |
 | src/cli/codex-hook.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-host-primitive-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-host-primitive-audit.mjs | source | body_read | 全文。schema-dir/生成保持/commandのargvとJSON/text/exit。実CLI未起動、関連test未読 |
 | src/cli/codex-host-primitive-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-restore-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-restore-source-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-restore-smoke.mjs | source | body_read | 全文。env/ID/rollout/risk guard、bounded fresh app-server検査、quoted/blocking区別とexit。実CLI未起動 |
+| src/cli/codex-restore-source-audit.mjs | source | body_read | 全文。明示root/各上限とidentityを監査helperへ渡すCLI。実store/Host操作無し |
 | src/cli/codex-resume.mjs | source | body_read | 全文。getDb→record→text/handoff/item-json、memo stdin、旧制限引数保持、同project最新。下流manual起動/trimと全test未了 |
-| src/cli/codex-rollback-model-visible-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-rollback-model-visible-smoke.mjs | source | body_read | 全文。env/identity後prepare又はverify、0600 marker原本/伏字、実モデルとrollbackの境界。旧追跡再開/実行無し |
 | src/cli/codex-rollback-model-visible-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-summarize.mjs | source | body_read | 全文。20turn窓、最古origin+turnのCodex-primary L1、hook max1/単独CLI max、JSON/exit。全caller/test未了 |
 | src/cli/codex-threads.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-visibility-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-vscode-restore-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/codex-vscode-rollback-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-visibility-smoke.mjs | source | body_read | 全文。env guard/DB記憶→native inject/marker turn。SQL lower project選択と他helper差は未整理。実行無し |
+| src/cli/codex-vscode-restore-smoke.mjs | source | body_read | 全文。env必須prepare注入とread-only verify/手動restart申告の別境界。実Host操作無し |
+| src/cli/codex-vscode-rollback-smoke.mjs | source | body_read | 全文。引数/identity/read-only verifierとexit/診断。実restart操作無し。関連test未読 |
 | src/cli/doctor.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/doctor.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/factory-diagnostics.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -283,28 +283,28 @@
 | src/cli/self-update.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/self-update.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/status.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/cli/trim.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-app-server.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-app-server.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/trim.mjs | source | body_read | 全文。mode/identity/DB記憶の作用前guard、preflight/execute、有限durable rollout観測と分類。大きなCLI test/全consumer閉包未了 |
+| src/codex-app-server.mjs | source | body_read | 全文。protocol builder/parser、stdio clientと期限/close、新thread/developer注入/trim/restore/model診断。非atomicな作用/unknownと取消API無し。関連test本文確認・未実行 |
+| src/codex-app-server.test.mjs | test | body_read | 全文。builder/分類/rollback差分補正、fake processで可視/controlled marker等。本文読取のみ・未実行、全caller閉包未了 |
 | src/codex-auto-handoff-config.mjs | source | body_read | 全文。専用schema/private file、desktop限定、既定disabled、project照合、temp→rename。全caller/test未了 |
 | src/codex-auto-handoff-memory.mjs | source | body_read | 全文。origin/turn/role集約、直近20L2/旧L1/source hash cache、L3凍結取得、前史/制御文保持。全test/caller未了 |
 | src/codex-auto-handoff-store.mjs | source | body_read | 全文。一意要求/mutable whitelist/CAS/worker claimとrelease/不変snapshot/lineage/frozen元projectと後続入力境界。全test/caller未了 |
 | src/codex-auto-handoff.mjs | source | body_read | 全文。停止準備gateと実停止境界、claim/CAS/不変snapshot、create/inject/submitの作用前stage、相関進捗、goal/queueの部分成功、unknown観測再開。全本体test未読 |
 | src/codex-auto-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-auto-refresh.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-auto-refresh.mjs | source | body_read | 全文。disabled既定/verified usage、実行前fingerprint/quiet/単純file store。hook非接続をsource参照検索。関連test未読 |
 | src/codex-auto-refresh.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-capture.mjs | source | body_read | 全文。rollout再生→L2全置換/L3共通prefix同期、変化したturnのL1削除を同transaction。旧identity再export保持。全test/caller未了 |
 | src/codex-capture.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-handoff-model-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-handoff-model-smoke.mjs | source | body_read | 全文。prompt+markerと同期ephemeral Codex exec、timeout/nonzero/marker分類。gateはCLI側。実モデル未起動 |
 | src/codex-handoff-model-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-handoff-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-handoff-smoke.mjs | source | body_read | 全文。pure構造/文字数検査、detail suffixと任意prompt。モデル可視性とは別。関連test未読 |
 | src/codex-handoff-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-handoff.mjs | source | body_read | 全文。record→manual context/developer item/versioned block、表示制限互換。record生成/CLIも本文確認、下流manual/trimと全test未読 |
 | src/codex-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-host-primitive-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-host-primitive-audit.mjs | source | body_read | 全文。既schema読取又は生成CLI、primitive候補/証明範囲/diagnostic-only、finally temp cleanup。実行無し |
 | src/codex-host-primitive-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-restore-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-restore-source-audit.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-restore-source-audit.mjs | source | body_read | 全文。既private-store監査入口のbounded file/SQLite/extension/settings/log scan、close/仮説/打切り。実storeは開いていない |
 | src/codex-restore-source-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-resume.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-rollout-memory.mjs | source | body_read | 全文。task/rollback/合成群/in-flight/進捗、tool L3、restore risk診断、内部goal入力圧縮。captureとtrimの返却差、全caller/test未了 |
@@ -316,9 +316,9 @@
 | src/codex-usage.mjs | source | body_read | 全文。host token_count/live出力、active rollout文字数推定fallback。monitor/auto全caller/test未了 |
 | src/codex-usage.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-visibility-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-vscode-restore-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-vscode-restore-smoke.mjs | source | body_read | 全文。project/時刻束縛rollout、marker-free promptとmarker-only回答/leak/手動restart申告。関連test未読 |
 | src/codex-vscode-restore-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/codex-vscode-rollback-smoke.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-vscode-rollback-smoke.mjs | source | body_read | 全文。read-only rolloutのrollback/後続user/restore/手動restart申告、risk/pending。関連test未読 |
 | src/codex-vscode-rollback-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/completed-turn-receipts-test-fixture.mjs | source | body_read | 全文。fixture用schema valid store生成。製品runtimeではない。未実行 |
 | src/completed-turn-receipts.mjs | source | body_read | 全文。project毎256receipt、pair冪等、lock/atomic置換/ACL/validate/read-only snapshot。observer側未読 |
@@ -426,8 +426,8 @@
 | src/transcript-usage.mjs | source | body_read | 全文。size/mtime cache、usage/context window判定、sticky1m。全caller/test未了 |
 | src/transcript-usage.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/trim-cli.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/trim-model.mjs | source | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/trim-model.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/trim-model.mjs | source | body_read | 全文。DB/rolloutのplanとmemory優先、Codex identity、manual Claude、推定/restore診断、表示だけ短縮。関連test本文確認・未実行 |
+| src/trim-model.test.mjs | test | body_read | 全文。in-memory DB/rollout fixture、identity/DB記憶優先/手動境界/表示短縮/restore推定。未実行 |
 | src/turn-backfill.mjs | source | body_read | 全文。通常append/Grok世代検知、L2 transaction、in-flight L2/L3 transaction。関連test未読 |
 | src/turn-backfill.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/turn-processor.mjs | source | body_read | 全文。flush待ち/skip、L2 commit→receipt→L1→L3→state、部分成功/FailureContext。関連test本文確認・未実行 |
