@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4初回3OS CIはWindowsの競合試験1件で失敗。stderr観測だけを足したWindows CIは成功したが、初回原因は未確定。詳細と確定したfixture不備は末尾S4へ記した。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
+状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4初回CIの失敗後、確定したfixture不備を修正し、候補2cbe108の3OS全件とgateが成功した。初回exact原因の未確認を含む結果は末尾S4へ記した。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -215,3 +215,14 @@ Astra xhigh適用後の観測候補 `6638fd24f5b1cba1f3917019cd8a418500842be0` �
 Sol High適用後、再現したfixture不備を既待機constantの共有で修正した。修正した実sourceとtimeout0の陰性条件を比較し、必要な検証・固定候補のCI再判定を行う。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。専任・新batch未着手・公開/本番保留を維持する。
 
 原本は製品担当の `work/throughline-refactor-evidence-20261103/ci-pass-01` と `ci-diagnosis-01`。run/jobs・各log・完全SHA・skip対応・観測patch・人工失敗と対照条件の結果を全体受入/保守移管まで保持する。Host/runner設定と実席操作は行わず、Fox利用の既事前連絡/3分待機条件を適用した。
+
+
+### S4修正候補の全体検証結果
+
+Sol High適用後、holderへ既待機constantを渡した候補 `2cbe1085c924f657f68d2929bd681d1b6319e6ba` を固定。陰性timeout0は400ms read競合で失敗し、修正候補をそのまま使う条件は成功、receipt全18件も通過した。runtime/bin/package/CI/command/skillはS5固定fa58267から不変で、実行物差分は当該testだけ。
+
+[run41545098499/attempt1](https://github.com/kitepon/Throughline/actions/runs/41545098499)は同base39ff812/environment allで実行。classifyの3OS/testScope all、各OSのcheckout完全SHAを原logへ束縛した。macOS job125618760895とLinux job125618760685は各1148件/pass1145/skip3/fail0、Windows job125618760653は1148件/pass1138/skip10/fail0、gate125620273325もsuccess。修正した競合試験は全OSでpass。Windows専用cmd shim/PATH npm/実ConPTYの3件も全passで、skip対応と各OSのskip理由は原log/resultへ固定した。
+
+この結果で固定修正候補の必要な3OS実行と既gateは成立した。元runの未保存stderrは回復できず、初回exit1が人工競合と同一原因だったとは断定しない。再現したfixture不備の修正・前後対照と初回exact原因の証拠不足を分け、全体固定成果の既指導担当へ返却する。全体受入と専任終了は返却後の既受渡し条件に従う。全semanticMappingComplete=false、既知制限/未確認、公開/本番未反映を維持する。ここまでの図は全19block不変、再描画/目視反復無し。
+
+原本は `ci-repair-01` のrun/jobs/classify/各OS/gate log、修正patch、controlled-results、windows-linux-skips、resultとSHA manifest。全体受入/通常保守移管まで保持する。本項追記だけの後続commitは試験済み候補からruntime/test不変として束縛し、成功群を再走しない。

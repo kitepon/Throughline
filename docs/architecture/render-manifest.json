@@ -3,7 +3,7 @@
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
   "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
-  "scope": "19 current figures unchanged; S5 reviewed; S4 initial Windows failure and observation success recorded; fixture correction and whole acceptance incomplete",
+  "scope": "19 current figures unchanged; S5 reviewed; corrected fixture candidate2cbe108 passed full3OS/gate; initial exact stderr unavailable; whole artifact acceptance pending",
   "rows": [
     {
       "source": "docs/architecture/README.md",
@@ -19,7 +19,7 @@
       "pngBytes": 422966,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "0a999d26866960ae95975fb2923313e971aeb881c753ba8bd491324bfce3f802",
+      "sourceDocumentSha256": "64be844e603ba8784787a62b0c18fc8add5b0f77abf31a7cba4ed65fb8be2323",
       "pngEvidence": "png/readme-01.png"
     },
     {
