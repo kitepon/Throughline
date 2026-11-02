@@ -48,7 +48,8 @@ flowchart TD
   Baton --> Resolve[resolveMergeTarget: cycle / depth制限]
   Resolve --> Merge[mergeSpecificPredecessor: project / 時系列を検証]
   Merge --> Rows[L1/L2/L3付替えとmerged_into: 同一transaction]
-  Rows --> Fill[backfillBodies: 別transaction / 失敗log後継続]
+  Rows --> Accept[auto継続ならaccepted sidecar: 詳細は自動継続図]
+  Accept --> Fill[backfillBodies: 別transaction / 失敗log後継続]
   Fill --> Context[resume又はauto continuation文脈生成: 依存内部は未読]
   Context --> Deliver[hostAdapter.deliverHandoffInjection]
   Deliver --> Visible[stdout / Cursor JSON / Grok履歴書換へ返す]
@@ -57,15 +58,15 @@ flowchart TD
   Rows -->|後続が失敗| Partial
 ```
 
-この図は全体を一つのtransactionとして描かない。pending消費・baton消費・memory merge・backfillは独立しており、注入失敗時に先行確定を一括rollbackするコードではない。auto sourceと文脈生成の内部は未調査で、点線のhost表示も検証していない。
+この図は全体を一つのtransactionとして描かない。pending消費・baton消費・memory merge・backfillは独立しており、注入失敗時に先行確定を一括rollbackするコードではない。auto source照合/途中turn捕捉とaccepted sidecarは[自動継続の詳細](current-continuation.md)へ結ぶ。acceptedはbackfill/文脈生成/adapter出力より前であり、注入完了と同義ではない。文脈生成の内部は未調査、点線のhost表示も未検証。
 
 | file/関数 | 所有/入力/副作用と返却 | 保持する条件・未確認 |
 | --- | --- | --- |
 | [pending-handoff](../../src/pending-handoff.mjs):registerPendingHandoff/consumePendingHandoff | intentを登録。consumeはBEGIN IMMEDIATE下でselect/delete/commitし、無ければnull。失敗rollback後throw | 幽霊sessionのintentをSessionStartだけでmergeへ進めない。消費後の後続失敗と再試行は別問題 |
 | [baton](../../src/baton.mjs):writeBaton/consumeBaton/discardBatonOf | project単位upsert、bornAt基準TTL。未来batonを残し、期限超/有効なbatonをconsume時に削除 | 状態所有は製品DB。TTL・大小文字照合・未来保持を維持。後続の配送成功を保証しない |
-| [handoff-executor](../../src/handoff-executor.mjs):executeFirstPromptHandoff | pendingを消費し、auto source→baton→凍結前任の選択とmerge/backfill/context生成を調停 | auto source/continuation/resume内部と全caller testは未完。backfill失敗を記録し継続する既存動作を勝手に変更しない |
+| [handoff-executor](../../src/handoff-executor.mjs):executeFirstPromptHandoff | pendingを消費し、auto source→baton→凍結前任の選択とmerge/backfill/context生成を調停 | auto source照合は自動継続詳細へ接続。resume/context内部と全caller testは未完。backfill失敗を記録し継続する既存動作を勝手に変更しない |
 | [session-merger](../../src/session-merger.mjs):resolveMergeTarget/mergeSpecificPredecessor | cycle/depth、同project/時系列等を検証。3層rowを新sessionへ移し旧session.merged_into更新 | originは保持。L2 table不在の旧schema互換例外以外はrollback/throw。新側/既merge/自己mergeのno-opを保持 |
-| [prompt-submit](../../src/prompt-submit.mjs):run/commandTextFromPrompt/isBatonCommand/isClearCommand/maybeRunPromptSpike | payload解析、引継ぎ/forwarded human入力、slash判定、batonとhost後処理。実験spikeのmarker/log/state/注入も同居 | 通常入口と実験機能の混在は整理候補の観測。採否はAstra設計で決める。自動継続/起動先は未読 |
+| [prompt-submit](../../src/prompt-submit.mjs):run/commandTextFromPrompt/isBatonCommand/isClearCommand/maybeRunPromptSpike | payload解析、引継ぎ/forwarded human入力、slash判定、batonとhost後処理。実験spikeのmarker/log/state/注入も同居 | 通常入口と実験機能の混在は整理候補の観測。採否はAstra設計で決める。自動継続/Grok起動先は自動継続詳細へ接続 |
 | [host index](../../src/hosts/index.mjs):parseHookPayload/hostAdapterForSessionId | Grok/Cursor envelopeを正規化、4host adapterへ委譲。identityがprefix正本 | Codex専用hookは下節の別経路。Grok/Cursorのstate表現とClaude識別を同一視しない |
 | [Grok注入](../../src/grok-history-inject.mjs):injectGrokHandoffContext | marker既存なら抑止。system_reminder行を最新user_query前へ挿入し履歴を書換 | stdout注入と異なる副作用。全file書換/書込失敗/consumer可視の境界を保持。実harness未確認 |
 
@@ -110,7 +111,7 @@ flowchart TD
 
 ## 取消・停止・不明と既存の共通責務
 
-ここまで読んだ同期DB/receipt関数にはAbortSignal等の公開取消引数がないため、その関数単体の取消APIは不適用。stdin EOF待ち・外部process killの中断、同期DB待ち、backend timeout、rename前後の結果不明を区別する。外部process中断時は既commitを全て戻す保証がなく、catch/finally到達も保証しない。後継processの停止/取消/配送unknownはClaude/Codex自動継続本体とOS起動を読んで別途結ぶ。
+ここまで読んだ同期DB/receipt関数にはAbortSignal等の公開取消引数がないため、その関数単体の取消APIは不適用。stdin EOF待ち・外部process killの中断、同期DB待ち、backend timeout、rename前後の結果不明を区別する。外部process中断時は既commitを全て戻す保証がなく、catch/finally到達も保証しない。後継processの停止/取消/配送unknownは[Claude/Codex自動継続とOS起動](current-continuation.md)へ接続し、外部配送内部/全consumer閉包は未完とする。
 
 Windows ACLとOS別pathは、[os/windows-acl](../../src/os/windows-acl.mjs)と[os/app-dirs](../../src/os/app-dirs.mjs)に既に集約済み。この整理を再実装しない。ACLは15秒guard、private fileは別名でACL検証後hardlink公開、finallyでtempを除去する。[portable-spawn](../../src/os/portable-spawn-sync.mjs)もshell=false/Windows shim解決の既存正本を使う。OSへ実行はしていない。
 
@@ -144,19 +145,19 @@ flowchart TD
   L1 --> Result[JSON又は無出力 / exit]
   State --> Result
   L1 -->|backend失敗| Error[private log / 24h復帰未確認だけaggregate / exit1]
-  CLI -->|pre-compact| Auto[自動継続request: 内部未読 / continue true又はfalseをhostへ]
+  CLI -->|pre-compact| Auto[自動継続request: 詳細は自動継続図 / continue true又はfalse]
 ```
 
 Codex captureはClaude系appendとは異なり、現在のrolloutを正本としてL2全置換、L3は共通prefixを保持する。一つのDB transaction内で古くなったL1だけを除き、capture済みの後で要約が失敗しても取り込みは残る。`captured`は進行中turnも含み得る保存結果であり、完了turn receipt・後継の配送・画面反映を意味しない。通常prompt/tool hookのcurrent-thread refreshは無効のまま。
 
 | file/関数 | 実sourceで確認した責任/状態/返却 | 残確認 |
 | --- | --- | --- |
-| [cli/codex-hook](../../src/cli/codex-hook.mjs):run/captureCodexHookSession/runCodexStopHook/runCodexUserPromptSubmitHook/runCodexPostToolUseHook/codexHookFailureCode | stdin EOFと引数を解析。sidecar guard、identity、capture、monitor、StopだけL1。pre-compactのcontinue=falseは停止返答でexit0、背景完了とは別 | 自動継続request本体/設置設定/全hook test未読。no-op互換のautoRefresh引数と_internal exportを勝手に消さない |
+| [cli/codex-hook](../../src/cli/codex-hook.mjs):run/captureCodexHookSession/runCodexStopHook/runCodexUserPromptSubmitHook/runCodexPostToolUseHook/codexHookFailureCode | stdin EOFと引数を解析。sidecar guard、identity、capture、monitor、StopだけL1。pre-compactのcontinue=falseは停止返答でexit0、背景完了とは別 | request本体は自動継続詳細へ接続。設置設定/全hook test未読。no-op互換のautoRefresh引数と_internal exportを勝手に消さない |
 | [codex-capture](../../src/codex-capture.mjs):captureCodexRolloutToDb/buildBodyRowsFromActiveTurns/buildDetailRowsFromActiveTurns/syncDetailRows | thread/project候補、移動contextの確認、DB transaction、detail source_id冪等/時刻保持。identityの旧import面を再export | 全caller/rollback fixture/export保持試験未読。session.project_pathの既存candidate.cwd選択も設計変更を混ぜず保持 |
 | [rollout-memory](../../src/codex-rollout-memory.mjs):parseCodexRolloutFile/buildCodexRolloutTrimSource/inspectCodexPlannedRollbackRestoreSafety/compactCodexInternalContext | corrupt行を数えて継続、task/rollback/synthetic group、tool詳細、注入developer文脈の識別、内部goal定型文の圧縮。restore riskは診断として返す | active turnとcompletedAt、includeInFlightTurnの差を維持。restore safety=okを実reload安全証明へ補完しない。trim/restore全callerとfixture未了 |
 | [thread-index](../../src/codex-thread-index.mjs):listCodexThreadCandidates/findCodexThreadCandidate/readSessionIndex | rollout再帰探索、先頭metadata最大64KiB、mtime順・project同一又は子孫候補。壊れたindex行は無視、file fdはfinally close | 他機能のpath比較正本との差は観測。統合helperへの採否は全caller/fixture確認後Astra設計へ |
 | [thread-identity](../../src/codex-thread-identity.mjs):resolveCodexThreadIdentity | 明示引数→THROUGHLINE_CODEX_THREAD_ID→CODEX_THREAD_ID。hookはpayload識別子をenvより優先する | 順序を維持。設定/ホスト側callerは未読 |
-| [handoff-state](../../src/hosts/codex-handoff-state.mjs):readCodexHandoffState/normalizeThreadSettings/settingsMatch/resolvePreparedSettings/threadStartSettings/toAppServerSandbox | 改行で確定したrowだけ読む。未確定末尾は除外、途中不正JSONはthrow。元/後続turn、停止/完了/進捗/入力種別、pending tool/native job、継承記憶と設定を観測 | 通常rollout parserと目的/不正行契約が異なるため、重複だからと統合しない。配送unknown/再送判断の所有は自動継続本体を読むまで未了 |
+| [handoff-state](../../src/hosts/codex-handoff-state.mjs):readCodexHandoffState/normalizeThreadSettings/settingsMatch/resolvePreparedSettings/threadStartSettings/toAppServerSandbox | 改行で確定したrowだけ読む。未確定末尾は除外、途中不正JSONはthrow。元/後続turn、停止/完了/進捗/入力種別、pending tool/native job、継承記憶と設定を観測 | 通常rollout parserと目的/不正行契約が異なるため、重複だからと統合しない。unknown/再送判断は自動継続詳細へ接続し、全caller/testは未完 |
 | [codex-summarize](../../src/cli/codex-summarize.mjs):summarizeCodexSession/run | 20turn窓、origin+turnで最古L2をCodex backendへ渡しL1挿入。単独CLIのmaxとhookのmax1を区別 | backend失敗のraw診断と固定aggregateの経路、全試験/caller未了 |
 | [codex-usage](../../src/codex-usage.mjs):readLatestCodexUsage/estimateCodexUsageFromRollout/buildCodexMonitorUsage | host token_countとlive outputを利用。無ければactive rollout文字数から見積り。usageは推定区別付きmonitor state | monitor/auto-handoff側の判断条件と全fixture未読。DB保存完了とhostのcontext圧縮を同一視しない |
 
@@ -164,7 +165,7 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 
 ## 次に読む順
 
-1. 今回の記録/引継ぎ/DB/host/Codex captureの本文確認は下節。関連試験/fixtureと全caller/設定/exportの閉包は未了。
-2. Claude/Codex自動継続・OS起動・停止/取消、resume/contextの未読を埋める。
-3. 全projection/observer、導入/診断/更新/報告とmonitorの未読を埋める。
+1. 記録/引継ぎ/DB/host/Codex captureと自動継続/OSの本文確認は本図と自動継続図へ。関連試験/fixtureと全caller/設定/exportの閉包は未了。
+2. resume/context/projection/observer、手動handoff/trimとapp-serverの未読を埋める。
+3. 導入/診断/更新/報告とmonitorの未読を埋める。
 4. 各機能の全caller/試験/fixture/config/exportを索引へ戻し、Astra適用後に責務整理を設計する。

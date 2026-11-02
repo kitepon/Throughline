@@ -1,0 +1,143 @@
+# 自動継続・旧会話入力・OS起動の現行source対応
+
+基準は `39ff812d46c0e84e8fc1418096c509551cf3928b`。Solで本文を読んだ現行経路の記録で、構造変更の設計案ではない。[機能索引](README.md)と[記録/初回handoff](current-entrypoints.md)へ接続する。未読台帳と全consumer閉包は未完。以下の新図は未描画・未目視、Astra整合未了。実CLI・OS・実DBの操作で確認した図ではない。
+
+## Claude: 停止許可・起動・受領・表示は別の状態
+
+```mermaid
+flowchart TD
+  Compact[PreCompact auto / payload] --> Check[config / host / subagent / Aiterm席 / projectを照合]
+  Check -->|対象外 / 確定した前回起動失敗| Continue[圧縮又は元の道具を通す]
+  Check --> Request[requestedを私有recordへ保存 / 圧縮をexit2で止める]
+  Request -->|道具なしでStop| Withdraw[requestedだけ削除 / 後継を作らない]
+  Request --> Tool[PreToolUse / claimを排他的作成]
+  Tool --> Stopped[stopped: 道具保留 / worker起動]
+  Stopped --> Snapshot[launching: transcriptから依頼・設定・途中作業snapshot]
+  Snapshot --> OS{OS}
+  OS -->|Unix| BG[claude --bg / 最初の指示にhandoff ID]
+  OS -->|Windows| PTY[製品所有の非表示端末 / 明示session ID]
+  BG --> Launched[launched / 同じ後継の受領を待つ]
+  PTY --> Launched
+  Launched --> First[後継の最初のUserPromptSubmit]
+  First --> Capture[handoff IDで前任照合 / 途中turn DB capture / merge]
+  Capture --> Accept[accepted sidecar / inbox作成]
+  Accept --> Context[backfill / 文脈生成 / adapter出力]
+  Accept --> Sent[workerが受領を観測 / sent]
+  Sent --> Deny[元の道具をdeny / continue false]
+  Launched -->|起動済みか受領したか不明| Unknown[unknown / 後継・入力を増やさない]
+  Unknown --> Deny
+  Stopped -->|後継も受領も無い失敗が確定| Failed[failed / 原本保持 / 自動再試行なし]
+  Failed --> Continue
+  Context -.-> Host[hostがモデルへ反映 / 業務完了 / 画面表示は別確認]
+  Sent --> Desktop[明示有効時だけ後継StopでDesktop移動を要求]
+  Desktop --> Idle[手すき又は終了mark安定を確認 / 起動・停止は別OS境界]
+```
+
+recordは製品所有の `claude-auto-handoff` 私有file。acceptedは後継hookが別fileへ書き、workerのrecord書換との衝突を避ける。claimは並行PreToolUseからworkerを一つだけ起こすための印。新しい取消APIはなく、requestedの取下げ、有限待ちの期限、外部終了を区別する。
+
+`sent`は後継の最初の入力を受領した意味。acceptedはmerge後、backfill/文脈生成/adapter出力より前に書かれるため、注入完了・業務完了・画面反映と同じ意味にしない。途中turnのDB確定はworkerの起動前ではなく、実際の後継の最初の入力で行う。起動失敗で元会話が続く時に途中本文を先に凍結しない。
+
+| source / 関数 | 責任・入力と作用 | 失敗/不明/cleanup・保持事項 |
+| --- | --- | --- |
+| [claude-pre-compact](../../src/claude-pre-compact.mjs):run / [claude-pre-tool-use](../../src/claude-pre-tool-use.mjs):run/reportFailure | stdin EOF、hook payload、最小file存在check→必要時だけ本体import。PreCompactはblockをexit2、PreToolUseはdeny又はcontinueをJSON返却 | subagent/対象外を通す。入口例外は固定runtime code＋私有log＋exit1。軽量入口の重複path/ID定数は観測で、統合採否は未定 |
+| [claude-auto-handoff](../../src/claude-auto-handoff.mjs):requestClaudeAutoHandoff/isAitermSeatConversation/stopClaudeTurnForHandoff | config/project/host/既存recordを照合、requested→stoppedとclaim、worker起動、受領又は失敗を最大210秒待つ | Aitermはlaunch印だけでなくvendor session ID一致で席を除外。確定失敗で元を通し、unknownで重複起動しない。設定変更だけで進行中の所有を消さない |
+| 同:runClaudeAutoHandoffWorker/findClaudeAutoContinuationSource/acceptClaudeAutoContinuation | stopped→launching→launched→sent/failed/unknown。model/effort/permission/projectを運び、後継の初回入力で前任を照合しDB capture/mergeへつなぐ | Windows terminal起動済み/終了/遅い受領を同じ端末で観測。Unix remote-controlなし再試行は起動無しを確かめた枝だけ。timeoutは再送許可ではない |
+| 同:completeClaudeTurnWithoutHandoff/readClaudeAutoHandoff/listClaudeAutoHandoffs/publicClaudeAutoHandoff/resolveClaudeAutoHandoffSuccessor | requestedだけ取下げ、私有record→公開fieldへ投影、現在の後継/chain/pendingを返す。途中本文/設定は公開statusへ出さない | 24h掃除でも後継が残るrecordを保持。循環/最大200段を止める。read系のうちcleanupを行う入口と純粋な照会を区別 |
+| 同:snapshotInFlight/readInFlightSteps/readRunningBackgroundTasks/captureStoppedTurn | 元依頼・最終本文・実行済み/止めた道具・未完background作業を私有snapshot化し、途中turnの取得参照を残す | 件数/文字数を制限し、捕捉失敗はlog＋turn=null。途中turnを完了扱いしない。source内の古い説明と実際の捕捉時機を混同しない |
+| 同:requestClaudeDesktopOpen/runClaudeDesktopOpen/readFinishedTurnMark | 明示env有効時だけ後継Stop→別process。idle又はwaitingで終了markが2回安定→stop→Desktop resume | 既定OFF、後続handoff中ならsuperseded。idle未確認なら止めず次Stopへ。openの終了値/告知と画面反映は別確認 |
+| [Claude config](../../src/claude-auto-handoff-config.mjs):readClaudeAutoHandoffConfig/writeClaudeAutoHandoffConfig/claudeAutoHandoffEnabledFor | 未存在はdisabled、schemaと絶対projectを検証、private temp→renameで書換 | Codex configとは別schema/file。両configの似た処理は観測のみで新helperへ統合していない。temp書込/rename失敗の後始末も保持調査対象 |
+
+## Claude: 旧会話入力の配送と結果不明
+
+```mermaid
+flowchart TD
+  Old[旧会話UserPromptSubmit] --> Kind[利用者 / peer / 通知 / slashを分類]
+  Kind --> Current[今の後継を解決]
+  Current --> Wake{利用者入力だけ / 停止を確認できるか}
+  Wake -->|不可 / 稼働中 / 対象外| Pending[pending fileへenqueue]
+  Wake -->|可 / wake claim取得| Hold[claimedとしてhold / 起こす命令]
+  Hold -->|同じ後継の起動を確認| Settle[held入力を削除]
+  Hold -->|確定失敗 / copy生成| Release[copy停止削除を試す / heldをpendingへ戻す]
+  Release --> Pending
+  Hold -->|timeout等不明| Keep[claimedを保持 / 再投入しない]
+  Pending --> Hook[後継prompt / tool / Stop待つhook]
+  Hook --> Claim[renameでclaim / 届いた順にformat]
+  Claim --> Emit[context stdout又はStop stderr / exit2]
+  Emit --> Done[出力callback後settle / private配送log]
+  Claim -->|中断・出力不明| Keep
+  Hook -->|さらに引継ぎ済み| Move[残pendingを今の後継へrename移送]
+  Hook -->|期限 / orphan / 新waiterに交代| End[受け取らず待機hook終了]
+  Done -.-> Model[モデルの読了・依頼採用・応答完了は別確認]
+```
+
+所有は製品のinbox。pending、claimed、長文full、waiter、wakingを別stateとして扱う。claimedは1分より前なら公開unknown件数に数えるが、pendingへ自動復帰しない。context経路は9000字に届く順のprefixだけ、Stopは長文1件60000字超で頭とfull参照へし、full保存失敗時は既存の切詰め動作を持つ。入力は7日、指されない空inboxは24hという既存保持期限を勝手に変えない。
+
+| source / 関数 | 状態/返却/副作用 | 停止/取消/部分失敗/不明 |
+| --- | --- | --- |
+| [claude-forward](../../src/claude-forward.mjs):claudeForwardKind/enqueueClaudeForward/holdClaudeForward/claimClaudeForwards/settleClaudeForwards/takeClaudeForwardsAsContext | pending→claimedのrename所有、明示settle/release、本文とpeer/通知の区別。出力後のdoneで削除 | 出力前後の強制終了でclaimedが残る。出力callbackはhost読了/モデル採用の証明ではない。全件transactionではなく1件毎にclaimする |
+| 同:acquireClaudeWakeClaim/registerClaudeForwardWaiter/currentClaudeForwardWaiter/claudeForwardWaiterAlive/moveClaudeForwards/removeStaleClaudeForwards/readClaudeForwardStatus | wake claim60秒、waiter交代、pending移送、TTL掃除/公開件数 | 交代/orphan/deadlineで待機終了。古いunknownの自動再送なし。移送失敗は個別に残す |
+| [claude-forward-wait](../../src/claude-forward-wait.mjs):waitForClaudeForwards/run | inboxがある対象だけ最大1日弱poll、claim→stderr書切り→settle→exit2。SDK/subagentは待たない | POSIX SIGTERMは143とlog、Windows強制終了でlogを保証しない。親process存在と新waiterを観測、AbortSignal引数は無い |
+| [claude-auto-handoff](../../src/claude-auto-handoff.mjs):redirectClaudeHandedOffPrompt/wakeStoppedClaudeSuccessor/readClaudeSessionStopped/claudeWakeTextAllowed | stopped/doneでpid/statusの無い同じsessionだけwake。利用者入力だけ、12000字/NUL制限、最近書込/desktop/既存handoffを除外 | wake不明は再投入しない。copy生成時のstop/rmは呼ぶが戻り値を完了保証にしない。元会話へはblock理由を返す |
+| [記憶側](../../src/claude-forward.mjs):unwrapClaudeForwardedDelivery/claudeForwardCarriesHumanInput / [transcript](../../src/transcript-reader.mjs):readTranscript | 受け渡した人/peer入力を記憶へ含め、通知だけを人の依頼へ補完しない | 記憶への保存、モデルの依頼採用、業務完了を別にする。mark/section本文のconsumer契約を保持 |
+
+## Codex: 製品DBと外部配送窓口
+
+```mermaid
+flowchart TD
+  Hook[PreCompact auto / Codex Desktop payload] --> Guard[config / native ID / project / source turn照合]
+  Guard --> Existing[既配送後継 / 進行中又は再開可能な要求を先に探す]
+  Existing --> Request[要求をDBへ一意登録 / requested]
+  Request --> Prepare[worker: 元turn進捗・native job・子作業照合 / capture / 要約準備]
+  Prepare --> Ready[sourceStopGate.ready]
+  Ready --> Auth[hook: active goal等確認 / authorizedをDB保存]
+  Auth --> StopReply[continue falseでhostへ停止要求]
+  StopReply --> Boundary[worker: 元turn実停止を観測 / source_stopped]
+  Boundary --> Freeze[不変snapshot凍結 / lineage照合 / memory_ready]
+  Freeze --> Stage[mutation_stage create又はinjectを先に保存]
+  Stage --> Target[公開receiver APIで後継作成・memory注入・設定照合・open]
+  Target --> TargetReady[target_ready / 元境界と後継未入力を再確認]
+  TargetReady --> Submit[mutation_stage submitをDB確定 / 公開配送API呼出]
+  Submit --> Receipt[queued_submission_id / submitted]
+  Receipt --> Progress[delivery textとturnを相関 / 後継のassistant進捗]
+  Progress --> Continued[continuedを保存]
+  Continued --> Extras[goal / queue移送 / 元の表示名更新]
+  Prepare -->|停止許可前の失敗| KeepSource[failed / continue true / 元を止めない]
+  Stage -->|作用の結果不明| Unknown[unknown / create・inject再送禁止]
+  Submit -->|明示拒否以外の不明| Unknown
+  Unknown -->|submitだけ相関turn観測時| Receipt
+  Extras -.-> Done[入力の業務完了と画面反映は別確認]
+```
+
+状態所有は製品DBのcodex_handoffs、snapshotとsummary cache。配送・ネイティブ操作は外部製品 `aiterm-steer-delivery` の公開 `withCodexReceiver`、`verifyCodexParent`、`submitCodexParentAnswer` を利用する。相手内部を編集・私有参照しない。元の停止許可前はmemory準備だけで、後継作成・画面操作・goal停止・配送を行わない。停止要求を返した事実だけで元turnの実停止を補完しない。
+
+| source / 関数 | 責任/保持状態/返却 | 失敗・不明・cleanup |
+| --- | --- | --- |
+| [codex-auto-handoff](../../src/codex-auto-handoff.mjs):requestCodexAutoHandoff/codexHandoffRequestFailureResult/waitForCodexHandoffPreparation/checkAutoHandoffSourceGoal | 対象照合、既要求/既後継優先、一意要求、準備readyとauthorized。例外時はread-only DBで既作用なしを確認できた時だけ元を通す | DB不在と読取不能/未知schemaを区別。内部auto-compactは圧縮だけ停止、未記録会話はskip。別要求を増やさない |
+| 同:runAutoHandoffWorker/sourceBoundary/waitForHandoff/createTarget/targetState | PID+開始identityでworker claim。要求→元実停止→snapshot→準備後継→配送受付→相関進捗。各native作用前にmutation_stageを保存 | unknown再開はsubmitの観測だけ。create/injectを再送しない。明示receiver拒否は未作用としてstage解除。finallyで自分のworker claimだけrelease |
+| 同:carryAutoHandoffQueue/pauseAutoHandoffSourceGoal/carryAutoHandoffGoal/settleAutoHandoffSourceGoal | 本引継ぎ後の独立作用。queue add前moving保存→成功moved保存→source delete。goal予算残量/active・pausedを維持 | movingが残ったらunknown化し再送せず元queueに残す。明示拒否はleft。失敗でcontinuedを取り消さない。page cap等既制限を確認対象へ残す |
+| 同:findLiveAutoHandoffSuccessor/resolveAutoHandoffSuccessor/autoHandoffTargetName/markAutoHandoffSource/markAutoHandoffSources | 現在の後継・pending・表示名を照会/投影。人の旧入力と内部goal入力の画面操作を区別 | 既配達の後継を再生成しない。名前の失敗は本引継ぎを失敗へ補完しない。最大深さ/古い多枝は既制限 |
+| [store](../../src/codex-auto-handoff-store.mjs):requestAutoHandoff/updateAutoHandoff/failAutoHandoff/claimAutoHandoff/releaseAutoHandoff | source thread/turn一意、mutable field whitelist、snapshot不変、expectedState/CAS、再開元状態 | freezeCodexMemoryは元capture projectと停止境界、後続の入力だけturnを除外。loadFrozenLineageは循環/欠落/各辺projectを検証。個別APIをDB全体transactionと誤解しない |
+| [memory](../../src/codex-auto-handoff-memory.mjs):collectAutoHandoffMemory/ensureAutoHandoffSummaries/renderAutoHandoffMemory/renderFrozenDetail | lineageをorigin/turn/roleで集約、直近20turn全文＋古いL1、不変snapshotのL3取得参照。summaryはsource hashでcache | 制御文を表示から除いてもsnapshotから消さない。継承不能な前史は120000字まで明示切詰め。L1不足はthrow、実backend未起動 |
+| [Codex config](../../src/codex-auto-handoff-config.mjs):readAutoHandoffConfig/writeAutoHandoffConfig/autoHandoffEnabledFor | Codex専用file/schema、openHost desktop限定、未存在disabled | Claude設定を連動変更しない。入力検証/temp→rename契約を保持 |
+| [CLI](../../src/cli/auto-handoff.mjs):parseAutoHandoffArgs/enableAutoHandoff/enableClaudeAutoHandoff/publicOperation/run | enable/disable/status/resume/detail/worker/successor等のhost別制約、公開field、JSON/exit。status/detailはread-only DBをclose | Claudeはresumeを供給しない。Codex enableは公開hook登録/信用確認後config保存。設定/信用変更は本調査では実行しない。install側未読 |
+
+## OS境界と既存共通部品
+
+| source / 関数 | 製品が所有する範囲 | 未確認/保持契約 |
+| --- | --- | --- |
+| [claude-terminal](../../src/os/claude-terminal.mjs):startClaudeTerminal/readClaudeTerminalRemoteControl/startWindowsClaudeWorker | hidden PTY、明示session、capability query応答、ended観測。WMIはenvをstdinで運びbootstrapへ秘密を埋めない。URLは同sessionの登録だけ | batch-only shimを拒否。WMI不明時はbootstrapと不明結果を保持、明確な未起動だけ片付け。host共有daemon/OSは触らない |
+| [windows-terminal-runtime](../../src/os/windows-terminal-runtime.mjs):prepareWindowsTerminalRuntime/loadWindowsTerminalRuntime | package content hashの不変copy。live addonをnpm更新から分離し、copy/hash検証後rename。pending copyはfinally削除 | 既存仕組みを再実装しない。node-pty実起動/Windows実受入未実施 |
+| [windows-package-update](../../src/os/windows-package-update.mjs):packageFiles/packagePathsOverlap/promoteWindowsPackage/updateWindowsPackage | symlink/特殊file/重なり/entrypoint変更拒否、変化fileだけ昇格、package.json最後、journal原本とrollback | rollback失敗ではlock/journal保持。native DLLのrenameを避ける既整理。source本文読取だけでself-update全体の受入とはしない |
+| [portable-spawn](../../src/os/portable-spawn-sync.mjs):portableInvocation/spawnPortableSync/spawnPortable / [shell](../../src/os/shell.mjs):shQuote/appleString/nodeCliCommand | OSのargv/quoting/UTF8/shell=falseの既存正本 | shell/PowerShell/AppleScript境界を独自に増設しない。外部process cancelはcaller責任 |
+| [pty-run](../../src/os/pty-run.mjs):runWithPty / [codex-runtime](../../src/os/codex-runtime.mjs):resolveCodexRuntime / [open-url](../../src/os/open-url.mjs):openUrlWithOsHandler | OS別のPTY、Windows Desktop実体選択、URL handler呼出。明示override、候補不在/複数を区別 | URL handler終了0は画面反映の証明ではない。PTY Windows出力不可、他OS未対応null等の返却を維持 |
+| [macos-terminal](../../src/os/macos-terminal.mjs):appleScriptForTerminalExec/runTerminalScriptDetached/runTerminalDoScript / [grok-continue](../../src/cli/grok-continue.mjs):run/buildContinuePlan/writeLaunchArtifacts | Grokはread-only公開context→新sessionの最初の指示→macOS Terminal起動。rules不使用、対象外OSは明示失敗 | detached起動受付とGrokの記憶読了/応答を区別。prompt/launch一時fileの後始末は現行この関数内に無く、関連試験/consumerと保持要否を調査する |
+| [title](../../src/auto-handoff-title.mjs):composeAutoHandoffTitle/markHandedOffTitle/autoHandoffSummaryOf / [hook log](../../src/hook-failure-log.mjs):logHookFailure | 名前はAIを呼ばず既titleから生成。詳細エラーは端末内log、固定runtime aggregateと分離 | unicode/制御文字/引用/重複印を保持。log本文を公開runtime診断へ流さない |
+| [Codex手動projection](../../src/codex-handoff.mjs):renderCodexActiveWorkContext/renderCodexNewThreadHandoff/toCodexDeveloperMessageItem/toThroughlineHandoffBlock | 既handoff recordをtext/developer item/versioned JSONへ投影。自動継続memoryとは別表現で、任意memo/thinking/L1/L2とL3参照を扱う | record生成/callerは未読。maxDetailRefsは互換検証を残し、描画では使わない。projection生成はhostへの配送・読了を意味しない |
+
+今回本文を確認したtestはtitle、Claude forward、OSのterminal/runtime/URL/PTY/Windows package/portable spawn。全て未実行。Claude/Codex自動継続本体の大きなtest・hook統合fixture・install設定/export・外部consumer閉包は未読/未完のまま。構造上の整理候補はconfig/atomic writerの類似、各orchestrator内の複数責任、既存helperとの接続であり、採否・代替案は全体調査後にAstraで設計する。
+
+## 今回利用した検査・fixtureのsource
+
+`scripts/verify-docs.mjs:verifyDocs`は作業treeのMarkdownを再帰読取し、リンク実在/top-level分類/archive/stubを検証する。`scripts/verify-pack-markdown-links.mjs`はnpm packのdry-run/ignore-scriptsのfile集合と相対targetを照合する。`scripts/markdown-link-targets.mjs`は既存remark/unifiedとHTML属性の抽出であり、Mermaid図の構文・見た目は検査しない。開発用scriptは配布対象外なのでsource path/関数名で索引し、tarball内のリンクとして扱わない。3scriptの本文を確認し、今回の文書検査を図描画/目視の代わりにしない。
+
+[test-env](../../src/test-env.mjs)は試験専用のthread環境除去/Windows fake実行adapter/16MiBの既定buffer、[test-temp-dir](../../src/test-temp-dir.mjs)は試験process exit時の一時dir掃除を持つ。製品runtimeではなくfixtureとして分類し、実harness起動の安全根拠やcancelの保証へ補完しない。本体testの実行/最終OS受入は未実施。

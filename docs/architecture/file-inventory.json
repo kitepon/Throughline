@@ -2270,8 +2270,8 @@
       "sha256": "fa7a0cd50b55061a45bac68ba5587ff195a84ed652817b435bb5b76dc4255337",
       "bytes": 5454,
       "lines": 163,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。既存remark/unified解析とHTML href/src/srcset抽出、相対target正規化。Mermaid描画の検査ではない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -2430,8 +2430,8 @@
       "sha256": "098837d356c01004b886816e0f4c500d2968ea7e0f846f0c884e4ea6977b409c",
       "bytes": 5119,
       "lines": 125,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。作業tree Markdown再帰/リンク実在/分類/archive/stub検証。Mermaidの構文/目視は対象外。verify:docsとして実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -2463,8 +2463,8 @@
       "sha256": "101a152e79bce81b6684e08a0364f75fdf40129a7bb239e4fdc7ec72ceedf518",
       "bytes": 2755,
       "lines": 78,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。npm pack dry-run/ignore-scriptsのfile集合と相対target照合。verify:docsとして実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -2692,8 +2692,8 @@
       "sha256": "64f1d19e9ce24bcb9d4b44892ca8731419ac47cde7ef061b7b6366651324cdb8",
       "bytes": 4788,
       "lines": 86,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。project/title/継続制御文除外/Unicode制限/印冪等。AI起動なし。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -2745,8 +2745,8 @@
       "sha256": "d59d08b8147eed75528eec7a55132aef6f7d787a0fad3c96232f1cfcd4cff5a2",
       "bytes": 6365,
       "lines": 77,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -2874,8 +2874,8 @@
       "sha256": "4723f6df6db875fdb6f4f7340cf79528179ca0ba04f839040c579785e3a43a5c",
       "bytes": 2025,
       "lines": 38,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。専用schema/private file、既定disabled、project照合、temp→rename。Codex設定と別所有。test/全caller閉包未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -2907,8 +2907,8 @@
       "sha256": "98a1e35a8504287bec99c75b471f15f65fe938c389f51b717bac2e0de3780e50",
       "bytes": 98297,
       "lines": 1570,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。requested/stopped/launching/launched/sent/failed/unknown、席除外、途中snapshot/初回capture/accepted、Windows terminal/Unix bg、wake/forward/Desktop表示。全test/consumer閉包未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3249,8 +3249,8 @@
       "sha256": "dd971e40b950560607aa48910dc10864bf1fbdbc23065ff4d1b63284dce3a425",
       "bytes": 7450,
       "lines": 145,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。待機交代/orphan/deadline/引継ぎ移送、claim→stderr callback後settle→exit2、SIGTERM143。関連test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3278,8 +3278,8 @@
       "sha256": "fd11c99792813a62e91f4a7f4c96f2924dc6ebe156e8ed6abac7f1905382e0e9",
       "bytes": 20632,
       "lines": 382,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。pending/claimed/full/waiter/waking、rename所有、settle/release、unknown再送禁止、9000/60000字とTTL保持。関連test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3391,8 +3391,8 @@
       "sha256": "37f90c5e99fc142914c25ce21280a3a96943d88a1c5bc776ce059de95a7ed852",
       "bytes": 42573,
       "lines": 536,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3412,8 +3412,8 @@
       "sha256": "7e28b35b32bd6ef5bcbc448de329e00667b2f4492cf8ea4e9de9951c5e5012ab",
       "bytes": 2614,
       "lines": 70,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。payload EOF/auto要求/log、block exit2、例外固定code/私有log/exit1。installと全fixture未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3433,8 +3433,8 @@
       "sha256": "1ba52a4b6ea7d1deccb928a927253ea2083b0b208812cfc0956668edf55ac62f",
       "bytes": 3756,
       "lines": 85,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。軽量file判定/並行停止待ち/forward context、書切り後done、例外exit1。installと全fixture未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3520,8 +3520,8 @@
       "sha256": "b307175212f0edb7538a21232325534884f3c123ef990b8787d46cdf3c259c7c",
       "bytes": 13348,
       "lines": 184,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。host別action/引数/公開field、enable信用後config、read-only status/detail close、resume/worker/exit。install側と全test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -3874,7 +3874,7 @@
       "bytes": 16371,
       "lines": 521,
       "readState": "body_read",
-      "readNote": "全文。EOF/event/capture/monitor/Stop要約、refresh無効、pre-compact停止/継続、backend24h失敗/復帰分類。auto本体と全test未読",
+      "readNote": "全文。EOF/event/capture/monitor/Stop要約、refresh無効、pre-compact停止/継続、backend24h失敗/復帰分類。auto本体も本文確認、全test/設定未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -4614,8 +4614,8 @@
       "sha256": "085c4fc6134e0d28dcabbdc91fe6805f7cfca3bc8b8d0ac714a4ccd8f35e0510",
       "bytes": 5138,
       "lines": 184,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。公開context/project→最初の指示/新session→mac Terminal、rulesなし、起動artifactと後始末未確認。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -5940,8 +5940,8 @@
       "sha256": "f2a4e656710158941301e50e08920f134497e68396ca6b8522769d43322d64ae",
       "bytes": 1932,
       "lines": 37,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。専用schema/private file、desktop限定、既定disabled、project照合、temp→rename。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -5973,8 +5973,8 @@
       "sha256": "a8e5a7496557a54675c468296df173205ec84955063138fa7107f75c7c67bfa8",
       "bytes": 8849,
       "lines": 140,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。origin/turn/role集約、直近20L2/旧L1/source hash cache、L3凍結取得、前史/制御文保持。全test/caller未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -6018,8 +6018,8 @@
       "sha256": "84905489da8006b72d068f390cc044aa76625de4740d739072dcd37e2985e965",
       "bytes": 10586,
       "lines": 193,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。一意要求/mutable whitelist/CAS/worker claimとrelease/不変snapshot/lineage/frozen元projectと後続入力境界。全test/caller未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -6103,8 +6103,8 @@
       "sha256": "5e612c98d17650ee16a578dfa442bef8f4780b9e58e93cc58fa8f7414cc8e372",
       "bytes": 74217,
       "lines": 1064,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。停止準備gateと実停止境界、claim/CAS/不変snapshot、create/inject/submitの作用前stage、相関進捗、goal/queueの部分成功、unknown観測再開。全本体test未読",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -6681,8 +6681,8 @@
       "sha256": "69c38be4da9b63b8307d421610448317b56cab3fc3fb30e216ed0836e46daec6",
       "bytes": 12521,
       "lines": 355,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。既handoff record→active/new thread text/developer item/versioned block、表示制限と旧maxDetailRefs検証互換。record生成/全caller/test未読",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -8232,7 +8232,7 @@
       "bytes": 8123,
       "lines": 188,
       "readState": "body_read",
-      "readNote": "全文。pending/baton/merge別commit、前任優先、backfill失敗継続、注入文生成と配送分離。依存auto-continuation/resume未読",
+      "readNote": "全文。pending/baton/mergeの別commit、auto source実入力時capture、merge後accepted→backfill→文脈生成→adapter出力。resume-context内部と全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -8424,8 +8424,8 @@
       "sha256": "9c8bb0d255d98aeba3e7d0a4a8cad407bcd62dcdd39881923fdc45580844993e",
       "bytes": 4597,
       "lines": 86,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。private詳細/stack/SQLite code/identity/stderr上限、固定aggregateから分離。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -8524,7 +8524,7 @@
       "bytes": 14783,
       "lines": 242,
       "readState": "body_read",
-      "readNote": "全文。改行確定row/途中不正JSON拒否、設定比較、turn進捗/停止/後続/入力/継承/未完道具とnative job。全caller/test未了",
+      "readNote": "全文。改行確定row/途中不正JSON拒否、設定比較、turn進捗/停止/後続/入力/継承/native job。auto本体接続確認、全test/caller未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9212,8 +9212,8 @@
       "sha256": "041f564eafdc4e0f479280017963d8656f3c0432bcc3f698b5ec3a80570a88b3",
       "bytes": 6333,
       "lines": 116,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。PTY/session/env/capability/ended、同一remote登録、WMI env stdin/bootstrap自己削除、起動不明を確定失敗にしない。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9237,8 +9237,8 @@
       "sha256": "6fd84c16c10f3bc505a728349ec1683eb13268f502df9a0c605626b904090ec9",
       "bytes": 5111,
       "lines": 75,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9249,8 +9249,8 @@
       "sha256": "9b344f8759eb623dc30fa25ba4e9d46fedf322bdbbf9586d95f7506e50bcf64a",
       "bytes": 1853,
       "lines": 36,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。明示override/OS/PATH/Windows Desktop実体を一意選択。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9270,8 +9270,8 @@
       "sha256": "a64384139b865bb7e0ddad56b0b02d0a268345903a5da60cf7cd72cf0886a955",
       "bytes": 1469,
       "lines": 31,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9282,8 +9282,8 @@
       "sha256": "f50447e1caeba88b2731040b12413fd344390c5e004cdfa7044bbae73ed552a3",
       "bytes": 1403,
       "lines": 44,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。AppleScript detached execとdo script、platform gateはcaller。実OS起動なし。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9307,8 +9307,8 @@
       "sha256": "2fe5bda12c5e3ad91abfcc3b6db79db49d02579e78da2909f18e54782173178c",
       "bytes": 834,
       "lines": 17,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。OS handler終了値を返す。画面反映と区別。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9324,8 +9324,8 @@
       "sha256": "855df6e744f21fe3e24e4c370eb9d604b40d4a2e28a1483a3434172cd3268a8e",
       "bytes": 955,
       "lines": 14,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9336,8 +9336,8 @@
       "sha256": "ed65a85db0825bbe9b0ac0c622cad9d95f23fb52fcd7186d5bff79573f0bd036",
       "bytes": 600,
       "lines": 16,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。Windows case fold/isWin32の既存正本。実path/file操作なし。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9394,8 +9394,8 @@
       "sha256": "493c6fefa1961a99bd5e6ea37d47c15b590904a284fd948ba91b234d406e3489",
       "bytes": 4909,
       "lines": 111,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9406,8 +9406,8 @@
       "sha256": "e70a8c8f43d5faf593bbef3b9210dafbfa59a03e1ee2c9e1913729c55cbb6c5f",
       "bytes": 1823,
       "lines": 29,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。mac script/Windows console/outputUnavailable/他OS null。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9423,8 +9423,8 @@
       "sha256": "e7e1134b2929723c22218de51cb64a71ff1562c0192ace1418e4abb2165aa764",
       "bytes": 2036,
       "lines": 27,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9435,8 +9435,8 @@
       "sha256": "d33221b1364c27763970f1d686fda1815140757abeec276f2d286b5468424f27",
       "bytes": 814,
       "lines": 21,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。POSIX/PowerShell/AppleScript quoting、nodeCliCommand既存正本。全caller/test未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9536,8 +9536,8 @@
       "sha256": "fa4fee49c6011346117b07a8fa6ac444461f5d4899cc2c05a4c9049b4a6a1f66",
       "bytes": 6472,
       "lines": 126,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。非重複/staged package/entrypoint/DLL保持、file毎promotion/journal/rollback、失敗時lock保持。self-update全体未読。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9569,8 +9569,8 @@
       "sha256": "5df8d972128cf3ba9a7f26763586ffb07fed0520818a020f7f5aabfc109549c4",
       "bytes": 6799,
       "lines": 117,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9586,8 +9586,8 @@
       "sha256": "a38b4da973950a850d5ae624d1826fbd532f0606a8e3dc2ad5266d22220d6bd3",
       "bytes": 2047,
       "lines": 39,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。node-pty不変content-addressed copy、copy/hash/rename/finally除去。実Windows起動なし。test本文確認・未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9611,8 +9611,8 @@
       "sha256": "6938cd28e38f6238497796b916d888ce17159e25f3fe6fb5220813b5134c7330",
       "bytes": 1596,
       "lines": 26,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -9765,7 +9765,7 @@
       "bytes": 15812,
       "lines": 379,
       "readState": "body_read",
-      "readNote": "全文。EOF/host/初回引継ぎ/forwarded入力/command/baton/spike。自動継続/Grok起動の依存は未読",
+      "readNote": "全文。EOF/host/初回引継ぎ/forwarded入力/command/baton/spike。auto/forward/Grok起動先は本文確認、context/spike内部と全test/caller未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -10859,8 +10859,8 @@
       "sha256": "8320a92b7255dad4edcc811969cca074ab23060487238a5399dfc7ffc0dcdd71",
       "bytes": 3163,
       "lines": 72,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。試験専用env除去/Windows fake spawn adapter/16MiB buffer/NODE_OPTIONS。製品runtimeではない。実行なし",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -10868,7 +10868,8 @@
           "line": 24,
           "text": "function normalizeNodeFixture(command, args = []) {"
         }
-      ]
+      ],
+      "confirmedRole": "fixture"
     },
     {
       "path": "src/test-temp-dir.mjs",
@@ -10876,8 +10877,8 @@
       "sha256": "73c87e1f3571338d37d5f9de20d23e95ec5468dc1831fe7205e75aa5cc1f85e3",
       "bytes": 841,
       "lines": 24,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。試験専用temp dir作成とprocess exit cleanup、失敗が試験結果を変えない既存契約。実行なし",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -10885,7 +10886,8 @@
           "line": 20,
           "text": "export function testTempDir(prefix) {"
         }
-      ]
+      ],
+      "confirmedRole": "fixture"
     },
     {
       "path": "src/token-estimator.mjs",
