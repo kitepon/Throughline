@@ -119,7 +119,7 @@ flowchart TD
 | [store](../../src/codex-auto-handoff-store.mjs):requestAutoHandoff/updateAutoHandoff/failAutoHandoff/claimAutoHandoff/releaseAutoHandoff | source thread/turn一意、mutable field whitelist、snapshot不変、expectedState/CAS、再開元状態 | freezeCodexMemoryは元capture projectと停止境界、後続の入力だけturnを除外。loadFrozenLineageは循環/欠落/各辺projectを検証。個別APIをDB全体transactionと誤解しない |
 | [memory](../../src/codex-auto-handoff-memory.mjs):collectAutoHandoffMemory/ensureAutoHandoffSummaries/renderAutoHandoffMemory/renderFrozenDetail | lineageをorigin/turn/roleで集約、直近20turn全文＋古いL1、不変snapshotのL3取得参照。summaryはsource hashでcache | 制御文を表示から除いてもsnapshotから消さない。継承不能な前史は120000字まで明示切詰め。L1不足はthrow、実backend未起動 |
 | [Codex config](../../src/codex-auto-handoff-config.mjs):readAutoHandoffConfig/writeAutoHandoffConfig/autoHandoffEnabledFor | Codex専用file/schema、openHost desktop限定、未存在disabled | Claude設定を連動変更しない。入力検証/temp→rename契約を保持 |
-| [CLI](../../src/cli/auto-handoff.mjs):parseAutoHandoffArgs/enableAutoHandoff/enableClaudeAutoHandoff/publicOperation/run | enable/disable/status/resume/detail/worker/successor等のhost別制約、公開field、JSON/exit。status/detailはread-only DBをclose | Claudeはresumeを供給しない。Codex enableは公開hook登録/信用確認後config保存。設定/信用変更は本調査では実行しない。install側未読 |
+| [CLI](../../src/cli/auto-handoff.mjs):parseAutoHandoffArgs/enableAutoHandoff/enableClaudeAutoHandoff/publicOperation/run | enable/disable/status/resume/detail/worker/successor等のhost別制約、公開field、JSON/exit。status/detailはread-only DBをclose | Claudeはresumeを供給しない。Codex enableは公開hook登録/信用確認後config保存。設定/信用変更は本調査では実行しない。install側は[導入詳細](current-lifecycle.md)へ接続、全consumer閉包は未完 |
 
 ## OS境界と既存共通部品
 

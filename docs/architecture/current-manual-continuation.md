@@ -110,7 +110,7 @@ flowchart TD
 
 ## caller・試験・設定/exportの残り
 
-binの各dispatch、doctor/trim/refresh/手動CLI/diagnostic CLIからapp-server・trim-modelへの参照を検索し、今回上表のsource全20fileを本文確認した。`codex-auto-refresh`はproduct source内で通常hookからの呼出が無いことを参照検索し、既読hookの無効結果と照合した。未読doctor/導入/skill・設定は全caller閉包へ残す。
+binの各dispatch、doctor/trim/refresh/手動CLI/diagnostic CLIからapp-server・trim-modelへの参照を検索し、今回上表のsource全20fileを本文確認した。`codex-auto-refresh`はproduct source内で通常hookからの呼出が無いことを参照検索し、既読hookの無効結果と照合した。doctor/導入本体は[製品寿命/運用入口](current-lifecycle.md)へ接続する。skill・設定と全caller閉包は未完。
 
 今回本文確認したtestは`codex-app-server.test.mjs`、`cli/codex-handoff-start.test.mjs`、`trim-model.test.mjs`の3file。fake process/一時DB/rollout fixtureを内包するが未実行。`trim-cli.test.mjs`、refresh・smoke/auditの全test、package export/skill/hooks/installと外部consumerは未了。入力境界・例外・保持・既定無効を変えずに責務を整理する採否は、全体調査後のAstra工程で行う。
 

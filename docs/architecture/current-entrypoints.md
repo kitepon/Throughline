@@ -115,7 +115,7 @@ flowchart TD
 
 Windows ACLとOS別pathは、[os/windows-acl](../../src/os/windows-acl.mjs)と[os/app-dirs](../../src/os/app-dirs.mjs)に既に集約済み。この整理を再実装しない。ACLは15秒guard、private fileは別名でACL検証後hardlink公開、finallyでtempを除去する。[portable-spawn](../../src/os/portable-spawn-sync.mjs)もshell=false/Windows shim解決の既存正本を使う。OSへ実行はしていない。
 
-[runtime-error-context](../../src/runtime-error-context.mjs)は固定enumと発生bindingだけを私有sidecarへ渡し、最新発生だけのmessageに投影する。raw payload/path/errorを公開診断に混ぜない。[送信trigger](../../src/runtime-error-report-trigger.mjs)は既定通信無効・best-effortでdetached子processを起こすだけで、受信完了を意味しない。store/report/ack/resolveの全体は未読であり、この部分読取を診断機能の整合完了とはしない。
+[runtime-error-context](../../src/runtime-error-context.mjs)は固定enumと発生bindingだけを私有sidecarへ渡し、最新発生だけのmessageに投影する。raw payload/path/errorを公開診断に混ぜない。[送信trigger](../../src/runtime-error-report-trigger.mjs)は既定通信無効・best-effortでdetached子processを起こすだけで、受信完了を意味しない。store/report/ack/resolveの全体sourceは[製品寿命/運用入口](current-lifecycle.md)へ接続する。全consumer/試験照合は未完であり、この本文読取を診断機能の整合完了とはしない。
 
 ## caller・試験・fixture・設定/exportの確認範囲
 
