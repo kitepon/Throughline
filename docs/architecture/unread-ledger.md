@@ -64,7 +64,7 @@
 | .lattice/todo/plans/release-0.8.4/v1/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
 | .lattice/todo/plans/release-0.8.4/v1/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
 | .lattice/todo/plans/release-0.8.4/v1/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
-| AGENTS.md | documentation | reference_same_blob | baseは前段既読同blob。候補の現行説明をS2で修正: Thinking表示制限、PreCompact要求/後継初回capture、3hook、host別backend/memo。base hashは固定、全索引整合は未了 |
+| AGENTS.md | documentation | reference_same_blob | baseは前段既読同blob。候補の現行説明をS2で修正: Thinking表示制限、PreCompact要求/後継初回capture、3hook、host別backend/memo。base hashは固定。S5でCursor SessionStart/Claude停止返答/manual detail refs/smoke DB作用の4索引を同期、全consumer閉包は未了 |
 | CHANGELOG.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | LICENSE | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | README.ja.md | documentation | body_read | 全文1..598。現行4host/自動と手動継続/9500字push・pull/報告。runtime依存/Thinking取得/版変更空報告の説明差分を区別、操作へ転用せず |

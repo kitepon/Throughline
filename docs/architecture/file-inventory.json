@@ -553,7 +553,7 @@
       "bytes": 97718,
       "lines": 501,
       "readState": "reference_same_blob",
-      "readNote": "baseは前段既読同blob。候補の現行説明をS2で修正: Thinking表示制限、PreCompact要求/後継初回capture、3hook、host別backend/memo。base hashは固定、全索引整合は未了",
+      "readNote": "baseは前段既読同blob。候補の現行説明をS2で修正: Thinking表示制限、PreCompact要求/後継初回capture、3hook、host別backend/memo。base hashは固定、全索引整合は未了。S5でCursor SessionStart/Claude停止返答/manual detail refs/smoke DB作用の4索引を既sourceと詳細図へ同期",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [],

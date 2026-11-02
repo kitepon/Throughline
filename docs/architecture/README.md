@@ -1,10 +1,10 @@
 # Throughline 機能図とsource対応
 
-状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4のLinux全件は通過、macOS/WindowsとGitHub CIは未実施。S5の適用済みAstra最終整合と全体受入は未了。
+状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4のLinux全件は通過、macOS/WindowsとGitHub CIは未実施。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
-- [今回読んだ入口と記録・引継ぎの現行図](current-entrypoints.md): CLI/SessionStart/DB、初回handoff、Stopの保存/receipt/L1/L3、Codex専用capture/hookの3追加詳細図と実file/関数対応。未読callee/caller/testを明記する。新4図は実描画/目視済み、Astra確認は未了。
+- [今回読んだ入口と記録・引継ぎの現行図](current-entrypoints.md): CLI/SessionStart/DB、初回handoff、Stopの保存/receipt/L1/L3、Codex専用capture/hookの3追加詳細図と実file/関数対応。未読callee/caller/testを明記する。新4図は実描画/目視済み。最終照合の範囲と限界は末尾のS5を参照。
 - [自動継続・旧会話入力・OS起動](current-continuation.md): Claudeのrecord/accepted/inboxとCodexの停止準備/不変snapshot/mutation stage/公開配送APIを、成功/確定失敗/unknown/cleanupへ結ぶ。Grok手動継続とOS共通部品も対応付ける。新3図は実描画/目視済み、全consumer閉包は未完。
 - [文脈復元・observer・外部文脈](current-projections.md): 予算付きpush/pull、固定page/cursorと本文freshness、wait取消、auditor/caveat/roomをsourceへ結ぶ。observer現行図だけは既描画原稿/SVGを再利用し、復元/room新2図も実描画/目視済み、全consumer閉包は未完。
 - [手動継続・trim・app-server診断](current-manual-continuation.md): 新threadへの記憶注入とモデル開始、同threadのrollback/injectとdurable診断、通信中断/cleanupを区別する。自動継続の永続状態と異なる責任なので別詳細とし、既存図の内部を複製しない。実描画/目視済み、全consumer閉包未了。
@@ -62,7 +62,7 @@ flowchart TB
   Result -.-> Consumer["consumerの消費保存 / 表示・業務完了は別所有"]
 ```
 
-現行sourceを辿る概略で、新しいmodule分割案ではない。実描画/目視は済み、全接続照合とAstra最終整合は未完。線は複数fileを一括commitする意味ではなく、破線は外部適用/consumerの証明範囲を分ける。Codex自動継続の台帳はDB、Claude record/inboxはprivate fileという違いを詳細へ残す。receipt・monitor state・固定errorは別の保存先で、図の一ノードへの併記を同じstateの所有/確定境界とは扱わない。
+現行sourceを辿る概略で、新しいmodule分割案ではない。実描画/目視は済み、Astra最終照合の結果と未確認の接続は末尾のS5に示す。線は複数fileを一括commitする意味ではなく、破線は外部適用/consumerの証明範囲を分ける。Codex自動継続の台帳はDB、Claude record/inboxはprivate fileという違いを詳細へ残す。receipt・monitor state・固定errorは別の保存先で、図の一ノードへの併記を同じstateの所有/確定境界とは扱わない。
 記録/初回は[current-entrypoints](current-entrypoints.md)、自動継続/OSは[current-continuation](current-continuation.md)、投影は[current-projections](current-projections.md)、手動nativeは[current-manual-continuation](current-manual-continuation.md)、導入/運用と個別storeは[current-lifecycle](current-lifecycle.md)を詳細正本とする。実関数と失敗/取消/unknown/cleanupは各表を辿り、欠けるものは未読台帳と次の意味調査に残す。
 
 ## 保持する外部契約
@@ -70,7 +70,9 @@ flowchart TB
 CLI名/引数/JSON schema/exit/stdout/stderr、ClaudeとCodex/Grok/Cursorのhost別hook形、記憶/receipt/cursor/baton/後継と設定信用、保存/移行とreport/ackの意味を保つ。既読だけで保持済みとはせず、全callerと関連試験へ結ぶ。
 observer新batch APIはこの候補の構造整理に含めない。実DB/稼働会話/他製品/OSを変更せず、公開・配布・本番反映は既条件に従う。
 
-## 次工程
+## source調査・設計時点の記録
+
+以下はS1実装前の調査・設計時点の記録である。現在の実装/検証は末尾のS3/S5と各詳細末尾を正本とする。
 
 適用済みAstra xhighで以下の責務設計を行った。次はSol Highの適用後、採用した変更のcaller/test/fixture/config/exportを閉じて段階実装する。未調査213fileの全読了は開始条件にしない。全体の説明不足は末尾の残確認を埋め、実装/関連検証後にAstraの最終整合を行う。
 
@@ -152,8 +154,42 @@ S1/S2の後に、全体図の15機能群を5詳細の責任/接続/実関数/状
 - 追加の構造変更は採用していない。既source本文/固定Astra採否と照合して既責任へ結び、S1以外のstate machine統合、temp writer統合、共通parser、新API/daemon/取消機構は作らなかった。
 - S1変更対象の旧/new import・再export・既caller・設定・fixture・packはS1保持記録へ。S2の変更先は配布command/skill/README/現行docs/AGENTSへ閉じ、履歴ADRは保存した。以後の差分は図の対応表/manifestだけでruntime/config/testを変更していない。
 - named function exportの文字列索引488件（試験helperも含む）に詳細内の名前の欠落が無いことをassertした。初回検査でS1新moduleの具体名8件と試験helper4件の不足が分かり、実sourceと役割を確認して正本へ追補した。これは全AST/alias/class method/動的callerやprivate branchの意味確認完了を示す検査ではない。
-- 本文確認213/同blob1/partial4/未読199。source126pathの本文確認は全体索引の土台とし、未読資料を一律必読にしない。source本文を調べた範囲と、残る全semantic/consumer未確認を台帳へ分ける。全fileのsemanticMappingCompleteは最終整合/受入前のfalseを保持する。
+- 本文確認213/同blob1/partial4/未読199。source126pathの本文確認は全体索引の土台とし、未読資料を一律必読にしない。source本文を調べた範囲と、残る全semantic/consumer未確認を台帳へ分ける。全fileのsemanticMappingCompleteは全関数/全consumer閉包を表すためfalseを保持する。S5の対象全体の責任/接続照合とは区別する。
 - 既知の未確認境界は、未知の外部deep import、Spotter/Caveatの現在の実consumer、Host/配送内部、未読のtest本文/fixture、monitor main/signal全coverage、強制終了時のcleanup、未改行streamのhard上限等。S1の移動や文書同期で解決したことにしない。Thinking/detailの表示欠落、doctor最低Node表示差、旧installer/無効refresh/temp残存も記述した既制限として残す。
 - 検証は先行Linux全件1145pass/3Windows skip/0failと文書/pack、19図の原稿・SVG hash/XMLを使う。今回runtime/source/testの追加差分が無いためLinux試験は再走しない。無変更の図も再描画しない。
 
-既CIの残OSは、製品所有 `.github/workflows/test.yml` のworkflow_dispatchへ候補refと比較base39ff812を固定し、environment=allで既`product-full-ci`の選択とgateへ渡す工程である。self-hosted factoryのMac/Windows/Host/利用中会話/公開に関する既条件を守り、今回のローカル図整理を起点にrunner管理や実席操作を始めない。macOS/Windowsの全件とGitHub gateが未実施である以上、3OS CI成功やrelease受入とは記さない。S5はこの固定候補と未確認範囲を合わせてAstraで照合し、受入又は具体的な補正を返す。新batchは全体成果受入後の別工程を維持する。
+既CIの残OSは、製品所有 `.github/workflows/test.yml` のworkflow_dispatchへ候補refと比較base39ff812を固定し、environment=allで既`product-full-ci`の選択とgateへ渡す工程である。self-hosted factoryのMac/Windows/Host/利用中会話/公開に関する既条件を守り、今回のローカル図整理を起点にrunner管理や実席操作を始めない。macOS/Windowsの全件とGitHub gateが未実施である以上、3OS CI成功やrelease受入とは記さない。S5はこの固定候補と未確認範囲を合わせてAstraで照合し、以下へ判定を記録した。新batchは全体成果受入後の別工程を維持する。
+
+## S5最終整合（2026-11-03、適用済みAstra xhigh）
+
+**判定: 図・責任・接続・保持契約の候補は、以下の確認範囲で指導側へ返却できる。全体受入は未了。** `get_self`で`gpt-6-astra`/`xhigh`、configurationApplication=accepted、fast OFFを確認後、固定候補`395e69fcff47c3f41d478f0eae96ea1692d3875c`を照合した。設計時のAstra確認やSolの索引検査を今回の最終照合の代用にしていない。全体1図・詳細18図、15機能群の採否、実sourceの確定点、代表callerと先行保持試験を対応させた。
+
+S1以外の構造変更は不要という判断を維持する。既存の分離と個別契約を利用でき、汎用parser/state machine/temp writerへの統合は、保持・失敗・信用文字列を変えるため採らない。今回、修正を要するruntimeの不一致は見つからなかった。全private branch・全外部consumerの意味網羅を保証する判定ではない。
+
+### 全15機能群の照合結果
+
+| 対象と詳細正本 | 最終照合した境界・保持根拠 | 判定 |
+| --- | --- | --- |
+| CLI/hook入口 → [入口](current-entrypoints.md) | binのdispatchと各runのstdin/exitは別。import時の無作用は既hook選択試験、公開名/引数は不変 | 既分離を維持。共通catchへ変更しない |
+| DB/schema/merge/pending/baton → [入口](current-entrypoints.md) | getDb/initSchemaとmergeSpecificPredecessorのtransaction、pending/batonの独立consume。schema12・origin・bornAt TTLは不変 | 部分確定の図と一致。一括rollbackを約束しない |
+| 4host記録/L2/L3/receipt/L1 → [入口](current-entrypoints.md) | processStopのbackfill→receipt→L1→L3、Codex captureのL2全置換/L3差分transaction、capture/hook保持試験 | append/書換世代/rollback後再構成を統合しない。capturedとcompletedを区別 |
+| 初回handoff/prompt実験 → [入口](current-entrypoints.md) | executorのauto source→baton→凍結前任、merge→accepted→backfill→renderer。Cursor foregroundはSessionStartで実行 | 図は一致。AGENTSのClaude限定だった説明にCursor条件を補正 |
+| Claude auto/forward → [継続](current-continuation.md) | PreToolUseの待機、確定失敗なら元toolを通す枝、accepted/unknownならdeny。独立acceptedとclaim、forward出力後settleを既fixtureへ対応 | 図は一致。AGENTSの停止返答の説明を補正。host読了/業務完了は未証明 |
+| Codex auto → [継続](current-continuation.md) | ready→authorized→実停止観測、mutation_stageを先行確定、unknown/create・injectの再送禁止、submit相関回復、finallyの自己claim解除 | 9選択保持試験とworkerの確定点に一致。goal/queue/nameはcontinuedと別作用 |
+| 文脈/pull/public projection → [投影](current-projections.md) | 9500字push、recentの残予算、手動8本文行/各1600字、自動20turn全文、getDb/readOnlyの違いを保持 | S2説明とrendererに一致。AGENTSのdetail refs数制限を互換検証だけへ補正 |
+| observer/auditor/caveat/room → [投影](current-projections.md) | 完了chainとDB本文freshness、pendingでcursor非確定、roomのcommitと返却、固定したBellTeam3callerの公開CLI接点 | 製品/consumer所有を維持。Spotter/Caveat実callerや外部runner受入は未確認 |
+| 手動new-thread/trim/app-server → [手動](current-manual-continuation.md) | developer itemとturn開始、rollback/injectとdurable証拠、closeとremote取消を区別。既app-server/trim fixtureへ対応 | 図は一致。AGENTSのsmoke CLI「DB無変更」をgetDb作用ありへ補正 |
+| hook導入/信用/診断 → [運用S1](current-lifecycle.md#採用設計-hook命令とcodex診断の所有を分けるs1実装済み) | 新2moduleの23関数本文はbaseと一致（export宣言を除く）。root導出の階層は同一。旧13export/doctor alias、factory直接接続、例外/Set/fieldは保持 | 採用した所有整理に一致。下位moduleにCLI/DB/process依存無し。先行70+5保持試験を参照 |
+| monitor/task → [運用](current-lifecycle.md) | live/state合成、表示cache、signal終了とtask配置を別所有。mainは既timer/端末cleanupを呼び、state readerの掃除は副作用として明示 | 既helper分離を維持。main再入/listener全coverage・実端末は未確認 |
+| OS起動/自己更新 → [継続](current-continuation.md)・[運用](current-lifecycle.md) | quote/PTY/ACL/package journalは既OS所有者。self-updateのinstall→migrate→診断とpackage rollbackの範囲を区別 | 再実装不要。runner/Host/実席を製品担当へ移さない |
+| runtime error/report → [運用](current-lifecycle.md) | collection/reporting別設定、既定OFF、署名検証後だけack、版変化の空報告、JSON置換とsidecar/送信stateの部分確定 | source/先行仮試験に一致。ackを解決/本人会話復旧へ広げない |
+| config/temp/path helper → [運用追補](current-lifecycle.md#s3追補2-設定診断表示helperの窓口) | 同期取消不適用、rename/ACL/lock/CAS有無、temp残存、実体/子孫/SQL lower比較を個別に記述 | 同じ形だけを理由に統合しない。強制終了cleanupを保証しない |
+| 配布文書/CI/旧script → [運用](current-lifecycle.md) | S2配布正本と今回の索引補正、既CIの3OS all、旧installer/one-offの非公開入口と未確認利用履歴 | 文書だけ同期。旧script削除、新CI、release条件の追加は無し |
+
+### 今回の補正と証明の限界
+
+AGENTSの4か所は、既調査済みsourceと詳細図の契約を短い索引へ戻す説明補正である。runtime/test/設定/配布command/skillは変更しない。architecture冒頭と設計時点の「次工程」も、現在のS5と履歴を区別する表現へ直した。Mermaid blockの意味変更は無く、19図の既描画・目視原本を再利用する。
+
+本文213/同blob1/partial4/未読199と全`semanticMappingComplete=false`を維持する。488 named function exportの文字列索引（test helper込み）の欠落0を、AST/alias/class/private/動的caller/外部consumerの全意味確認へ読み替えない。未知deep import、Spotter/Caveatの現caller、Host/配送内部、未読fixture、monitor寿命の全coverage、未改行stream hard上限、強制終了cleanupは未確認又は既制限として残る。Thinking/detailの表示欠落、doctor最低Node表示差、旧installer/無効refresh/temp残存を修理済みとしない。
+
+先行Linux全件（1148件: pass1145/skip3/fail0）とsource treeが一致し、新しいruntime変更・試験失敗・動作上の懸念が無いため再走しない。skipはWindows cmd shim/PATH/real ConPTY。**macOS/Windows全件とGitHub gateは未実施で、S4の必要な全体検証は完了していない。** 上記の既workflow_dispatch計画を残し、Linux成功を3OS受入へ補完しない。公開・本番未反映、実DB/稼働会話/Host操作無し。全体成果の受入と専任終了は、残検証と既指導側の成果確認を経て判断し、新batchはその後の別工程である。
