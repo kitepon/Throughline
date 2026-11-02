@@ -310,19 +310,23 @@ test('completed turn receipt: competing writer waits beyond five seconds and pre
       setTimeout(() => { db.exec('COMMIT'); db.close(); }, 14000);`;
     holder = childProcess.spawn(process.execPath, ['-e', code, box.storePath + '.lock.sqlite'],
       { stdio: ['ignore', 'pipe', 'pipe'] });
-    const exited = new Promise((resolve, reject) => {
-      holder.once('error', reject);
-      holder.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`holder exit ${code}`)));
+    let stderr = '';
+    holder.stderr.setEncoding('utf8');
+    holder.stderr.on('data', (chunk) => { stderr += chunk; });
+    const exited = new Promise((resolve) => {
+      holder.once('close', (code, signal) => resolve({ code, signal }));
     });
     await new Promise((resolve, reject) => {
       holder.stdout.once('data', resolve);
       holder.once('error', reject);
-      holder.once('exit', () => reject(new Error('holder exited before locking')));
+      holder.once('close', (code, signal) => reject(new Error(
+        `holder exited before locking: code=${code} signal=${signal}\n${stderr}`)));
     });
     const next = writeCompletedTurnReceipts([input(), input(2)], { storePath: box.storePath });
     assert.deepEqual(next[0], first);
     assert.equal(next[1].sequence, 2);
-    await exited;
+    const result = await exited;
+    assert.equal(result.code, 0, `holder exit ${result.code} signal=${result.signal}\n${stderr}`);
     assert.equal(JSON.parse(readFileSync(box.storePath, 'utf8')).receipts.length, 2);
   } finally {
     if (holder?.exitCode === null) holder.kill();
