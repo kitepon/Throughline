@@ -212,6 +212,6 @@ Astra xhigh適用後の観測候補 `6638fd24f5b1cba1f3917019cd8a418500842be0` �
 
 確定したfixture不備は[入口詳細の追補](current-entrypoints.md#s4-receipt競合試験の観測と確定したfixture不備)に示す。製品writerは60秒busy timeoutを持つが、試験holderは0のまま。実際のreceipt試験に400msのSHARED readをCOMMIT時だけ加えるLinux仮観測では、holderがerrcode5でexit1となり、holderにも60秒を設定すると通過した。これはfixtureの失敗機序と対策の根拠であり、初回Windowsの未保存エラーを復元した証明ではない。
 
-次はSol High適用後、再現したfixture不備の修正と必要な検証・固定候補のCI再判定を行う。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。専任・新batch未着手・公開/本番保留を維持する。
+Sol High適用後、再現したfixture不備を既待機constantの共有で修正した。修正した実sourceとtimeout0の陰性条件を比較し、必要な検証・固定候補のCI再判定を行う。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。専任・新batch未着手・公開/本番保留を維持する。
 
 原本は製品担当の `work/throughline-refactor-evidence-20261103/ci-pass-01` と `ci-diagnosis-01`。run/jobs・各log・完全SHA・skip対応・観測patch・人工失敗と対照条件の結果を全体受入/保守移管まで保持する。Host/runner設定と実席操作は行わず、Fox利用の既事前連絡/3分待機条件を適用した。

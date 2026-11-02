@@ -223,3 +223,10 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 試験holderは `BEGIN IMMEDIATE` →14秒保持→ `COMMIT`/closeだが、busy timeoutを設定していない。別のread transactionをCOMMIT時に400msだけ保持する人工条件を、実際の競合試験のholderへ加えたところ、`holder exit 1 / ERR_SQLITE_ERROR / errcode 5 / database is locked`が再現した。holderへ既製品と同じ60秒timeoutを渡す対照条件では同じread/14秒/receipt writerで成功し、既pair保持とsequence2を確認した。Linux Node26.13.0での有限観測であり、Windows原runの失われたstderrを特定したことにはしない。
 
 SQLiteの[COMMITとread transactionの競合](https://www.sqlite.org/lang_transaction.html)および[接続ごとのbusy timeout](https://www.sqlite.org/c3ref/busy_timeout.html)に合うfixture不備である。次工程でholderの待機を製品の既constantへ合わせ、stderr回収を保持する。製品timeout延長・SQL/schema変更・WAL化・エラー無視/無条件再試行を追加する根拠にはしない。修正はSol適用後とし、現候補は観測まで。
+
+
+### Sol適用後のfixture修正
+
+試験holderにも `COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS` を渡し、COMMIT時の短いread競合を待つよう修正した。製品writerと同じ既constantを使い、14秒保持・pair/sequence assertion・stderr/close回収を維持する。変更対象は当該testのみで、製品の状態所有/保存/失敗/cleanup契約と図は不変。子の正常終了はclose後に判定し、失敗時のkillと仮store除去は既finallyに残る。
+
+対照観測は修正コードに60000msが含まれることを先にassertし、陰性条件だけ0へ戻す。成功条件ではtimeoutを注入し直さず修正コードをそのまま使う。いずれもCOMMIT時400msの別SHARED readを加えて比較し、製品の待機上限やエラー処理を変更していないことと合わせて検証する。初回Windows失敗の未保存stderrは引き続き不明として保持する。

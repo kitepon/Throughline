@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   COMPLETED_TURN_RECEIPT_LIMIT,
+  COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS,
   COMPLETED_TURN_RECEIPT_STORE_SCHEMA,
   defaultCompletedTurnReceiptStorePath,
   readCompletedTurnReceiptSnapshot,
@@ -305,7 +306,8 @@ test('completed turn receipt: competing writer waits beyond five seconds and pre
   try {
     const first = writeCompletedTurnReceipt(input(), { storePath: box.storePath });
     const code = `const { DatabaseSync } = require('node:sqlite');
-      const db = new DatabaseSync(process.argv[1]); db.exec('BEGIN IMMEDIATE');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA busy_timeout=${COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS}; BEGIN IMMEDIATE');
       process.stdout.write('locked\\n');
       setTimeout(() => { db.exec('COMMIT'); db.close(); }, 14000);`;
     holder = childProcess.spawn(process.execPath, ['-e', code, box.storePath + '.lock.sqlite'],
