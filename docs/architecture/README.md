@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4のLinux全件は通過、macOS/WindowsとGitHub CIは未実施。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
+状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4初回3OS CIはWindowsの競合試験1件で失敗。stderr観測だけを足したWindows CIは成功したが、初回原因は未確定。詳細と確定したfixture不備は末尾S4へ記した。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -192,4 +192,26 @@ AGENTSの4か所は、既調査済みsourceと詳細図の契約を短い索引�
 
 本文213/同blob1/partial4/未読199と全`semanticMappingComplete=false`を維持する。488 named function exportの文字列索引（test helper込み）の欠落0を、AST/alias/class/private/動的caller/外部consumerの全意味確認へ読み替えない。未知deep import、Spotter/Caveatの現caller、Host/配送内部、未読fixture、monitor寿命の全coverage、未改行stream hard上限、強制終了cleanupは未確認又は既制限として残る。Thinking/detailの表示欠落、doctor最低Node表示差、旧installer/無効refresh/temp残存を修理済みとしない。
 
-先行Linux全件（1148件: pass1145/skip3/fail0）とsource treeが一致し、新しいruntime変更・試験失敗・動作上の懸念が無いため再走しない。skipはWindows cmd shim/PATH/real ConPTY。**macOS/Windows全件とGitHub gateは未実施で、S4の必要な全体検証は完了していない。** 上記の既workflow_dispatch計画を残し、Linux成功を3OS受入へ補完しない。公開・本番未反映、実DB/稼働会話/Host操作無し。全体成果の受入と専任終了は、残検証と既指導側の成果確認を経て判断し、新batchはその後の別工程である。
+S5照合時点では、先行Linux全件（1148件: pass1145/skip3/fail0）とsource treeが一致し、新しいruntime変更・試験失敗・動作上の懸念が無いため再走していない。skipはWindows cmd shim/PATH/real ConPTY。**S5照合時点のmacOS/Windows全件とGitHub gateは未実施だった。実行後の現判定は下記S4を正本とする。** 上記の既workflow_dispatch計画を残し、Linux成功を3OS受入へ補完しない。公開・本番未反映、実DB/稼働会話/Host操作無し。全体成果の受入と専任終了は、残検証と既指導側の成果確認を経て判断し、新batchはその後の別工程である。
+
+
+## S4 3OS CIと競合試験の原因観測（2026-11-03）
+
+初回は固定候補 `fa58267bc04709503dad4a7eba1823b43fd6bcd7`、比較base `39ff812d46c0e84e8fc1418096c509551cf3928b`、既test.ymlのenvironment=allで実行した。[run41539753606/attempt1](https://github.com/kitepon/Throughline/actions/runs/41539753606)のclassifyは3OS/testScope all、各checkoutの完全SHAも一致した。
+
+| 環境 | 件数/pass/skip/fail | job ID・結果 |
+| --- | --- | --- |
+| macos-native | 1148 / 1145 / 3 / 0 | 125600775771 success |
+| linux-workstation | 1148 / 1145 / 3 / 0 | 125600775917 success |
+| windows-native | 1148 / 1137 / 10 / 1 | 125600775701 failure |
+| gate | full_result=failure | 125602450009 failure |
+
+Linuxのskip3件（cmd shim argv/stdin、PATH npm、実ConPTYの仮fixture）はWindowsで全pass。Windowsの1失敗は `completed-turn-receipts.test.mjs` の14秒競合holderがexit1となった試験。元stderrはpipe後未回収で、失敗statement/codeは残っていない。baseから実装/testが不変であることだけで、無関係やflakyとは判定しない。
+
+Astra xhigh適用後の観測候補 `6638fd24f5b1cba1f3917019cd8a418500842be0` は当該testのstderr/close回収だけを変更し、holder SQL・14秒timer・runtimeは同bytes。既test.yml/environment=windows-native/同baseの[run41542404178/attempt1](https://github.com/kitepon/Throughline/actions/runs/41542404178)は1148件/pass1138/skip10/fail0、Windows job125609683147とgate125611328114ともsuccess。初回のstderrは回収できず、この成功を原因特定・全体受入へ補完しない。成功済みMac/Linux全件は反復していない。
+
+確定したfixture不備は[入口詳細の追補](current-entrypoints.md#s4-receipt競合試験の観測と確定したfixture不備)に示す。製品writerは60秒busy timeoutを持つが、試験holderは0のまま。実際のreceipt試験に400msのSHARED readをCOMMIT時だけ加えるLinux仮観測では、holderがerrcode5でexit1となり、holderにも60秒を設定すると通過した。これはfixtureの失敗機序と対策の根拠であり、初回Windowsの未保存エラーを復元した証明ではない。
+
+次はSol High適用後、再現したfixture不備の修正と必要な検証・固定候補のCI再判定を行う。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。専任・新batch未着手・公開/本番保留を維持する。
+
+原本は製品担当の `work/throughline-refactor-evidence-20261103/ci-pass-01` と `ci-diagnosis-01`。run/jobs・各log・完全SHA・skip対応・観測patch・人工失敗と対照条件の結果を全体受入/保守移管まで保持する。Host/runner設定と実席操作は行わず、Fox利用の既事前連絡/3分待機条件を適用した。

@@ -214,3 +214,12 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 | [state-file](../../src/state-file.mjs):getStateDir | doctor/monitor/test→既module定数のstate保存先を返す | path返却でありfile作成ではない。readAllSessionStatesの期限切れcleanupは既表へ |
 
 [codex-capture.test](../../src/codex-capture.test.mjs)全657行を照合した。rollback後のL2全置換、response_item/旧eventの重複除外、変化turnだけ旧L1削除、同じL3先頭のid/時刻保持、途中差込/同長本文変更/source_id重複/全消失が全再作成と同じ内容/順序になるfixtureを既図へ結ぶ。[codex-hook.test](../../src/cli/codex-hook.test.mjs)全593行を確認し、payload優先identity・monitor分離・75%でもrefresh非起動・backoff不使用・L1固有失敗codeを確認した。両試験の実行結果は先行Linux全件の成功記録を使い、今回再走していない。
+
+
+## S4 receipt競合試験の観測と確定したfixture不備
+
+[全体S4](README.md#s4-3os-ciと競合試験の原因観測2026-11-03)の初回Windows失敗は、上図Private receiptノード内の競合保持試験である。runtimeの60秒lock待機・rollback/close・private file/ACL・atomic rename・pair/sequenceの契約は変更していない。観測差分は[receipt試験](../../src/completed-turn-receipts.test.mjs)の子stderr収集とclose後の終了code/signal判定だけで、ready前の子終了も理由を残す。未awaitの終了Promiseが理由を欠いてrejectする状態を除いた。CLI/config/export/DB schema、turn-processorとobserverのcallerに変更はない。
+
+試験holderは `BEGIN IMMEDIATE` →14秒保持→ `COMMIT`/closeだが、busy timeoutを設定していない。別のread transactionをCOMMIT時に400msだけ保持する人工条件を、実際の競合試験のholderへ加えたところ、`holder exit 1 / ERR_SQLITE_ERROR / errcode 5 / database is locked`が再現した。holderへ既製品と同じ60秒timeoutを渡す対照条件では同じread/14秒/receipt writerで成功し、既pair保持とsequence2を確認した。Linux Node26.13.0での有限観測であり、Windows原runの失われたstderrを特定したことにはしない。
+
+SQLiteの[COMMITとread transactionの競合](https://www.sqlite.org/lang_transaction.html)および[接続ごとのbusy timeout](https://www.sqlite.org/c3ref/busy_timeout.html)に合うfixture不備である。次工程でholderの待機を製品の既constantへ合わせ、stderr回収を保持する。製品timeout延長・SQL/schema変更・WAL化・エラー無視/無条件再試行を追加する根拠にはしない。修正はSol適用後とし、現候補は観測まで。
