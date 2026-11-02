@@ -2,6 +2,10 @@
 
 このファイルは AI エージェント（Claude Code、Codex、Grok、Cursor など）がこのリポジトリで作業する際のガイダンスです。
 
+## 図起点リファクタの状態（2026-11-03）
+
+現行全体/詳細図・source対応とAstra責務設計は [docs/architecture/README.md](docs/architecture/README.md) を入口とする。現行18図と未実装のhook命令/診断の提案図を区別する。構造実装・関連試験・全consumer閉包・Astra最終整合は未了。公開/本番/Host操作の既条件を変更しない。
+
 ## プロジェクト概要
 
 **Throughline** は Claude Code の hooks プラグインで、会話ターンを 3 層 (L1/L2/L3) に分解して SQLite に保存し、`/clear` 後も記憶を復元します。加えてマルチセッション対応のトークンモニター CLI も同梱しています。

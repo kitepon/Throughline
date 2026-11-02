@@ -553,10 +553,11 @@
       "bytes": 97718,
       "lines": 501,
       "readState": "reference_same_blob",
-      "readNote": "前ターンで読取済み、base間diff無し。本文と全sourceの整合確認は未了",
+      "readNote": "baseは前段既読版と同blob確認済み。候補へ2026-11-03の図/設計入口と未完状態だけ追補。base hashは固定のまま、既説明と全sourceの整合は未了",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "candidateChange": "design-pass-01: architecture入口/未完状態の文書追補のみ。base保存hashの更新ではない"
     },
     {
       "path": "CHANGELOG.md",

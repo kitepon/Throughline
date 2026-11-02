@@ -3,7 +3,7 @@
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
   "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
-  "scope": "17 new figures rendered and PNGs individually viewed; observer reused, semantic/caller/Astra audit incomplete",
+  "scope": "18 current figures (17 rendered, observer reused); 1 proposed figure rendered/visually reviewed; implementation/full consumer/final Astra audit incomplete",
   "rows": [
     {
       "source": "docs/architecture/README.md",
@@ -19,7 +19,7 @@
       "pngBytes": 422966,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "afd727115ec5d9cfd5ca9c9bc5570d0b69490a93d5cc6c6461111bf38eef7aab",
+      "sourceDocumentSha256": "29c962a7949cc5a95cfccc46e9820e4d5a16e78051c1f95e24360d3ce2ed796e",
       "pngEvidence": "png/readme-01.png"
     },
     {
@@ -155,7 +155,7 @@
       "pngBytes": 202473,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dd2fd2b0bf96c27b6cc6621b19b2d6b3751b056bee680e6850d62ca702a386e7",
+      "sourceDocumentSha256": "11d66d32e2a855620c0aff00759ba2d32f37c588fa7ad857f43a6f886ad604c0",
       "pngEvidence": "png/current-lifecycle-01.png"
     },
     {
@@ -172,7 +172,7 @@
       "pngBytes": 218821,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dd2fd2b0bf96c27b6cc6621b19b2d6b3751b056bee680e6850d62ca702a386e7",
+      "sourceDocumentSha256": "11d66d32e2a855620c0aff00759ba2d32f37c588fa7ad857f43a6f886ad604c0",
       "pngEvidence": "png/current-lifecycle-02.png"
     },
     {
@@ -189,7 +189,7 @@
       "pngBytes": 243400,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dd2fd2b0bf96c27b6cc6621b19b2d6b3751b056bee680e6850d62ca702a386e7",
+      "sourceDocumentSha256": "11d66d32e2a855620c0aff00759ba2d32f37c588fa7ad857f43a6f886ad604c0",
       "pngEvidence": "png/current-lifecycle-03.png"
     },
     {
@@ -206,7 +206,7 @@
       "pngBytes": 208670,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dd2fd2b0bf96c27b6cc6621b19b2d6b3751b056bee680e6850d62ca702a386e7",
+      "sourceDocumentSha256": "11d66d32e2a855620c0aff00759ba2d32f37c588fa7ad857f43a6f886ad604c0",
       "pngEvidence": "png/current-lifecycle-04.png"
     },
     {
@@ -304,8 +304,28 @@
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
       "sourceDocumentSha256": "181601ef11a18d86bbe5991027a2997ea3b685732597a35388643196dfdc3060",
       "pngEvidence": "png/current-projections-03.png"
+    },
+    {
+      "source": "docs/architecture/current-lifecycle.md",
+      "block": 5,
+      "sourceDocumentSha256": "11d66d32e2a855620c0aff00759ba2d32f37c588fa7ad857f43a6f886ad604c0",
+      "mermaidSha256": "7365d16b69cf7c4a27ddaf5fb3288d4a1420e74a3db135a9f35b582a6a1fed37",
+      "svg": "docs/architecture/diagrams/proposed-hook-diagnosis-01.svg",
+      "status": "proposal-rendered-visually-reviewed",
+      "svgExit": 0,
+      "svgSha256": "5716f68107147459040dee729d587ed000b4592d1d280ee4c6d1ed110624b7a3",
+      "svgBytes": 212872,
+      "pngExit": 0,
+      "pngSha256": "7981fa5ec1b0f53f6abf20acb3325e43fa6623e367ba0d59a3533521e56a5585",
+      "pngBytes": 330757,
+      "phase": "proposed-not-implemented",
+      "xmlValid": true,
+      "visualReview": "PNG個別表示で命令・検査・書込・返却・旧exportのラベルと矢印が読めることを確認。返却線は関数return、実装/試験の証明ではない。",
+      "reviewedAt": "2026-11-03T06:06:31.789806+09:00",
+      "evidenceDirectory": "work/throughline-refactor-evidence-20261103/design-pass-01 (product owner project)",
+      "pngEvidence": "png/proposed-hook-diagnosis-01.png"
     }
   ],
-  "sourceDocumentUpdatedAt": "2026-11-03T05:46:28.313608+09:00",
-  "sourceDocumentUpdateReason": "source/function/test/helperの索引追補のみ。18 Mermaid blockは全bytes不変、SVG/PNG描画・目視の反復無し。"
+  "sourceDocumentUpdatedAt": "2026-11-03T06:06:31.789806+09:00",
+  "sourceDocumentUpdateReason": "Astra responsibility design appended; existing 18 current blocks and SVGs unchanged; one unimplemented proposal rendered separately"
 }

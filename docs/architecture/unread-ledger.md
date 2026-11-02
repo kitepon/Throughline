@@ -63,7 +63,7 @@
 | .lattice/todo/plans/release-0.8.4/v1/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
 | .lattice/todo/plans/release-0.8.4/v1/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
 | .lattice/todo/plans/release-0.8.4/v1/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
-| AGENTS.md | documentation | reference_same_blob | 前ターンで読取済み、base間diff無し。本文と全sourceの整合確認は未了 |
+| AGENTS.md | documentation | reference_same_blob | baseは既読同blob。候補へ図/設計入口と未完状態のみ追補、base hashは固定。既説明と全sourceの整合は未了 |
 | CHANGELOG.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | LICENSE | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | README.ja.md | documentation | body_read | 全文1..598。現行4host/自動と手動継続/9500字push・pull/報告。runtime依存/Thinking取得/版変更空報告の説明差分を区別、操作へ転用せず |
