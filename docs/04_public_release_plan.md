@@ -67,7 +67,7 @@ Windows PowerShell 5.1へ切り替えない。更新前CLIを再利用せず、�
 - `try { ... } catch { /* ignore */ }` で例外を消さない。
 - failureを記録しながらexit 0へ落とさない。
 - 暗黙に別backend・別session・別pathへ切り替えない。
-- DB不在を診断・migrationの副作用で新規作成しない。
+- `factory-diagnostics --json` と `migrate --json` は未存在DBを作成しない。対話用 `doctor --codex` は既定で `getDb()` を使い、DB作成・schema移行を行い得る。host primitive診断ではCodex CLIによるschema生成も行う。作用を避ける連携には公開factory診断を使う。
 - 外部連携は公開CLI・versioned JSONを使い、SQLiteやWALを直接操作しない。
 
 ## release gate

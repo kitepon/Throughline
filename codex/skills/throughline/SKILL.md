@@ -54,11 +54,19 @@ This is the Codex new-thread continuation flow. It does not mutate the current
 Codex thread. Report the new thread id, open status, and any manual resume
 command if the host could not be opened automatically.
 
-The injected memory must preserve the original `/tl` memory contract:
+The manual new-thread handoff uses a concise rendering of the DB memory:
 
-- recent work: L2 full bodies for the latest 20 turns
-- older turns: L1 summaries
-- L3: detail references only; L3 bodies / tool payloads are not injected
+- recent work: the latest 8 L2 body rows by default (user and assistant each
+  count as a row), with each body capped at 1,600 characters
+- older turns: available L1 summaries
+- an optional memo and captured latest Thinking, when present in the record
+- L3 tool payloads: references only
+
+Use `throughline codex-resume --session codex:<thread-id>` for the full active
+work rendering, or `throughline detail <time>` for a specific body and supported
+L3 detail. Codex automatic handoff has a separate memory contract: the latest
+20 turns as full L2 bodies and older L1 summaries, without Thinking or tool
+payload bodies.
 
 If there are no captured turns or no injectable Throughline DB memory, say that
 clearly.
@@ -187,8 +195,9 @@ Explain the behavior simply:
 - `$throughline` / context handoff: one script command builds new-thread
   handoff memory from Throughline DB, injects it into a new Codex thread as a
   developer item, and opens that thread
-- handoff memory is L2 latest 20 full bodies + older L1 summaries + L3
-  references only
+- manual handoff memory includes older L1 summaries and, by default, the
+  latest 8 L2 body rows capped at 1,600 characters each; optional memo and
+  captured latest Thinking may also appear, while tool payloads remain references
 - diagnostics such as doctor, dry-run, preflight, current-thread rollback,
   restore safety, and host primitive audit are optional tools, not the normal
   `$throughline` path

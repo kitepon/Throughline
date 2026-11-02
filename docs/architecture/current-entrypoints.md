@@ -189,3 +189,10 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 2. resume/context/projection/observer、手動handoff/trim/app-serverのsource本文は各詳細へ接続済み。保持試験/fixtureと外部consumerを埋める。
 3. 導入/診断/更新/報告/monitorのsourceと大きな導入/診断/表示testの本文は運用詳細へ接続済み。未確認の失敗/取消coverageを残す。
 4. 各機能の全caller/試験/fixture/config/exportを索引へ戻し、Astra適用後に責務整理を設計する。
+
+
+## S3追補1: hook入口の保持試験
+
+[hook-entrypoints.test](../../src/hook-entrypoints.test.mjs)の1..86と473..684を追加確認し、import時の無作用と二相3件を選択して全4件通過した。仮HOME/XDG/stateと仮DBを使い、src直接起動でSessionStartのintentだけ→初回promptのbaton消費/merge/出力→2回目非注入、promptを持たない幽霊の非取得、走行中sessionのbaton非横取りをassertする。CLI動的dispatchとは別に、module末尾のdirect-run guardも通る接続である。S1で追加したhost moduleのimportも同じ無作用検査に入る。
+
+全hook試験/全host fixtureは本文未読が残る。この4件を全hook/全OS/自然hook発火の証明にはしない。正常返却のstdoutはhost読了と別、pendingとmerge/出力の確定順は上の初回引継ぎ図を保持する。

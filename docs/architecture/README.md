@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: 現行図/source調査を受けたAstra責務設計。調査固定候補 `747560bf1354c8b5991b69984636ffa9359172d8`、base `39ff812d46c0e84e8fc1418096c509551cf3928b`。以下の現行図と末尾の未実装設計を区別する。S1のhook所有整理は実装済み。S2/S3・全consumer閉包・Astra最終整合は未完。
+状態: Astra責務設計を受け、S1構造実装/S2説明同期済み。S3追補1とLinux全件検証まで確認し、全体意味対応/残OS/Astra最終整合は未了。設計時点の調査固定候補 `747560bf1354c8b5991b69984636ffa9359172d8`、base `39ff812d46c0e84e8fc1418096c509551cf3928b`。以下の現行図と末尾の設計時点の記録を区別する。各段階の現在の到達点はS1実装/S2同期と各詳細末尾の追補を参照する。S3・全consumer閉包・Astra最終整合は未完。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -142,4 +142,4 @@ S1/S2の変更前確認は既Owner手順であり、新しい人の承認関所�
 - 取消APIの無い同期処理は「不適用」、強制終了/通信喪失は段階ごとの既確定とunknownを記す。accepted/captured/queued/continued/ready/updated/ackを一つのdoneへ変換しない。
 - sc-detailのThinking表示、doctorのNode最低版表示、旧installer呼出、temp残存/一部writerのCAS無し、monitor signal寿命などは既知の未照合又は制限。今回の二つの構造境界の整理で自動解決したことにしない。
 
-S1実装記録は[運用詳細末尾](current-lifecycle.md#s1実装と保持確認2026-11-03)へ。既処理の移動と旧参照保持を実装し、focused70件と登録/import選択5件が通過。第5図を実装の現行接続へ更新した。S2/S3と最終整合は継続する。
+S1実装記録は[運用詳細末尾](current-lifecycle.md#s1実装と保持確認2026-11-03)へ。既処理の移動と旧参照保持を実装し、focused70件と登録/import選択5件が通過。第5図を実装の現行接続へ更新した。S2の説明同期と関連31件は[運用詳細のS2記録](current-lifecycle.md#s2説明同期と保持確認2026-11-03)へ。S3と既CI全体範囲、最終整合は継続する。

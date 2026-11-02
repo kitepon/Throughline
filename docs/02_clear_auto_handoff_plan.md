@@ -29,7 +29,12 @@
    前任にする。baton は見ない（[ADR 0053](adr/0053-claude-successor-finds-predecessor-by-handoff-id.md)）。
    それ以外で、適格な baton があればその session id を優先する。baton が無く、`source='clear'` の
    auto predecessor があれば、その前任を使う。
-4. 前任 transcript を backfill してから merge し、予算内の再開文脈を注入する。
+4. 前任の保存済み記憶を merge する。自動継続の配送なら後継の受領を記録し、その後で前任 transcript を backfill する。backfill の失敗は記録して継続し、予算内の再開文脈を生成して host へ返す。
+
+pending 消費・baton 消費・merge・受領・backfill・文脈出力は別の確定点であり、
+後段の失敗で先行した確定を一括で戻さない。受領は backfill や注入の完了を保証しない。
+実装は `src/handoff-executor.mjs:executeFirstPromptHandoff`、接続は
+[現行の初回引継ぎ図](architecture/current-entrypoints.md#初回引継ぎの確定境界) を参照する。
 
 この順序により、transcript を作らない幽霊 SessionStart が baton を先取りしない。
 baton の適格性は新セッション誕生時刻を基準に

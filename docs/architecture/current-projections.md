@@ -43,7 +43,7 @@ flowchart TD
 | [latest-session](../../src/cli/latest-session.mjs):findLatestSession/parseArgs/run | 同projectの更新時刻最新IDをread-onlyで返す | 本文を持つ会話を選ぶhandoff-contextとは異なる意味。候補なしempty、読取失敗exit1を混同しない |
 | [handoff-preview](../../src/cli/handoff-preview.mjs):run / [codex-resume](../../src/cli/codex-resume.mjs):run | getDb→record→既存Codex renderer。Codexはmemo stdin/3formatと制限引数を持つ | JSON/textを生成しただけで配送しない。format/旧引数/export/既default session選択を勝手にそろえない。manual起動/trimの下流本体は[手動詳細](current-manual-continuation.md)へ接続、全consumer閉包は未完 |
 | [recall](../../src/cli/recall.mjs):parseRecallArgs/runRecall/renderRecallL1/renderRecallL2/run | 明示session/before、L2 last、L1 skip/lastでread-only取得。L1未要約を明記、L3は参照suffix | DB未存在/引数/接続/queryは明示失敗、finally close。注入時の境界から追記後も同じ担当範囲を読む |
-| [sc-detail](../../src/sc-detail.mjs):parseDetailArg/detailRangeOn/run | 明示日時又は最近該当日の同project本文→対応turnのL3をbatch読取。getDb経由、範囲とkind別text表示 | 同時刻の複数turnを保持。project比較/日時/Thinking表示の全caller・README・fixture照合は未了。既sourceにThinking専用表示枝が無い点は照合事項として残す |
+| [sc-detail](../../src/sc-detail.mjs):parseDetailArg/detailRangeOn/run | 明示日時又は最近該当日の同project本文→対応turnのL3をbatch読取。getDb経由、範囲とkind別text表示 | 同時刻の複数turnを保持。project比較/日時の全caller閉包は未了。S2でThinkingが既知kindのためlegacyにも振り分けられず表示されないことを確認。sc-detail既test4件はtool_inputのみでThinking非coverage。README両言語へ制限を反映、表示機能は変更しない |
 
 同期rendererとread-only queryに公開AbortSignalは無い。文脈生成失敗はcallerへ戻り、出力後の取消・reader消失で新しい消費位置を製品が保存する経路も無い。DB handleはread-only wrapperのfinallyでcloseするが、強制終了で全cleanup実行を保証しない。`handoff-record`の空/部分fallbackと外側の明示失敗の差は構造整理で保存すべき既存挙動として調べる。
 
@@ -54,7 +54,7 @@ flowchart TD
 | [l3-summary](../../src/l3-summary.mjs):shortenMcpToolName/localizeL3Part/groupL3ByTurn/buildPartsSummary | resume-context/codex-handoff/recall→origin+turn毎の表示suffix。tool_inputだけ件数化、system/tool_outputはsuffixに載せず、Thinking/画像を区別 | 参照labelの省略はDB本文の削除ではない。Map順序を保持し、L1だけincludeBody可。pure表示、state/取消/cleanup無し |
 | [body-digest](../../src/body-digest.mjs):normalizeAuditorBody/hashAuditorBody | completed-turn-receipts/observer/auditor/caveat→NFC・改行統一・trimした本文のSHA256。完了証拠と本文投影を照合する共通責任 | hash一致をDB保存/業務完了の証明に単独使用しない。保存本文そのものをこの関数で書き換えない。正規化を変えると既receipt/cursorとの照合へ届く |
 
-[ADR0016](../adr/0016-push-pull-recall-injection.md)はADR0014のL1先詰めを置換し、現在地/取得案内とturn原子L2をpushする。古い設計の注入順へ戻さない。README.jaもL1非注入を説明している一方、Thinkingをdetailで常に取得できる説明と実表示枝には差がある。今回その有無を無断修理せず、sc-detail testと関連正本の照合対象に残す。日本語READMEのruntime依存ゼロ/版変更後の空report説明も、英語READMEと実sourceとの差分として運用詳細の照合事項へ接続する。
+[ADR0016](../adr/0016-push-pull-recall-injection.md)はADR0014のL1先詰めを置換し、現在地/取得案内とturn原子L2をpushする。古い設計の注入順へ戻さない。S2でtl/skill/READMEをrendererへ照合して訂正した。Thinkingはdetailで表示されない既制限を明記し、手動Codex rendererに取得済み最新Thinkingが入り得る点を通常Claude push/自動Codex継続と分けた。依存/版変更時の空reportの同期と検証根拠は[運用詳細のS2記録](current-lifecycle.md#s2説明同期と保持確認2026-11-03)へ置く。
 
 ## Observer: 既描画の現行図を再利用
 
@@ -123,3 +123,19 @@ flowchart TD
 | [room](../../src/room-context.mjs):recordRoomTurn / [cli/room](../../src/cli/room-context.mjs):run | project/room/message keyでDB保存、同じmessageの再送は不変。指定messageまで3発言を返す | read-only projectionと異なるwriter。既定db=getDb評価の接続作用は関数内の入力検証より先。内容相違はconflict/rollback。COMMIT後の出力失敗は保存取消ではない |
 
 今回読んだ8testはlatest-session、room、caveat、observer core/wire/wait/Codex hash projectionで、実行はしていない。resume-context/handoff-context/auditor/recall/detailの大きなtest、Host以外の実consumer、fixture/config/export閉包は未完。`docs/02_clear_auto_handoff_plan.md`の二相step4はbackfill→mergeという説明だが、実executorはmerge→accepted→backfillであり、図は実source順を採用した。既正本文書の訂正は整理工程の差分で行う照合事項として残す。
+
+
+## S3追補1: 復元保持と既知の公開consumer
+
+[handoff-record.test](../../src/handoff-record.test.mjs)全4件、[codex-resume.test](../../src/codex-resume.test.mjs)全7件、[公開handoff-context試験](../../src/cli/handoff-context.test.mjs)全16件を本文確認して通過した。recordの20turn/最新Thinking/L3参照、manualの短縮/memo/format/引数拒否、公開read-onlyの所有不変・欠落DB非作成・他project非漏洩・同project recent/emptyを確認する。試験数を全renderer/private関数/全consumerの網羅へ広げない。
+
+以下は製品外の既知callerを読取だけで照合した接点であり、内部図を製品内へ複製しない。実体はinstalled `/app/src/` の3file。本文SHA/範囲を自席semantic-pass-01のexternal-consumer-source.jsonへ固定した。他製品の実装・設定・予定は変更せず、その試験も実行していない。
+
+| 外部の公開接点 | Throughline側の関数/返却契約 | callerが所有する消費・失敗・取消 |
+| --- | --- | --- |
+| `throughline-context.mjs:latestThroughlineHandoffContext` | [handoff-context.run/readRecentProjectHandoffContext](../../src/cli/handoff-context.mjs)。project/json/silent/recentを明示、v1 ready又はsessionId=null/context空のempty | emptyは空文字、readyは非空session/contextだけ採用。子終了/JSON/schema不正はcallerの失敗。注入/席の起動は外部所有。本文を引く時に製品がmerge/baton消費をしない契約と一致 |
+| 同:completedThroughlineTurns | [observer-read.run](../../src/cli/observer-read.mjs)のv1既定・limit20 | schema/turns配列を検証し件数だけ返す用途。全DBターン数や業務完了数と同一視しない |
+| `self-turns.mjs:readObserverTurns/SelfTurns.follow` | [feed.readObserverTurnPage](../../src/observer-turn-feed.mjs)→公開v2、limit100、after/through/page-token | fixed-throughを最後まで読んでからconsumer cursorを進める。projection_pendingは保留して再読。seen/lastCompletedAt/画面出力と保存はcallerの所有。DB/WAL mtimeは起動の手がかりであり完了証拠ではない |
+| `room-routing.mjs:roomTurnsFromThroughline` | [room-context.run](../../src/cli/room-context.mjs)へJSON stdin/EOF、v1 ready・末尾messageIdを照合 | 子close/nonzeroと固定errorを検査、speaker/textを投影。DB COMMIT後の出力喪失を保存取消へ補完しない。callerに新しい取消/再送/記憶APIを要求していない |
+
+外部の子process runner/Host内部、Spotter/Caveatの現在の実caller、未知のdeep import/export利用はこの3fileの読取では未確認。公開versioned JSONと旧import面を保持し、到達できない利用を全閉包完了と記さない。新batch/token/poolや実consumer受入は別工程のまま。

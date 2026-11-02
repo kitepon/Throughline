@@ -168,14 +168,14 @@ flowchart TD
 | --- | --- | --- |
 | [install.test](../../src/cli/install.test.mjs)→[install.run](../../src/cli/install.mjs) | global/projectの作用範囲、製品2slash command/1skillのcopy/解除、他製品hook保持、再導入冪等、旧timeoutSec/feature名移行、Codex同期Stop300秒/prompt-tool30秒、Claude非同期Stopと明示有効時だけauto hook、同実体の登録文字列保持 | home差替えが効かない環境で本体をreturnする既testがあり、将来の緑だけを全case実行と説明しない。全file途中失敗/取消fixtureの網羅や実hostの信用・再読込はこのtestだけでは証明しない |
 | 同→buildGrokHookCommand/buildCursorHookCommand/resolveCodexHookNodePath/parseCodexHookCommand/isEquivalentCodexHookCommand | Windows Grok/CodexのPowerShell call operatorとCursorの違い、stable PATH nodeと実体違い、別install/event/旧形式の拒否、登録文字列と他entryの保持 | builder unit assertionと3OS実端末受入は別。設定の順序/quote/再exportを移動の際に保持する |
-| [doctor.test](../../src/cli/doctor.test.mjs)→[doctor._internal](../../src/cli/doctor.mjs) | parseArgs、Codex hook timeout/承認hash/TOML literal-basic key、VSCode task登録、identity/DB件数/注入memory readiness、restore risk診断とexecute可否の分離、primitive audit失敗、時刻/容量/生存診断 | in-memory DB/仮rollout/injected auditRunnerを使うfixture。実Codexや画面の証明ではない。factoryの消費は[cli/factory-diagnostics.inspectFactoryHooks](../../src/cli/factory-diagnostics.mjs)→doctor._internal.readCodexHookDiagnosis。専用所有者へ移す採否はAstraで決め、旧export/testを勝手に削除しない |
+| [doctor.test](../../src/cli/doctor.test.mjs)→[doctor._internal](../../src/cli/doctor.mjs) | parseArgs、Codex hook timeout/承認hash/TOML literal-basic key、VSCode task登録、identity/DB件数/注入memory readiness、restore risk診断とexecute可否の分離、primitive audit失敗、時刻/容量/生存診断 | in-memory DB/仮rollout/injected auditRunnerを使うfixture。実Codexや画面の証明ではない。S1後のfactoryはhosts/codex-hook-diagnosisへ直接接続する。doctor._internalは同じ関数への互換参照として残す。保持試験と所有者の詳細は末尾のS1記録へ |
 | [token-monitor.test](../../src/token-monitor.test.mjs)→[monitor._internal](../../src/token-monitor.mjs) | project/stale/prefix選択、live transcript/rollout優先とstate fallback、state無しCodex発見/merge、推定label、CJK/ANSI/幅/警告/age/実測サイズの描画 | 純関数/仮file中心。mainの複数起動・signal/listener/timer cleanupや実端末resizeは本testのcoverageとはしない。公開parseArgsの未知引数黙殺も意図的な互換assertとして存在する |
 | [vscode-task.test](../../src/vscode-task.test.mjs)→[ensureMonitorTaskFile/detectJsoncFeatures/buildMonitorTask](../../src/vscode-task.mjs) | env/opt-out/bin/cwd検証、shell task生成、merge/indent/他task保持、存在する利用者commandの維持、破損絶対pathだけ修理、JSONC/不正JSON不変、通知marker/抑制/初回notice、gitignore案内 | 仮dir/file/stdoutによるassert。実VSCode起動やfolderOpen実行はしていない。repairはcommand/argsを直すがpresentation等を残す。監視を自動起動するという通知と、その実行成功は別 |
 | [Codex SKILL](../../codex/skills/throughline/SKILL.md)・[metadata](../../codex/skills/throughline/agents/openai.yaml)・[tl](../../.claude/commands/tl.md)・[sc-detail](../../.claude/commands/sc-detail.md) | installが配布する製品artifact。bare invocation/新thread/元surface指定、detail取得の指示が外部callerへ渡る。今回の読取をその操作の実行指示には転用しない | install.testは存在と指示の一部をassertするが、記憶の量/内容説明全体の実装一致は保証しない。下の説明差分とCodex rendererの境界を照合する |
 
 配布正本[README](../../README.md)、[docs01](../01_l1_l2_l3_redesign.md)、[docs04](../04_public_release_plan.md)、[docs08](../08_codex_dual_support.md)も全文を読んだ。docs01は索引上の現行レイヤー設計である一方、自身の対象をschema v4-v5の設計記録と明示する。層の目的は再利用し、当時のSessionStart注入/Haiku既定/Thinking除外を、その後のADR・実装・保持試験より優先する指示にはしない。
 
-以下は既存説明と実装の差として記録する。まだ公開契約やruntimeの変更採否を決めていない。
+以下はsource読取時点で見つけた説明差分の記録である。S2で確定説明を訂正した結果と保持根拠は末尾へ追記した。runtimeはS1以降変更していない。
 
 - tl.mdのL1/L2/L3注入説明に対し、現在のClaude pushは9500字のturn原子L2と取得案内で、L1/Thinkingはpushしない。Codex SKILLの「latest20全本文」と、手動新thread rendererの既定8 body row/本文1600字上限も別の契約である。中間recordの20turnやtrimの全文memoryと、手動引継ぎの短い表現を混同しない。
 - docs04の「診断が未存在DBを作らない」という一般記述に対し、doctor --codexの既定db=getDb()は初期化/移行を含む。factory/read-only migrationの条件と分けて扱い、診断純化を契約維持の名で無断変更しない。
@@ -202,7 +202,7 @@ README.jaも全文照合し、英語READMEとの表現差を保持契約の採�
 
 ### 問題と最小の変更
 
-現行`cli/factory-diagnostics.inspectFactoryHooks`は既定の`readHooks`として`doctor._internal.readCodexHookDiagnosis`を使い、doctorとfactoryはhook命令の生成/照合のため`cli/install.mjs`もimportする。工場向けのread-only観測を辿るのに、対話表示と配布書込を所有する二つのCLIへ入る必要がある。importしただけでそのCLIが実行されるという不具合を主張しているのではない。問題は検査の所有者と依存方向であり、診断の修理範囲を小さく辿れるようにする。
+S1実装前の`cli/factory-diagnostics.inspectFactoryHooks`は既定の`readHooks`として`doctor._internal.readCodexHookDiagnosis`を使い、doctorとfactoryはhook命令の生成/照合のため`cli/install.mjs`もimportする。工場向けのread-only観測を辿るのに、対話表示と配布書込を所有する二つのCLIへ入る必要がある。importしただけでそのCLIが実行されるという不具合を主張しているのではない。問題は検査の所有者と依存方向であり、診断の修理範囲を小さく辿れるようにする。
 
 採用するのは既処理の移動と互換参照の保持だけである。下位のhost境界からCLIへimportを戻さないため、診断抽出と同じ段階で命令の既helperも取り出す。
 
@@ -281,3 +281,29 @@ S2の説明同期は上の公開契約差分を既source/試験へ照合した�
 既存install/doctor/factoryの68試験に、実設定fixtureで既定readerのready/不在/破損分類とfile不変を確認する1試験を加え、移動前69件通過。移動後は旧exportと新所有者の参照一致の1試験も含め70件通過した。hook import無作用、Claude autoの引数とenable/disable登録、Codex autoの引数/初回statusの5件も選択して通過。全件は仮設定/仮home/注入fixtureで、実harness受入ではない。元install testのhome差替え失敗時returnは残るため、全OSの自然hook信用を検証したとは説明しない。
 
 最初の移動検査ではinstallのPATH確認にも必要なdelimiter importを除去して失敗した。これは移動の誤りとして戻し、同じ69件と最終70件で通過を確認。失敗logも自席implementation-pass-01に保持する。全体のS2/S3/CI範囲の受入/Astra最終整合は残る。
+
+
+### S2説明同期と保持確認（2026-11-03）
+
+S1候補59150e6からruntimeを変えず、採用済みの現行説明を実関数へ照合して訂正した。上段の「説明修正候補」はsource調査時点の記録であり、以下が現在の到達点である。
+
+| 同期した正本 | 実source/保持根拠 | 確認範囲と制限 |
+| --- | --- | --- |
+| [tl](../../.claude/commands/tl.md) | [resume-context](../../src/resume-context.mjs):buildBudgetedResumeContext/renderBudgetedSections、[予算試験](../../src/resume-context.test.mjs)のbudgeted 7件＋定数1件 | 9500字、現在地/案内/turn原子L2、L1/Thinking非注入、Desktopのtl併用、bornAt TTL。8件通過。resume test全体の本文読取ではない |
+| [Codex skill](../../codex/skills/throughline/SKILL.md) | [codex-handoff](../../src/codex-handoff.mjs):renderCodexNewThreadHandoff、[手動CLI](../../src/cli/codex-handoff-start.mjs):run、[renderer試験](../../src/codex-handoff.test.mjs) | 既定8本文行/各1600字、L1/任意memo/取得済み最新Thinkingとtool参照。自動継続の20turn全文とは分ける。制限値と省略は既関数/試験で確認、CLI/DBへの実操作無し |
+| [docs02](../02_clear_auto_handoff_plan.md)・`AGENTS.md` | [executor](../../src/handoff-executor.mjs):executeFirstPromptHandoff、[Claude auto](../../src/claude-auto-handoff.mjs):findClaudeAutoContinuationSource/acceptClaudeAutoContinuation、既Claude保持試験 | 後継初回入力でcapture、merge→accepted→backfill→文脈返却。PreCompactはbatonを書かず、enableは3hook。受領を注入完了へ補完しない。既Claude本体試験は今回再実行せず |
+| [docs04](../04_public_release_plan.md) | [doctor](../../src/cli/doctor.mjs):runCodexDiagnosisのdb=getDb/primitive診断、[factory](../../src/cli/factory-diagnostics.mjs)とmigrationの既接続 | 対話診断の作成/移行/子CLI作用と公開read-only診断を区別。既S1の仮DB/注入auditRunner試験を参照し、実doctor/Codex CLIは起動しない |
+| [README](../../README.md)・[日本語README](../../README.ja.md)・AGENTS | [package](../../package.json)、[L1 backend](../../src/haiku-summarizer.mjs):summarizeToL1と[試験](../../src/haiku-summarizer.test.mjs) | 配送依存/任意PTY、Claude-primaryのCodex→Haiku→raw L2、Codex-primaryの明示失敗。backend試験はfake CLIのみ |
+| README両言語・AGENTSのThinking説明 | [sc-detail](../../src/sc-detail.mjs):runと[試験](../../src/sc-detail.test.mjs)、[constants](../../src/constants.mjs) | Thinkingはqueryに含むが既知kindの振分けに表示枝が無い。既4試験は日時/tool入力だけ。制限を説明へ反映し、未実装の表示機能を追加しない |
+| 日本語READMEの報告 | [report](../../src/runtime-error-report.mjs):sendPendingRecords/reportRuntimeErrors、[空報告試験](../../src/runtime-error-report.test.mjs) | 送信/収集が有効で現在版未受領なら空reportを送る。署名付き受領後は同版・未受領記録無しで通信しない。該当1件をloopback仮受信器で通過、実送信先/credentialは使わない |
+
+上のrenderer/detail/backend 3file全22件、budget選択8件、空report選択1件の計31件が通過した。Thinking表示の不足はsourceと既試験の非coverageを照合した結果であり、既試験成功をThinking表示成功へ広げない。元のADR/archiveは当時の記録として保持した。
+
+全体/詳細19 Mermaid blockとSVGの意味は変更せず、文書のsource hashだけ更新する。S2は説明同期であり、S3のCodex auto/hook/復元/外部consumer照合、S4の既CI全体範囲、S5のAstra最終整合は残る。既CIの3OS allを今回31件で代用しない。
+
+
+### S4検証1: Linux全件（S3完了とは別）
+
+既`product-ci-plan.classifyPaths/selectTestFiles`へbase39ff812から現在の全変更pathを渡し、既判定がmacos-native/linux-workstation/windows-nativeの3環境・testScope=allであることを再確認した。既ルールをfocusedへ弱めず、今回の環境で`npm test`を実行した。全1148件中pass1145、fail0、skip3、cancelled0で終了0。HOME/USERPROFILE/XDG_CONFIG_HOME/XDG_STATE_HOME/LOCALAPPDATA/TMPDIRはすべて自席validation-pass-01配下へ隔離した。CLI/backendは既試験の仮fixtureであり、実席/本番DB/配送runnerの受入ではない。
+
+skip3はWindows cmd shimのargv/stdin、Windows PATH npm起動、Windows real ConPTY/更新中addonの3件。macOS/Windowsの全件とGitHub CIは未実行である。Linuxで全試験が通ったことを未読test本文の読了や全関数/consumerの意味閉包へ補完しない。S3補完1は各詳細へ戻したが、残る意味確認とS5 Astra最終整合は未了。新しいrelease/承認条件や公開操作は加えていない。

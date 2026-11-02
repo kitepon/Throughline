@@ -158,3 +158,18 @@ flowchart TD
 `scripts/verify-docs.mjs:verifyDocs`は作業treeのMarkdownを再帰読取し、リンク実在/top-level分類/archive/stubを検証する。`scripts/verify-pack-markdown-links.mjs`はnpm packのdry-run/ignore-scriptsのfile集合と相対targetを照合する。`scripts/markdown-link-targets.mjs`は既存remark/unifiedとHTML属性の抽出であり、Mermaid図の構文・見た目は検査しない。開発用scriptは配布対象外なのでsource path/関数名で索引し、tarball内のリンクとして扱わない。3scriptの本文を確認し、今回の文書検査を図描画/目視の代わりにしない。
 
 [test-env](../../src/test-env.mjs)は試験専用のthread環境除去/Windows fake実行adapter/16MiBの既定buffer、[test-temp-dir](../../src/test-temp-dir.mjs)は試験process exit時の一時dir掃除を持つ。製品runtimeではなくfixtureとして分類し、実harness起動の安全根拠やcancelの保証へ補完しない。本体testの実行/最終OS受入は未実施。
+
+
+## S3追補1: Codex停止境界とunknownの保持根拠
+
+既第3図の準備→許可→実停止→snapshot→mutation→配送→進捗を、実workerと本体試験の該当assertへ照合した。`src/codex-auto-handoff.test.mjs`は部分読取を維持し、全1768行の読了とはしない。
+
+| 図の段・実関数 | 今回読んだassertと所有 | 保持/停止/取消/不明/cleanup |
+| --- | --- | --- |
+| sourceStopGate・requestCodexAutoHandoff/waitForCodexHandoffPreparation | gateFixtureの注入したworker、source、backend、native/goalのfixture。ready後だけauthorizedをCAS保存し、停止前snapshotは正規保存しない | 準備timeout/後着worker/準備中の取消/子開始/goal読取失敗は元を継続。遅れたreadyでauthorizedを復活させない。準備待ちは20秒、外部AbortSignal APIは無い |
+| 実停止・sourceBoundary/runAutoHandoffWorker | 許可後もsource.stoppedAtを待ち、未停止ならgoal/後継/配送は0回。停止後は準備済み要約を再実行しない | 許可返却と実停止は別。後続turnの入力だけ/活動あり/未終了を区別するsourceBoundaryの既規則を保持 |
+| 不変snapshot・collectAutoHandoffMemory/ensureAutoHandoffSummaries/renderFrozenDetail | A→B→Cの24turn中20turn本文/古い4L1、L3非注入、snapshot再設定拒否、元bodies削除後の凍結L3取得 | 元DB行と凍結詳細の所有を分ける。L3参照が取得可能であることを画面・モデルの読了へ補完しない |
+| mutation_stage・runAutoHandoffWorker | create応答喪失はunknown/createのまま再作成0回。submit喪失はunknown/submitから相関turnを観測しcontinuedへ、再配送0回 | create/injectは再送しない。submitだけ実入力の相関で回復する。明示拒否だけstageを解除し、他の通信例外から未作用と判断しない |
+| claimと後続作用 | pid+started_identityのclaim、一度continuedなら再実行で作成/配送を増やさない。goal/queue/名前はcontinued後 | finallyは自分のworker claimをrelease。外部thread/元DB/既配送はrollbackしない。強制終了でfinally実行は保証しない |
+
+この追補に対応する9選択試験は隔離DBと注入依存で通過した。別にhandoff record/resume/公開context 27件、hook import/二相4件も通過。実Host・実モデル・本番DB・実配送runnerの受入へ補完しない。停止前の新しい取消窓口/汎用state machineを追加していない。
