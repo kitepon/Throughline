@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4初回CIの失敗後、確定したfixture不備を修正し、候補2cbe108の3OS全件とgateが成功した。初回exact原因の未確認を含む結果は末尾S4へ記した。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。残OS検証と指導側の全体成果受入は未了。
+状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4初回CIの失敗後、確定したfixture不備を修正し、候補2cbe108の3OS全件とgateが成功した。初回exact原因の未確認を含む結果は末尾S4へ記した。S5の適用済みAstra最終整合を実施し、結果は末尾へ固定した。3OS全件/gate検証と、固定aaec11fの指導担当による全体成果受入は完了。通常保守へ引き継いだ。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -162,7 +162,7 @@ S1/S2の後に、全体図の15機能群を5詳細の責任/接続/実関数/状
 
 ## S5最終整合（2026-11-03、適用済みAstra xhigh）
 
-**判定: 図・責任・接続・保持契約の候補は、以下の確認範囲で指導側へ返却できる。全体受入は未了。** `get_self`で`gpt-6-astra`/`xhigh`、configurationApplication=accepted、fast OFFを確認後、固定候補`395e69fcff47c3f41d478f0eae96ea1692d3875c`を照合した。設計時のAstra確認やSolの索引検査を今回の最終照合の代用にしていない。全体1図・詳細18図、15機能群の採否、実sourceの確定点、代表callerと先行保持試験を対応させた。
+**S5実施時点の判定: 図・責任・接続・保持契約の候補を以下の確認範囲で返却可。当時の全体受入待ちは、末尾のS4検証と受入で完了した。** `get_self`で`gpt-6-astra`/`xhigh`、configurationApplication=accepted、fast OFFを確認後、固定候補`395e69fcff47c3f41d478f0eae96ea1692d3875c`を照合した。設計時のAstra確認やSolの索引検査を今回の最終照合の代用にしていない。全体1図・詳細18図、15機能群の採否、実sourceの確定点、代表callerと先行保持試験を対応させた。
 
 S1以外の構造変更は不要という判断を維持する。既存の分離と個別契約を利用でき、汎用parser/state machine/temp writerへの統合は、保持・失敗・信用文字列を変えるため採らない。今回、修正を要するruntimeの不一致は見つからなかった。全private branch・全外部consumerの意味網羅を保証する判定ではない。
 
@@ -212,7 +212,7 @@ Astra xhigh適用後の観測候補 `6638fd24f5b1cba1f3917019cd8a418500842be0` �
 
 確定したfixture不備は[入口詳細の追補](current-entrypoints.md#s4-receipt競合試験の観測と確定したfixture不備)に示す。製品writerは60秒busy timeoutを持つが、試験holderは0のまま。実際のreceipt試験に400msのSHARED readをCOMMIT時だけ加えるLinux仮観測では、holderがerrcode5でexit1となり、holderにも60秒を設定すると通過した。これはfixtureの失敗機序と対策の根拠であり、初回Windowsの未保存エラーを復元した証明ではない。
 
-Sol High適用後、再現したfixture不備を既待機constantの共有で修正した。修正した実sourceとtimeout0の陰性条件を比較し、必要な検証・固定候補のCI再判定を行う。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。専任・新batch未着手・公開/本番保留を維持する。
+Sol High適用後、再現したfixture不備を既待機constantの共有で修正した。修正した実sourceとtimeout0の陰性条件を比較し、必要な検証・固定候補の3OS CI再判定を完了した。runtime変更の根拠は現確認範囲では得ていない。原runの原因未確定、全semanticMappingComplete=false、未知consumerや既知制限を残す。全19図の指導担当による独立目視は完了しており、残17図待ちには戻さない。図の意味は不変で再描画は不要。受入後に専任を終了し、新batchは別工程、公開/本番は既条件を維持する。
 
 原本は製品担当の `work/throughline-refactor-evidence-20261103/ci-pass-01` と `ci-diagnosis-01`。run/jobs・各log・完全SHA・skip対応・観測patch・人工失敗と対照条件の結果を全体受入/保守移管まで保持する。Host/runner設定と実席操作は行わず、Fox利用の既事前連絡/3分待機条件を適用した。
 
@@ -223,6 +223,15 @@ Sol High適用後、holderへ既待機constantを渡した候補 `2cbe1085c924f6
 
 [run41545098499/attempt1](https://github.com/kitepon/Throughline/actions/runs/41545098499)は同base39ff812/environment allで実行。classifyの3OS/testScope all、各OSのcheckout完全SHAを原logへ束縛した。macOS job125618760895とLinux job125618760685は各1148件/pass1145/skip3/fail0、Windows job125618760653は1148件/pass1138/skip10/fail0、gate125620273325もsuccess。修正した競合試験は全OSでpass。Windows専用cmd shim/PATH npm/実ConPTYの3件も全passで、skip対応と各OSのskip理由は原log/resultへ固定した。
 
-この結果で固定修正候補の必要な3OS実行と既gateは成立した。元runの未保存stderrは回復できず、初回exit1が人工競合と同一原因だったとは断定しない。再現したfixture不備の修正・前後対照と初回exact原因の証拠不足を分け、全体固定成果の既指導担当へ返却する。全体受入と専任終了は返却後の既受渡し条件に従う。全semanticMappingComplete=false、既知制限/未確認、公開/本番未反映を維持する。ここまでの図は全19block不変、再描画/目視反復無し。
+この結果で固定修正候補の必要な3OS実行と既gateは成立した。元runの未保存stderrは回復できず、初回exit1が人工競合と同一原因だったとは断定しない。再現したfixture不備の修正・前後対照と初回exact原因の証拠不足を分け、全体固定成果の既指導担当へ返却する。固定aaec11fは指導担当が受け入れ、通常保守への引継ぎで専任を終了した。全semanticMappingComplete=false、既知制限/未確認、公開/本番未反映を維持する。ここまでの図は全19block不変、再描画/目視反復無し。
 
 原本は `ci-repair-01` のrun/jobs/classify/各OS/gate log、修正patch、controlled-results、windows-linux-skips、resultとSHA manifest。全体受入/通常保守移管まで保持する。本項追記だけの後続commitは試験済み候補からruntime/test不変として束縛し、成功群を再走しない。
+
+
+## 全体成果受入と通常保守への引継ぎ（2026-11-03 08:31 JST受入確認）
+
+指導担当レヴィアタンは固定 `aaec11f63cddbaecd3bc31aa4bd707ce53272932` / base `39ff812d46c0e84e8fc1418096c509551cf3928b` の全体成果を受け入れ、追加runtime/test/図修正は不要と判定した。受入原本は指導担当の `docs/reviews/throughline-aaec11f-20261103/{review.md,readback.json}`。試験済み2cbe108/3OS run41545098499と、最終候補のruntime/test同bytes、19図不変、陰性と修正実sourceの対照を独立確認した。本追記は受入後の文書同期であり、試験/図の再走は行わない。
+
+この引継ぎで図起点リファクタの専任と通常依頼の遮断を終了し、製品の図・実装・互換性・試験と保守へ戻す。main統合、配布、公開/本番反映、実consumer受入は既手順の別工程。Host/OS/他製品の所有、旧Windows追跡・実DB/実席の停止は解除しない。新batchも既利用側契約の別工程とする。
+
+初回stderr未保存/exact原因未確定、全semanticMappingComplete=false、未知consumerと既知制限を保持する。担当の進行正本 `docs/throughline-refactor-20261103.md` と通常保守 `docs/throughline-maintenance.md` へ受入/文書版/終了処理を接続した。担当の証跡原本と候補を履歴照合・後続統合のため保持し、2026-12-03以降に重複控えを整理判断する。
