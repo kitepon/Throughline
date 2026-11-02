@@ -14,8 +14,8 @@
       "sha256": "8186ce9a1eeab83df962e7657d71f7e665e60be2f19efbd2df46ecd23ee6a666",
       "bytes": 1016,
       "lines": 25,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..25。製品detail取得のconsumer指示。実CLI/DBへ実行せず",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -26,8 +26,8 @@
       "sha256": "cc4a8230b8373ed69d0af86191f257e175efb7e8dc128856ee1e919d9c697c48",
       "bytes": 1065,
       "lines": 15,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..15。配布slash指示と現行budget pushの差分を記録。hook動作/解除契約は維持",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -39,10 +39,11 @@
       "bytes": 109972,
       "lines": 3024,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/og-art.png",
@@ -51,10 +52,11 @@
       "bytes": 1950562,
       "lines": 50214,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/og-v0.5.0.svg",
@@ -63,10 +65,11 @@
       "bytes": 6541,
       "lines": 140,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/og.config.json",
@@ -87,10 +90,11 @@
       "bytes": 1257932,
       "lines": 33263,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/og.svg",
@@ -99,10 +103,11 @@
       "bytes": 6105,
       "lines": 130,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/render-og.mjs",
@@ -123,10 +128,11 @@
       "bytes": 171783,
       "lines": 4661,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "presentation-asset-not-runtime-contract"
     },
     {
       "path": ".github/workflows/product-full-ci.yml",
@@ -183,10 +189,11 @@
       "bytes": 923,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/accept-release-0.8.7-terminal-audit.json",
@@ -195,10 +202,11 @@
       "bytes": 911,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence-release-0.8.7-ci-latency.json",
@@ -207,10 +215,11 @@
       "bytes": 305,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/readonly-handoff-context-t1.json",
@@ -219,10 +228,11 @@
       "bytes": 314,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/readonly-handoff-context-t2.json",
@@ -231,10 +241,11 @@
       "bytes": 307,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/readonly-handoff-context-t3-docs-sync.json",
@@ -243,10 +254,11 @@
       "bytes": 315,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/readonly-handoff-context-t3.json",
@@ -255,10 +267,11 @@
       "bytes": 285,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/release-0.8.4.json",
@@ -267,10 +280,11 @@
       "bytes": 306,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/evidence/release-0.8.7-terminal-audit.json",
@@ -279,10 +293,11 @@
       "bytes": 309,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/extract-grok-successor.json",
@@ -291,10 +306,11 @@
       "bytes": 5411,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/plan-create-grok-successor.json",
@@ -303,10 +319,11 @@
       "bytes": 3217,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/plan-create.json",
@@ -315,10 +332,11 @@
       "bytes": 659,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/revise-release-0.8.5-ci-latency.json",
@@ -327,10 +345,11 @@
       "bytes": 1738,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/manifest.json",
@@ -339,10 +358,11 @@
       "bytes": 1685,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/notes/grok-successor-launch/active.jsonl",
@@ -351,10 +371,11 @@
       "bytes": 2325,
       "lines": 4,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/grok-successor-launch/v1/journal/active.jsonl",
@@ -363,10 +384,11 @@
       "bytes": 17149,
       "lines": 13,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/grok-successor-launch/v1/plan.json",
@@ -375,10 +397,11 @@
       "bytes": 3117,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/grok-successor-launch/v1/snapshot.json",
@@ -387,10 +410,11 @@
       "bytes": 10958,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/readonly-handoff-context/v1/journal/active.jsonl",
@@ -399,10 +423,11 @@
       "bytes": 10884,
       "lines": 14,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/readonly-handoff-context/v1/plan.json",
@@ -411,10 +436,11 @@
       "bytes": 2525,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/readonly-handoff-context/v1/snapshot.json",
@@ -423,10 +449,11 @@
       "bytes": 1904,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/journal/active.jsonl",
@@ -435,10 +462,11 @@
       "bytes": 4791,
       "lines": 5,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/plan.json",
@@ -447,10 +475,11 @@
       "bytes": 693,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/revision.json",
@@ -459,10 +488,11 @@
       "bytes": 1738,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/snapshot.json",
@@ -471,10 +501,11 @@
       "bytes": 881,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/v1/journal/active.jsonl",
@@ -483,10 +514,11 @@
       "bytes": 2024,
       "lines": 3,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/v1/plan.json",
@@ -495,10 +527,11 @@
       "bytes": 628,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": ".lattice/todo/plans/release-0.8.4/v1/snapshot.json",
@@ -507,10 +540,11 @@
       "bytes": 845,
       "lines": 1,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-release-evidence-not-current-runtime-proof"
     },
     {
       "path": "AGENTS.md",
@@ -566,8 +600,8 @@
       "sha256": "ec34d918ee9233f33e95059a80c9ec03128ab964b1afa53bb84be7ec64cb466f",
       "bytes": 99835,
       "lines": 1531,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..1531。公開entry/host/auto/manual/observer/保持/診断/更新。現在sourceとの差分を運用詳細へ記録、引用操作は実行せず",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -595,8 +629,8 @@
       "sha256": "09e27432e7beab869b11522cfc9eb991794052207bf61d90b2623042c4189766",
       "bytes": 6460,
       "lines": 194,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..194。配布artifactとしてbare/手動new-thread/元surface/表示指示を読取、実CLI操作へ転用せず。20turn全本文の説明差分を記録",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -631,8 +665,8 @@
       "sha256": "d2946f05ccc09ceb58693c3274f9918e65424f34bfdfd577939e7b2b64b0c78e",
       "bytes": 24258,
       "lines": 415,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..415。schema v4-v5のレイヤー設計記録。現行索引との位置付けと後続ADR/実装との差分を区別",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -655,8 +689,8 @@
       "sha256": "d7b1be829e3cad1c86eece4d7d991553301b121b5bb937c01e2d685c68cf120b",
       "bytes": 7884,
       "lines": 104,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..104。明示失敗/診断/移行/配布gate。doctor既定DB初期化との差分は整理時に採否照合",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -691,8 +725,8 @@
       "sha256": "03930b05cb1f535af456ed1aafad756225631f5168aabb24ae87a6719aa9eab4",
       "bytes": 1434,
       "lines": 23,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..23。Claude primaryと追加Codex adapterの責任/公開窓口維持方針",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -1604,10 +1638,11 @@
       "bytes": 23910,
       "lines": 350,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/03_inheritance_on_clear_only.md",
@@ -1616,10 +1651,11 @@
       "bytes": 12739,
       "lines": 168,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/07_codex_trim_implementation_plan.md",
@@ -1628,10 +1664,11 @@
       "bytes": 45211,
       "lines": 528,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/10_transcript_injection_plan.md",
@@ -1640,10 +1677,11 @@
       "bytes": 42119,
       "lines": 446,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/11_codex_monitor_implementation_plan.md",
@@ -1652,10 +1690,11 @@
       "bytes": 11636,
       "lines": 239,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/12_desktop_clear_handoff_plan.md",
@@ -1664,10 +1703,11 @@
       "bytes": 24384,
       "lines": 218,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/13_native_factory_diagnostics_plan.md",
@@ -1676,10 +1716,11 @@
       "bytes": 3226,
       "lines": 48,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/14_observer_completed_turn_feed_plan.md",
@@ -1688,10 +1729,11 @@
       "bytes": 21111,
       "lines": 290,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/15_windows_ci_release_latency_plan.md",
@@ -1700,10 +1742,11 @@
       "bytes": 5390,
       "lines": 89,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/16_readonly_handoff_context_plan.md",
@@ -1712,10 +1755,11 @@
       "bytes": 2405,
       "lines": 40,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/BUGHUB_RUNTIME_ERROR_STORE_PLAN.md",
@@ -1724,10 +1768,11 @@
       "bytes": 4965,
       "lines": 79,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/CONCEPT.md",
@@ -1736,10 +1781,11 @@
       "bytes": 19602,
       "lines": 476,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/EXPERIMENT.md",
@@ -1748,10 +1794,11 @@
       "bytes": 24662,
       "lines": 371,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/README.md",
@@ -1760,10 +1807,11 @@
       "bytes": 2582,
       "lines": 35,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/SESSION_LINKING_DESIGN.md",
@@ -1772,10 +1820,11 @@
       "bytes": 12013,
       "lines": 231,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/THROUGHLINE_NEXT_STEPS.md",
@@ -1784,10 +1833,11 @@
       "bytes": 7890,
       "lines": 134,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/plan_grok-successor-launch.md",
@@ -1796,10 +1846,11 @@
       "bytes": 5128,
       "lines": 99,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/archive/room-log_throughline_20260830-155052.md",
@@ -1808,10 +1859,11 @@
       "bytes": 14525,
       "lines": 285,
       "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readNote": "未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
-      "declarationHints": []
+      "declarationHints": [],
+      "refactorApplicability": "historical-reference-only-unless-affected"
     },
     {
       "path": "docs/audit-2026-05/codex-trim-rollback-incident-report.md",
@@ -4511,8 +4563,8 @@
       "sha256": "05b975b3b401cb912ce11ae31843c61717ed5dc50cbcddac0a297e0a27e3ccf0",
       "bytes": 28248,
       "lines": 762,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..762。内部export/仮DB・rollout/audit注入、hook信頼/timeout/型/ready/失敗分類。本文のみ未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -5053,8 +5105,8 @@
       "sha256": "32f0de67bd6f1bd8fb530c4c3e32db2c73d6af98c9609723957be1d646ae622d",
       "bytes": 39754,
       "lines": 950,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..950。global/project/4host/command/skill/信用文字列/旧形式/他設定/冪等。home差替え不成立returnを明記。未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -11061,8 +11113,8 @@
       "sha256": "b434b76a180406dacb6318c5dd3e140e4af2b2a8be209bd74e7df243503449b0",
       "bytes": 27978,
       "lines": 771,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..771。filter/live優先/fallback/discovery/merge/CJK・ANSI/幅・age・警告。signal/main寿命の証明とはせず。未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -11821,8 +11873,8 @@
       "sha256": "3327e134a51c3f567f16ef27012c0803c03d27a7b54c2a169d0a72ea2ddbbd50",
       "bytes": 31374,
       "lines": 993,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..993。env/JSONC/通知/marker/merge/破損path修理と利用者設定保持。仮fileのみ、本文確認で未実行",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [

@@ -1,6 +1,6 @@
 # source読取に対応する現行入口と記録・引継ぎ
 
-対象はbase39ff812。初回はCLI/SessionStart/DB入口、次に記録・初回引継ぎ・host adapter・receiptの本文を調べた。読取範囲と未読は[台帳](unread-ledger.md)へ分ける。図は実読した流れの初稿で、未読部分の代用ではない。新APIや構造変更の提案を描いていない。まだ実描画/目視していない。
+対象はbase39ff812。初回はCLI/SessionStart/DB入口、次に記録・初回引継ぎ・host adapter・receiptの本文を調べた。読取範囲と未読は[台帳](unread-ledger.md)へ分ける。図は実読した流れの初稿で、未読部分の代用ではない。新APIや構造変更の提案を描いていない。新4図は実描画/目視済み。原稿block/SVG/PNGの対応は[描画manifest](render-manifest.json)へ。Astra最終整合とconsumer閉包は未了。
 
 ```mermaid
 flowchart TD

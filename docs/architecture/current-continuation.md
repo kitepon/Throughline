@@ -1,6 +1,6 @@
 # 自動継続・旧会話入力・OS起動の現行source対応
 
-基準は `39ff812d46c0e84e8fc1418096c509551cf3928b`。Solで本文を読んだ現行経路の記録で、構造変更の設計案ではない。[機能索引](README.md)と[記録/初回handoff](current-entrypoints.md)へ接続する。未読台帳と全consumer閉包は未完。以下の新図は未描画・未目視、Astra整合未了。実CLI・OS・実DBの操作で確認した図ではない。
+基準は `39ff812d46c0e84e8fc1418096c509551cf3928b`。Solで本文を読んだ現行経路の記録で、構造変更の設計案ではない。[機能索引](README.md)と[記録/初回handoff](current-entrypoints.md)へ接続する。未読台帳と全consumer閉包は未完。以下の新3図は実描画/目視済みで[描画manifest](render-manifest.json)へ対応付けた。Astra整合未了。実CLI・OS・実DBの操作で確認した図ではない。
 
 ## Claude: 停止許可・起動・受領・表示は別の状態
 

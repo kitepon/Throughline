@@ -1,6 +1,6 @@
 # 導入・監視・診断・更新・エラー報告の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。sourceの読取から得た現行図であり、責務整理案の採否・実装・実Host受入ではない。新4図は未描画。ここまでで機械分類source126fileの本文を確認したが、fixture4を含む数であり、全test/config/export/consumerの照合は未完。
+基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。sourceの読取から得た現行図であり、責務整理案の採否・実装・実Host受入ではない。新4図は実描画/目視済みで[描画manifest](render-manifest.json)へ対応付けた。Astra最終整合は未了。ここまでで機械分類source126fileの本文を確認したが、fixture4を含む数であり、全test/config/export/consumerの照合は未完。
 
 ## 導入・解除と設定信用
 
@@ -160,6 +160,28 @@ flowchart TD
 | `.github/workflows/publish.yml`と`scripts/verify-release-commit.mjs:verifyReleaseCommit` | tag版一致→依存→npm publish、prepublishでdefault branch祖先/clean payloadと試験を確認。packageのbin/files/scriptsが公開入口 | 公開の既承認を解除しない。release gateは既仕組みを維持、新しい承認条件は追加しない |
 | `codex/skills/throughline/agents/openai.yaml`と`.gitignore` | 配布skillの表示/implicit invocation、端末settings/task/secret marker等の追跡除外 | skill本文とslash commandの指示/consumer契約は次工程。ignoreは秘密/状態の不存在を証明しない |
 
-今回読んだ残15sourceと、migration/core factory/CLI factory/terminal-size/self-update/runtime store/runtime reportの7testは本文確認のみ、未実行。大きなinstall/doctor/monitor/VSCode task/CLI runtime/context等のtest、fixture/config/skill/export、外部consumerの閉包は未完。全機械sourceの本文確認をもってこれらの完了にしない。
+残15sourceと、migration/core factory/CLI factory/terminal-size/self-update/runtime store/runtime reportの7testは前段で本文確認した。今回さらにinstall/doctor/token-monitor/VSCode taskの4testと配布skill/slash commandを全文確認した。いずれのruntime testも未実行。CLI runtime/context等のtest、fixture/config/export、外部consumerの閉包は未完。全機械sourceの本文確認をもってこれらの完了にしない。
+
+### 導入・診断・表示の保持試験と配布契約
+
+| 入口/対応する試験・artifact | 本文から確認した保持契約 | 未確認と整理時の扱い |
+| --- | --- | --- |
+| [install.test](../../src/cli/install.test.mjs)→[install.run](../../src/cli/install.mjs) | global/projectの作用範囲、製品2slash command/1skillのcopy/解除、他製品hook保持、再導入冪等、旧timeoutSec/feature名移行、Codex同期Stop300秒/prompt-tool30秒、Claude非同期Stopと明示有効時だけauto hook、同実体の登録文字列保持 | home差替えが効かない環境で本体をreturnする既testがあり、将来の緑だけを全case実行と説明しない。全file途中失敗/取消fixtureの網羅や実hostの信用・再読込はこのtestだけでは証明しない |
+| 同→buildGrokHookCommand/buildCursorHookCommand/resolveCodexHookNodePath/parseCodexHookCommand/isEquivalentCodexHookCommand | Windows Grok/CodexのPowerShell call operatorとCursorの違い、stable PATH nodeと実体違い、別install/event/旧形式の拒否、登録文字列と他entryの保持 | builder unit assertionと3OS実端末受入は別。設定の順序/quote/再exportを移動の際に保持する |
+| [doctor.test](../../src/cli/doctor.test.mjs)→[doctor._internal](../../src/cli/doctor.mjs) | parseArgs、Codex hook timeout/承認hash/TOML literal-basic key、VSCode task登録、identity/DB件数/注入memory readiness、restore risk診断とexecute可否の分離、primitive audit失敗、時刻/容量/生存診断 | in-memory DB/仮rollout/injected auditRunnerを使うfixture。実Codexや画面の証明ではない。factoryの消費は[cli/factory-diagnostics.inspectFactoryHooks](../../src/cli/factory-diagnostics.mjs)→doctor._internal.readCodexHookDiagnosis。専用所有者へ移す採否はAstraで決め、旧export/testを勝手に削除しない |
+| [token-monitor.test](../../src/token-monitor.test.mjs)→[monitor._internal](../../src/token-monitor.mjs) | project/stale/prefix選択、live transcript/rollout優先とstate fallback、state無しCodex発見/merge、推定label、CJK/ANSI/幅/警告/age/実測サイズの描画 | 純関数/仮file中心。mainの複数起動・signal/listener/timer cleanupや実端末resizeは本testのcoverageとはしない。公開parseArgsの未知引数黙殺も意図的な互換assertとして存在する |
+| [vscode-task.test](../../src/vscode-task.test.mjs)→[ensureMonitorTaskFile/detectJsoncFeatures/buildMonitorTask](../../src/vscode-task.mjs) | env/opt-out/bin/cwd検証、shell task生成、merge/indent/他task保持、存在する利用者commandの維持、破損絶対pathだけ修理、JSONC/不正JSON不変、通知marker/抑制/初回notice、gitignore案内 | 仮dir/file/stdoutによるassert。実VSCode起動やfolderOpen実行はしていない。repairはcommand/argsを直すがpresentation等を残す。監視を自動起動するという通知と、その実行成功は別 |
+| [Codex SKILL](../../codex/skills/throughline/SKILL.md)・[metadata](../../codex/skills/throughline/agents/openai.yaml)・[tl](../../.claude/commands/tl.md)・[sc-detail](../../.claude/commands/sc-detail.md) | installが配布する製品artifact。bare invocation/新thread/元surface指定、detail取得の指示が外部callerへ渡る。今回の読取をその操作の実行指示には転用しない | install.testは存在と指示の一部をassertするが、記憶の量/内容説明全体の実装一致は保証しない。下の説明差分とCodex rendererの境界を照合する |
+
+配布正本[README](../../README.md)、[docs01](../01_l1_l2_l3_redesign.md)、[docs04](../04_public_release_plan.md)、[docs08](../08_codex_dual_support.md)も全文を読んだ。docs01は索引上の現行レイヤー設計である一方、自身の対象をschema v4-v5の設計記録と明示する。層の目的は再利用し、当時のSessionStart注入/Haiku既定/Thinking除外を、その後のADR・実装・保持試験より優先する指示にはしない。
+
+以下は既存説明と実装の差として記録する。まだ公開契約やruntimeの変更採否を決めていない。
+
+- tl.mdのL1/L2/L3注入説明に対し、現在のClaude pushは9500字のturn原子L2と取得案内で、L1/Thinkingはpushしない。Codex SKILLの「latest20全本文」と、手動新thread rendererの既定8 body row/本文1600字上限も別の契約である。中間recordの20turnやtrimの全文memoryと、手動引継ぎの短い表現を混同しない。
+- docs04の「診断が未存在DBを作らない」という一般記述に対し、doctor --codexの既定db=getDb()は初期化/移行を含む。factory/read-only migrationの条件と分けて扱い、診断純化を契約維持の名で無断変更しない。
+- READMEのruntime dependency無し/Haiku既定という記述は、package.jsonの配送dependency/optional PTYと現行L1 backend選択に一致しない箇所がある。新dependencyを追加する理由にはせず、説明修正候補として保持する。
+- repo直下の旧install.mjsが指すdetail-capture.mjs/context-injector.mjsはtracked現行に存在せず、現行bin dispatch/package filesにもそのinstallerは入っていない。削除は利用履歴/互換参照の確認後に採否を決める。旧pathの存在をruntimeの現役経路へ補完しない。
+
+現在の主な未読は、現役契約README.ja/関連ADR、残る本体testとfixture/外部consumerである。archiveの過去計画・release証拠・宣伝画像は、現役runtime入口や現在の保持試験とは区別し、影響対象になった時に該当箇所だけ調べる。機械分類の未読数をゼロにするためだけに読み込む関所は設けない。
 
 整理検討事項は、factoryからdoctor `_internal`への参照、install内のhost別設定/検査/配布と表示の同居、診断とDB初期化作用の境界、temp writerと複数file部分確定、monitorの観測/描画/プロセス寿命の同居。既存契約が異なる箇所をただ似ているという理由で統合せず、保持契約/関連testの確認後にAstraで採否と代替案を決める。

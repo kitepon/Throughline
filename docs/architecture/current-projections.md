@@ -1,6 +1,6 @@
 # 文脈復元・observer・外部文脈の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→file/関数へ辿る。Solのsource読取段階であり、整理案の採否/実装/Astra最終整合は未着手。実DB・実harnessで確認した図ではない。新しい復元/room図は未描画、observer図は既描画原稿を再利用する。
+基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→file/関数へ辿る。Solのsource読取段階であり、整理案の採否/実装/Astra最終整合は未着手。実DB・実harnessで確認した図ではない。復元/room図は実描画/目視済み、observer図は既描画原稿を再利用。[描画manifest](render-manifest.json)へ対応付けた。
 
 ## 記憶の読取と表現の境界
 
@@ -8,7 +8,8 @@
 flowchart TD
   Caller[hook初回引継ぎ / 公開CLI caller] --> Entry{公開入口と目的}
   Entry -->|handoff-context| RO[既存DBだけread-only open / finally close]
-  Entry -->|handoff-preview / codex-resume / detail| RW[getDb / schema初期化・移行の作用あり]
+  Entry -->|handoff-preview / codex-resume| RW[getDb / schema初期化・移行の作用あり]
+  Entry -->|detail| DetailDB[getDb / 日時とprojectでmerge chain照合]
   Entry -->|recall| Pull[明示sessionとbefore境界 / read-only DB]
   RO --> Select[明示session / 同project最新の本文あり / recent集合]
   Select --> Record[buildHandoffRecord: L1/L2/Thinking/L3参照の中間表現]
@@ -22,11 +23,15 @@ flowchart TD
   Manual --> Out
   Budget --> Hints[取得案内へsession / before / last / skipを固定]
   Hints --> Pull
-  Pull --> Detail[detail: 日時・projectからL2/L3を取得]
+  Pull --> Recall[recall: 固定境界からL2全文又はL1索引を返却]
+  Recall -.->|必要時に別CLIを呼ぶ案内| DetailDB
+  DetailDB --> Detail[detail: 日時・projectからL2/L3を取得]
+  Recall --> Out
+  Detail --> Out
   Out -.-> Consumer[callerの注入 / モデル読了 / 業務完了は別所有]
 ```
 
-図の`getDb`はpure projectionそのものの書込ではなくCLIの接続初期化の作用。公開`handoff-context`と`recall`はread-onlyを使うが、`handoff-preview`/`codex-resume`/`detail`まで同じread-only接続と補完しない。hook側のmerge/pending/acceptedは[記録図](current-entrypoints.md)と[自動継続図](current-continuation.md)に正本を置く。
+図の`getDb`はpure projectionそのものの書込ではなくCLIの接続初期化の作用。公開`handoff-context`と`recall`はread-onlyを使うが、`handoff-preview`/`codex-resume`/`detail`まで同じread-only接続と補完しない。`detail`はhandoff recordを生成せず、`recall`も内部で`detail`を実行しない。破線は返却文にある別CLIへの取得案内である。初稿の両経路の結線を実関数に合わせて訂正した。hook側のmerge/pending/acceptedは[記録図](current-entrypoints.md)と[自動継続図](current-continuation.md)に正本を置く。
 
 | source / 関数 | 入力・返却と状態所有 | 保持契約/未確認 |
 | --- | --- | --- |

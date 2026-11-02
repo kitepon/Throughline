@@ -1,6 +1,6 @@
 # 手動継続・trim・app-server診断の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。source読取段階の現行図で、整理案の採否・コード変更・新batch追加は含めない。新図は未描画。実app-server・rollout・Hostを操作して確かめた図ではない。
+基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。source読取段階の現行図で、整理案の採否・コード変更・新batch追加は含めない。新3図は実描画/目視済みで[描画manifest](render-manifest.json)へ対応付けた。Astra最終整合は未了。実app-server・rollout・Hostを操作して確かめた図ではない。
 
 ## 手動の新スレッド引継ぎ
 

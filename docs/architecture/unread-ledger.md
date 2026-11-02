@@ -13,69 +13,71 @@
 
 | 本文確認状態 | 件数 |
 | --- | ---: |
-| body_read | 182 |
+| body_read | 193 |
 | reference_same_blob | 1 |
-| unread | 234 |
+| unread | 223 |
+
+未読は一律に必読ではない。archive/旧release証拠/宣伝assetの適用性はmanifestへ理由を残し、現役契約・変更対象のcaller/test/fixture/config/exportを優先する。未読の適用性分類を本文読了や意味確認に補完しない。
 
 | path | 機械役割 | 本文確認状態 | 確認範囲/残確認 |
 | --- | --- | --- | --- |
-| .claude/commands/sc-detail.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .claude/commands/tl.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/kitepon-dev-on-night.png | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/og-art.png | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/og-v0.5.0.svg | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| .claude/commands/sc-detail.md | documentation | body_read | 全文1..25。製品detail取得のconsumer指示。実CLI/DBへ実行せず |
+| .claude/commands/tl.md | documentation | body_read | 全文1..15。配布slash指示と現行budget pushの差分を記録。hook動作/解除契約は維持 |
+| .github/kitepon-dev-on-night.png | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
+| .github/og-art.png | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
+| .github/og-v0.5.0.svg | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
 | .github/og.config.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/og.png | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/og.svg | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| .github/og.png | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
+| .github/og.svg | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
 | .github/render-og.mjs | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .github/social-preview.jpg | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| .github/social-preview.jpg | config-support | unread | 未調査。宣伝/表示asset。runtime機能や保持契約の入口ではないため今回の本文調査を必須化しない |
 | .github/workflows/product-full-ci.yml | config-support | body_read | 全文。製品所有分類/3環境matrix/依存/試験/最終gate、外部action固定SHA。今回CI未起動 |
 | .github/workflows/publish.yml | config-support | body_read | 全文。tag版一致/OIDC/npm publishと既prepublish gate。今回公開未実行 |
 | .github/workflows/test.yml | config-support | body_read | 全文。ownershipと製品workflowへの接続、比較base/依存/文書/Node試験。今回CI未起動 |
 | .gitignore | config-support | body_read | 全文。端末settings/task、secret marker/runtime/cache等除外。状態不存在の証明にはしない |
-| .lattice/accept-readonly-handoff-context.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/accept-release-0.8.7-terminal-audit.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence-release-0.8.7-ci-latency.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/readonly-handoff-context-t1.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/readonly-handoff-context-t2.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/readonly-handoff-context-t3-docs-sync.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/readonly-handoff-context-t3.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/release-0.8.4.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/evidence/release-0.8.7-terminal-audit.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/extract-grok-successor.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/plan-create-grok-successor.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/plan-create.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/revise-release-0.8.5-ci-latency.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/manifest.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/notes/grok-successor-launch/active.jsonl | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/grok-successor-launch/v1/journal/active.jsonl | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/grok-successor-launch/v1/plan.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/grok-successor-launch/v1/snapshot.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/readonly-handoff-context/v1/journal/active.jsonl | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/readonly-handoff-context/v1/plan.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/readonly-handoff-context/v1/snapshot.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/journal/active.jsonl | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/plan.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/revision.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/snapshot.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/v1/journal/active.jsonl | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/v1/plan.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| .lattice/todo/plans/release-0.8.4/v1/snapshot.json | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| .lattice/accept-readonly-handoff-context.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/accept-release-0.8.7-terminal-audit.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence-release-0.8.7-ci-latency.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/readonly-handoff-context-t1.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/readonly-handoff-context-t2.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/readonly-handoff-context-t3-docs-sync.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/readonly-handoff-context-t3.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/release-0.8.4.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/evidence/release-0.8.7-terminal-audit.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/extract-grok-successor.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/plan-create-grok-successor.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/plan-create.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/revise-release-0.8.5-ci-latency.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/manifest.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/notes/grok-successor-launch/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/grok-successor-launch/v1/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/grok-successor-launch/v1/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/grok-successor-launch/v1/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/readonly-handoff-context/v1/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/readonly-handoff-context/v1/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/readonly-handoff-context/v1/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/revision.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/rev-45e0a5fdc8b8f2d6e36c2d22/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/v1/journal/active.jsonl | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/v1/plan.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
+| .lattice/todo/plans/release-0.8.4/v1/snapshot.json | config-support | unread | 未読。旧release/受入証拠。現行code保持の証明へ補完せず、影響対象の証拠だけ照合 |
 | AGENTS.md | documentation | reference_same_blob | 前ターンで読取済み、base間diff無し。本文と全sourceの整合確認は未了 |
 | CHANGELOG.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | LICENSE | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | README.ja.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| README.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| README.md | documentation | body_read | 全文1..1531。公開entry/host/auto/manual/observer/保持/診断/更新。現在sourceとの差分を運用詳細へ記録、引用操作は実行せず |
 | bin/throughline.mjs | source | body_read | 全文。dispatch/errorとhelp後半を本文確認。各公開CLIのcallee/外部callerと設定/試験の閉包は未了 |
-| codex/skills/throughline/SKILL.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| codex/skills/throughline/SKILL.md | documentation | body_read | 全文1..194。配布artifactとしてbare/手動new-thread/元surface/表示指示を読取、実CLI操作へ転用せず。20turn全本文の説明差分を記録 |
 | codex/skills/throughline/agents/openai.yaml | config-support | body_read | 全文。表示/既定prompt/implicit invocation。skill本文は未読 |
 | docs/00_overview.md | documentation | body_read | 全体索引本文を読取。全リンク先の読了ではない |
-| docs/01_l1_l2_l3_redesign.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/01_l1_l2_l3_redesign.md | documentation | body_read | 全文1..415。schema v4-v5のレイヤー設計記録。現行索引との位置付けと後続ADR/実装との差分を区別 |
 | docs/02_clear_auto_handoff_plan.md | documentation | body_read | 全文。host別/二相/注入契約。step4 backfill→merge説明と実executor merge→accepted→backfillの相違を照合事項として記録。訂正は未実施 |
-| docs/04_public_release_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/04_public_release_plan.md | documentation | body_read | 全文1..104。明示失敗/診断/移行/配布gate。doctor既定DB初期化との差分は整理時に採否照合 |
 | docs/05_codex_first_roadmap.md | documentation | body_read | 全文。現行auto新thread/手動/trim/無効refreshと過去Phase/実測を分離。新図のsource順を旧記録へ合わせない。実測再走無し |
 | docs/06_codex_trim_rollback_fix_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/08_codex_dual_support.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/08_codex_dual_support.md | documentation | body_read | 全文1..23。Claude primaryと追加Codex adapterの責任/公開窓口維持方針 |
 | docs/09_rollback_context_trim_insight.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/12_desktop_clear_handoff_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/15_windows_ci_release_latency_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -151,24 +153,24 @@
 | docs/adr/0070-codex-memory-preparation-before-source-stop.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0071-windows-update-with-live-terminals.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0072-codex-active-source-after-failed-handoff.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/02_clear_auto_handoff_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/03_inheritance_on_clear_only.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/07_codex_trim_implementation_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/10_transcript_injection_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/11_codex_monitor_implementation_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/12_desktop_clear_handoff_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/13_native_factory_diagnostics_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/14_observer_completed_turn_feed_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/15_windows_ci_release_latency_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/16_readonly_handoff_context_plan.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/BUGHUB_RUNTIME_ERROR_STORE_PLAN.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/CONCEPT.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/EXPERIMENT.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/README.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/SESSION_LINKING_DESIGN.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/THROUGHLINE_NEXT_STEPS.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/plan_grok-successor-launch.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/archive/room-log_throughline_20260830-155052.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/archive/02_clear_auto_handoff_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/03_inheritance_on_clear_only.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/07_codex_trim_implementation_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/10_transcript_injection_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/11_codex_monitor_implementation_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/12_desktop_clear_handoff_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/13_native_factory_diagnostics_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/14_observer_completed_turn_feed_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/15_windows_ci_release_latency_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/16_readonly_handoff_context_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/BUGHUB_RUNTIME_ERROR_STORE_PLAN.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/CONCEPT.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/EXPERIMENT.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/README.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/SESSION_LINKING_DESIGN.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/THROUGHLINE_NEXT_STEPS.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/plan_grok-successor-launch.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
+| docs/archive/room-log_throughline_20260830-155052.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
 | docs/audit-2026-05/codex-trim-rollback-incident-report.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/plan_grok-successor-launch.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/throughline-handoff-context.example.json | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -256,7 +258,7 @@
 | src/cli/codex-vscode-restore-smoke.mjs | source | body_read | 全文。env必須prepare注入とread-only verify/手動restart申告の別境界。実Host操作無し |
 | src/cli/codex-vscode-rollback-smoke.mjs | source | body_read | 全文。引数/identity/read-only verifierとexit/診断。実restart操作無し。関連test未読 |
 | src/cli/doctor.mjs | source | body_read | 全文。環境/session/trim/Codex診断、hook形/信用/task、DB初期化とschema生成作用。factoryへの_private相当内部export接続。大規模test未読 |
-| src/cli/doctor.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/doctor.test.mjs | test | body_read | 全文1..762。内部export/仮DB・rollout/audit注入、hook信頼/timeout/型/ready/失敗分類。本文のみ未実行 |
 | src/cli/factory-diagnostics.mjs | source | body_read | 全文。既DB readOnly/schema/constraint/project、hook3event/identity、固定JSON。doctor _internal依存を観測。test本文確認・未実行 |
 | src/cli/factory-diagnostics.test.mjs | test | body_read | 全文。temporary DB schema/constraint/mtime/不在、hook形/realpath/legacy timeout、固定JSON。未実行 |
 | src/cli/grok-continue.mjs | source | body_read | 全文。read-only公開context/project→最初の指示/新session→mac Terminal、rulesなし。context内部も本文確認、artifact保持/全test/consumerは未了 |
@@ -266,7 +268,7 @@
 | src/cli/handoff-preview.mjs | source | body_read | 全文。getDb→record→versioned block、同project最新選択/引数/失敗exit。pure rendererとDB接続初期化の作用を区別。全test未読 |
 | src/cli/help.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/install.mjs | source | body_read | 全文。4hostの配置/解除、同実体hook文字列と信用保持、auto登録、skill/task、複数fileの部分確定。全test/fixture/config閉包未了 |
-| src/cli/install.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/install.test.mjs | test | body_read | 全文1..950。global/project/4host/command/skill/信用文字列/旧形式/他設定/冪等。home差替え不成立returnを明記。未実行 |
 | src/cli/latest-session.mjs | source | body_read | 全文。同project最新ID/read-only/close、本文の有無を見ない意味。関連test本文確認・未実行 |
 | src/cli/latest-session.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/cli/migrate.mjs | source | body_read | 全文。JSONのみ0/1/2、既DBのみmigration/future拒否/原因非公開。test本文確認・未実行 |
@@ -418,7 +420,7 @@
 | src/test-temp-dir.mjs | source | body_read | 全文。試験専用temp dir作成とprocess exit cleanup、失敗が試験結果を変えない既存契約。実行なし |
 | src/token-estimator.mjs | source | body_read | 全文。文字数/4切上げ。全caller/test未了 |
 | src/token-monitor.mjs | source | body_read | 全文。state+rollout/live usage、mtime描画、CJK/ANSI/resize/raw mode/timer/signal cleanup、diag log作用。大規模test未読、実monitor無し |
-| src/token-monitor.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/token-monitor.test.mjs | test | body_read | 全文1..771。filter/live優先/fallback/discovery/merge/CJK・ANSI/幅・age・警告。signal/main寿命の証明とはせず。未実行 |
 | src/transcript-reader-cursor.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/transcript-reader-grok.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/transcript-reader.mjs | source | body_read | 全文。hostメタ除外/queued入力/group完了/最新前回完了/制御列正規化/L3抽出。全caller/test未了 |
@@ -435,4 +437,4 @@
 | src/turn-start.mjs | source | body_read | 全文。host/prompt自己起動分類。全fixture照合未了 |
 | src/turn-start.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/vscode-task.mjs | source | body_read | 全文。VSCode/opt-out/JSONC guard、task merge/repair/temp rename、通知markerと既user設定保持。関連test未読 |
-| src/vscode-task.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/vscode-task.test.mjs | test | body_read | 全文1..993。env/JSONC/通知/marker/merge/破損path修理と利用者設定保持。仮fileのみ、本文確認で未実行 |
