@@ -15,7 +15,8 @@
 | --- | ---: |
 | body_read | 203 |
 | reference_same_blob | 1 |
-| unread | 213 |
+| partial | 2 |
+| unread | 211 |
 
 未読は一律に必読ではない。archive/旧release証拠/宣伝assetの適用性はmanifestへ理由を残し、現役契約・変更対象のcaller/test/fixture/config/exportを優先する。未読の適用性分類を本文読了や意味確認に補完しない。
 
@@ -292,7 +293,7 @@
 | src/codex-auto-handoff-memory.mjs | source | body_read | 全文。origin/turn/role集約、直近20L2/旧L1/source hash cache、L3凍結取得、前史/制御文保持。全test/caller未了 |
 | src/codex-auto-handoff-store.mjs | source | body_read | 全文。一意要求/mutable whitelist/CAS/worker claimとrelease/不変snapshot/lineage/frozen元projectと後続入力境界。全test/caller未了 |
 | src/codex-auto-handoff.mjs | source | body_read | 全文。停止準備gateと実停止境界、claim/CAS/不変snapshot、create/inject/submitの作用前stage、相関進捗、goal/queueの部分成功、unknown観測再開。全本体test未読 |
-| src/codex-auto-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-auto-handoff.test.mjs | test | partial | 部分確認1..80/550..600。CLI引数/初回statusの選択2件を実行、残る本体/fixtureは未読 |
 | src/codex-auto-refresh.mjs | source | body_read | 全文。disabled既定/verified usage、実行前fingerprint/quiet/単純file store。hook非接続をsource参照検索。関連test未読 |
 | src/codex-auto-refresh.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-capture.mjs | source | body_read | 全文。rollout再生→L2全置換/L3共通prefix同期、変化したturnのL1削除を同transaction。旧identity再export保持。全test/caller未了 |
@@ -341,7 +342,7 @@
 | src/handoff-preview.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/handoff-record.mjs | source | body_read | 全文。DB読取のみのrecord v1、L2直近20turn/古L1/Thinking/L3参照、query例外→空/nullの既互換。全caller/test未了 |
 | src/handoff-record.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/hook-entrypoints.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/hook-entrypoints.test.mjs | test | partial | 部分確認1..98、import無作用fixtureと子env/プロジェクト分離。追加import無作用caseを実行、残り本文未読 |
 | src/hook-failure-log.mjs | source | body_read | 全文。private詳細/stack/SQLite code/identity/stderr上限、固定aggregateから分離。全caller/test未了 |
 | src/hook-failure-log.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/hosts/claude.mjs | source | body_read | 全文。path導出/relocation/追加context stdout/flush/注入とproject。外部caller/test未了 |

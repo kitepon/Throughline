@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: 現行図/source調査を受けたAstra責務設計。調査固定候補 `747560bf1354c8b5991b69984636ffa9359172d8`、base `39ff812d46c0e84e8fc1418096c509551cf3928b`。以下の現行図と末尾の未実装設計を区別する。構造実装・全consumer閉包・Astra最終整合は未完。
+状態: 現行図/source調査を受けたAstra責務設計。調査固定候補 `747560bf1354c8b5991b69984636ffa9359172d8`、base `39ff812d46c0e84e8fc1418096c509551cf3928b`。以下の現行図と末尾の未実装設計を区別する。S1のhook所有整理は実装済み。S2/S3・全consumer閉包・Astra最終整合は未完。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -89,7 +89,7 @@ host adapter/identity・記録側helperは[入口詳細](current-entrypoints.md#
 | [README](README.md) | [1](diagrams/readme-01.svg) | 描画/目視済み |
 | [current-continuation](current-continuation.md) | [1](diagrams/current-continuation-01.svg) / [2](diagrams/current-continuation-02.svg) / [3](diagrams/current-continuation-03.svg) | 描画/目視済み |
 | [current-entrypoints](current-entrypoints.md) | [1](diagrams/current-entrypoints-01.svg) / [2](diagrams/current-entrypoints-02.svg) / [3](diagrams/current-entrypoints-03.svg) / [4](diagrams/current-entrypoints-04.svg) | 描画/目視済み |
-| [current-lifecycle](current-lifecycle.md) | [1](diagrams/current-lifecycle-01.svg) / [2](diagrams/current-lifecycle-02.svg) / [3](diagrams/current-lifecycle-03.svg) / [4](diagrams/current-lifecycle-04.svg) | 描画/目視済み |
+| [current-lifecycle](current-lifecycle.md) | [1](diagrams/current-lifecycle-01.svg) / [2](diagrams/current-lifecycle-02.svg) / [3](diagrams/current-lifecycle-03.svg) / [4](diagrams/current-lifecycle-04.svg) / [5](diagrams/current-hook-ownership-01.svg) | S1所有詳細を含め描画/目視済み |
 | [current-manual-continuation](current-manual-continuation.md) | [1](diagrams/current-manual-continuation-01.svg) / [2](diagrams/current-manual-continuation-02.svg) / [3](diagrams/current-manual-continuation-03.svg) | 描画/目視済み |
 | [current-projections](current-projections.md) | [1](diagrams/current-projections-01.svg) / [2](diagrams/observer-current.svg) / [3](diagrams/current-projections-03.svg) | observer既確認再利用を含む |
 
@@ -114,7 +114,7 @@ host adapter/identity・記録側helperは[入口詳細](current-entrypoints.md#
 | 文脈/pull/public projection → [投影](current-projections.md) | HandoffRecordは中間表現、各rendererが予算/表現、公開CLIがDB接続/JSON/exit | 変更不要。9500字push、短い手動引継ぎ、auto全文、observer完了投影を共通formatterへ統一しない。read-onlyへの一括変更もCLI接続作用を変えるため不採用 |
 | observer・auditor・caveat・room → [投影](current-projections.md) | 完了根拠、本文freshness、consumer消費位置、room書込は別所有 | 変更不要。共有済みpair照合/digestを使い、room writerをread-only群へ入れない。batch/token/daemon/poolは別工程。確認だけでconsumer cursorを進めない |
 | 手動new-thread・trim・診断smoke → [手動](current-manual-continuation.md) | app-serverがtransport/要求相関、明示操作がnative順序、CLIがopt-inと表示 | 変更不要。autoの永続台帳を手動経路へ足すことは機能/保持変更。close/timeoutをremote rollbackと解釈せず、既guardとunknown限界を記す。旧停止中の実験を再開しない |
-| hook導入/解除・信用検査 → [運用](current-lifecycle.md#採用設計-hook命令とcodex診断の所有を分ける未実装) | installは設定書込と配布、host hook命令は形/実体照合、診断は既設定の観測、doctorは表示、factoryは公開投影 | **構造変更を採用**。factory→doctor._internalと診断→installer本体への迂回を除き、命令の既処理とCodex検査を各専用moduleへ移す。旧exportは互換参照として保持。詳しい境界/代替案/図は運用詳細へ一度だけ置く |
+| hook導入/解除・信用検査 → [運用](current-lifecycle.md#採用設計-hook命令とcodex診断の所有を分けるs1実装済み) | installは設定書込と配布、host hook命令は形/実体照合、診断は既設定の観測、doctorは表示、factoryは公開投影 | **構造変更を採用**。factory→doctor._internalと診断→installer本体への迂回を除き、命令の既処理とCodex検査を各専用moduleへ移す。旧exportは互換参照として保持。詳しい境界/代替案/図は運用詳細へ一度だけ置く |
 | monitor・VSCode task → [運用](current-lifecycle.md) | state/live usage合成、表示cache/端末寿命、task配置は既別helper | 変更不要。現在の表示helperを別fileへ移すだけではsingle mainのcache/信号寿命が明瞭にならない。既terminal-size/usage/taskを再利用し、main/signalの未coverageを明記する |
 | OS/起動・自己更新 → [継続](current-continuation.md)・[運用](current-lifecycle.md) | os配下のquote/PTY/ACL/runtime/package journal、self-updateの順序 | 変更不要。既共通所有者を使う。Windows昇格rollbackと後段install/migrateを同一transactionにしない。新OS/Host責任を増やさない |
 | runtime error・送信・回復 → [運用](current-lifecycle.md) | store/context/observer、report/trigger、中央の受付/処置は別所有 | 変更不要。JSON置換とlock、ackとresolve、報告の再送とnative unknownの禁止を分けたままにする。既定OFF/署名/許可field/expectedCursorを保持 |
@@ -141,3 +141,5 @@ S1/S2の変更前確認は既Owner手順であり、新しい人の承認関所�
 - BellTeamのhandoff-context/observer/roomの公開consumer、Spotter/Caveat、配送APIの外部内部は別所有。公開JSON/exit/入力制限/消費cursorの境界を既callerへ照合する。旧deep import/exportは候補内参照と既知consumerを検索し、到達できない利用は未確認とする。他席checkoutを変更しない。
 - 取消APIの無い同期処理は「不適用」、強制終了/通信喪失は段階ごとの既確定とunknownを記す。accepted/captured/queued/continued/ready/updated/ackを一つのdoneへ変換しない。
 - sc-detailのThinking表示、doctorのNode最低版表示、旧installer呼出、temp残存/一部writerのCAS無し、monitor signal寿命などは既知の未照合又は制限。今回の二つの構造境界の整理で自動解決したことにしない。
+
+S1実装記録は[運用詳細末尾](current-lifecycle.md#s1実装と保持確認2026-11-03)へ。既処理の移動と旧参照保持を実装し、focused70件と登録/import選択5件が通過。第5図を実装の現行接続へ更新した。S2/S3と最終整合は継続する。

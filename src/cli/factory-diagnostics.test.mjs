@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CURRENT_VERSION } from '../db.mjs';
+import { buildCodexStopHookCommand, buildCodexUserPromptSubmitHookCommand, buildCodexPostToolUseHookCommand } from './install.mjs';
 import {
   collectFactoryDiagnostics,
   inspectFactoryDatabase,
@@ -308,3 +309,32 @@ function createFactorySchema(db) {
       WHERE source_id IS NOT NULL;
   `);
 }
+
+
+test('factory hook default reader preserves configuration and classifies missing/corrupt files', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-factory-default-reader-'));
+  try {
+    assert.equal(inspectFactoryHooks({ codexHome: dir }).status, 'not_applicable');
+    assert.deepEqual(inspectFactoryHooks({ codexHome: dir }).events,
+      { userPromptSubmit: 'not_applicable', postToolUse: 'not_applicable', stop: 'not_applicable' });
+    const configPath = join(dir, 'config.toml');
+    const hooksPath = join(dir, 'hooks.json');
+    const hooks = { hooks: {} };
+    for (const [event, command, timeout] of [
+      ['UserPromptSubmit', buildCodexUserPromptSubmitHookCommand(), 30],
+      ['PostToolUse', buildCodexPostToolUseHookCommand(), 30],
+      ['Stop', buildCodexStopHookCommand(), 300],
+    ]) hooks.hooks[event] = [{ hooks: [{ type: 'command', command, timeout, async: false }] }];
+    writeFileSync(configPath, '[features]\nhooks = true\n');
+    writeFileSync(hooksPath, JSON.stringify(hooks));
+    const before = [readFileSync(configPath), readFileSync(hooksPath)];
+    assert.deepEqual(inspectFactoryHooks({ codexHome: dir }), {
+      status: 'ready', reason: 'hooks_inspected',
+      events: { userPromptSubmit: 'ready', postToolUse: 'ready', stop: 'ready' },
+    });
+    assert.deepEqual([readFileSync(configPath), readFileSync(hooksPath)], before);
+    writeFileSync(hooksPath, '{broken');
+    assert.equal(inspectFactoryHooks({ codexHome: dir }).status, 'unverified');
+    assert.equal(readFileSync(hooksPath, 'utf8'), '{broken');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

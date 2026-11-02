@@ -6341,8 +6341,8 @@
       "sha256": "cfe84bfde3440a4aa80bde975706ecf15c2c7bbd945875f90562c9517027077b",
       "bytes": 135207,
       "lines": 1768,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "partial",
+      "readNote": "部分確認1..80/550..600。CLI引数/初回statusの選択2件を実行、残る本体/fixtureは未読",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -8432,8 +8432,8 @@
       "sha256": "6efc31e58e14d67328db06c6f815523457dadc08804ee6232ccd52f47900b8c4",
       "bytes": 53536,
       "lines": 1465,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "partial",
+      "readNote": "部分確認1..98、import無作用fixtureと子env/プロジェクト分離。追加import無作用caseを実行、残り本文未読",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -11884,6 +11884,26 @@
           "text": "function mkTmpCwd() {"
         }
       ]
+    }
+  ],
+  "candidateAdditions": [
+    {
+      "path": "src/hosts/hook-commands.mjs",
+      "role": "source",
+      "semanticMappingComplete": false,
+      "note": "S1既処理移動/旧export保持。全体最終整合は未了"
+    },
+    {
+      "path": "src/hosts/codex-hook-diagnosis.mjs",
+      "role": "source",
+      "semanticMappingComplete": false,
+      "note": "S1既処理移動/旧export保持。全体最終整合は未了"
+    },
+    {
+      "path": "src/hosts/hook-commands.test.mjs",
+      "role": "test",
+      "semanticMappingComplete": false,
+      "note": "S1既処理移動/旧export保持。全体最終整合は未了"
     }
   ]
 }

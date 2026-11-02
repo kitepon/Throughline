@@ -1,6 +1,6 @@
 # 導入・監視・診断・更新・エラー報告の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。最初の4図はsource読取で得た現行図で、実描画/目視済み。末尾の採用設計/第5図は未実装の提案として分ける。[描画manifest](render-manifest.json)に対応を残す。実Host受入・Astra最終整合は未了。機械分類source126fileの本文確認はfixture4を含み、全test/config/export/consumerの照合は未完。
+基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。最初の4図はsource読取で得た現行図で、実描画/目視済み。末尾の採用設計/第5図はS1の実装に対応する。[描画manifest](render-manifest.json)に対応を残す。実Host受入・Astra最終整合は未了。機械分類source126fileの本文確認はfixture4を含み、全test/config/export/consumerの照合は未完。
 
 ## 導入・解除と設定信用
 
@@ -71,7 +71,7 @@ Windowsのpackage昇格中のjournal/rollbackは既[OS詳細](current-continuati
 | [cli/migrate](../../src/cli/migrate.mjs):parseArgs/run/result | `--json`のみ。既DBの製品migration→migrated/already_current/not_applicable又は固定errorと0/1/2 | DB不在を作成しない、future schemaを下げない。[DB関数](current-entrypoints.md)のlock/transaction/closeへ接続。commit後の出力消失は未移行の証明ではない |
 | [cli/factory-diagnostics](../../src/cli/factory-diagnostics.mjs):inspectFactoryDatabase/hasFactoryDatabaseShape/inspectFactoryHooks/inspectFactoryThread/collectFactoryDiagnostics/run | 既DBをreadOnlyで開きsettleFirstRead、現schema/column/PK/unique indexを検査しfinally close。project束縛thread/rolloutと3eventのhook形を検査 | 読取不能unverified、既知不適合not_ready、不在not_applicable。DB schema番号だけではreadyにしない。PreCompact/hostの実hook発火や本人復帰の実測はこのsnapshotに無い |
 | [factory-diagnostics](../../src/factory-diagnostics.mjs):buildFactoryDiagnostics/aggregate/statusOf | 入力から許可fieldだけを公開projectionへ。not_readyを優先し、未実施restore smokeをunverifiedに保つ | Codexのoverallと別connector Claudeを区別。overall readyでも全OS/harness/自然hook/restore smokeの合格ではない。raw path/本文/例外を返さない |
-| [cli/doctor](../../src/cli/doctor.mjs):run/runSessionDiagnosis/runTrimDiagnosis/runCodexDiagnosis/readCodexHookDiagnosis/readCodexHostPrimitiveDiagnosis/readVsCodeMonitorTaskDiagnosis/buildCodexContextRefreshDiagnosis | 通常環境診断、sessionのstate/transcript、Codex設定信用/monitor/記憶とtrim診断をtext表示 | CodexはgetDb既定引数による初期化/移行作用あり、primitive診断はschema生成CLIを起動する。すべてをpure readと呼ばない。factory側がdoctor `_internal.readCodexHookDiagnosis`を利用する接続は現行の整理検討事項 |
+| [cli/doctor](../../src/cli/doctor.mjs):run/runSessionDiagnosis/runTrimDiagnosis/runCodexDiagnosis/readCodexHookDiagnosis/readCodexHostPrimitiveDiagnosis/readVsCodeMonitorTaskDiagnosis/buildCodexContextRefreshDiagnosis | 通常環境診断、sessionのstate/transcript、Codex設定信用/monitor/記憶とtrim診断をtext表示 | CodexはgetDb既定引数による初期化/移行作用あり、primitive診断はschema生成CLIを起動する。すべてをpure readと呼ばない。factory側はS1でhosts/codex-hook-diagnosisのread関数を直接利用し、doctor._internalは互換参照として保持 |
 
 doctorのcheckは表示結果を返すhelperで、各検査失敗をCLI全体のnonzeroへ一括写像していない。doctor text、factory JSON、self-updateの厳密受入は別契約として保つ。Node最低版のdoctor表示とpackage enginesの差、project検索のSQL lowerと共通helper差、state prefixの符号化との関係は全test/正本照合へ残す。
 
@@ -196,9 +196,9 @@ flowchart TD
 
 README.jaも全文照合し、英語READMEとの表現差を保持契約の採否前に区別した。特に「未受領記録が無ければ通信しない」は現行reportの版変化時空報告を説明していない。dependency/Thinking/detailと同様に説明修正候補へ残し、通信有効化や追加probeは実施しない。
 
-## 採用設計: hook命令とCodex診断の所有を分ける（未実装）
+## 採用設計: hook命令とCodex診断の所有を分ける（S1実装済み）
 
-固定候補747560bを基にAstra xhighで採用したS1。[全体の採否/段階](README.md#責務設計と採否2026-11-03astra-xhigh)に接続する。設計の採用は実装・試験・最終受入の完了ではない。
+固定候補747560bを基にAstra xhighで採用したS1をSolで実装した。[全体の採否/段階](README.md#責務設計と採否2026-11-03astra-xhigh)に接続する。下の段階記録で実装/関連試験と全体最終受入を分ける。
 
 ### 問題と最小の変更
 
@@ -206,7 +206,7 @@ README.jaも全文照合し、英語READMEとの表現差を保持契約の採�
 
 採用するのは既処理の移動と互換参照の保持だけである。下位のhost境界からCLIへimportを戻さないため、診断抽出と同じ段階で命令の既helperも取り出す。
 
-| 所有者（新pathは予定） | 置く既処理 | 残す責任/不変条件 |
+| 所有者（S1実装後） | 置く既処理 | 残す責任/不変条件 |
 | --- | --- | --- |
 | `src/hosts/hook-commands.mjs`（新規） | install内の`quoteCommandPath`/`safeRealpath`/`resolveCodexHookNodePath`、Codex4種builder/managed判定/parse/equivalenceと内部tokenizer、Grok/Cursor builderとCursor managed判定 | host hook命令の形と実体照合だけ。具体的な既exportを移し、汎用registry/設定DSLは作らない。file存在/realpath照会は行うが、設定/信用/DBを書かない。`PACKAGE_ROOT`導出後のbin実体を同じに保つ |
 | `src/hosts/codex-hook-diagnosis.mjs`（新規） | doctor内の`parseCodexTrustedHookState`/`listHooksWithTrust`/`summarizeHookTrust`/`readCodexHookDiagnosis` | 明示codexHomeの既hooks/configを読み、現在の観測構造を返す。stdio/終了/DB/外部CLI/設定修理を所有しない。命令の正本はhook-commandsをimport |
@@ -216,7 +216,7 @@ README.jaも全文照合し、英語READMEとの表現差を保持契約の採�
 
 ```mermaid
 flowchart TD
-  Install["提案・未実装: install / uninstall"] --> Commands["hosts/hook-commands: 既命令生成・実体照合"]
+  Install["install / uninstall"] --> Commands["hosts/hook-commands: 既命令生成・実体照合"]
   Install --> Write["設定・配布の書込 / 既順序・部分確定"]
   Doctor["doctor: 対話表示・他の診断"] --> Inspect["hosts/codex-hook-diagnosis: 既設定の観測"]
   Factory["factory: 公開status / JSON"] --> Inspect
@@ -231,9 +231,9 @@ flowchart TD
   Write -.-> Host["信用・ロード・実hook発火・画面: 外部所有"]
 ```
 
-第5blockは提案専用で、現在図4件の接続を実装前に書き換えない。実装時は実関数/pathとこの所有を同じ差分で現行詳細へ反映し、提案のまま完成報告に使わない。観測返却からdoctor/factoryへ戻る矢印は関数のreturnであり、再実行や保存の命令ではない。
+第5blockはS1実装後の命令/診断の接続である。先行4図の機能の順序は変えず、内部の所有者をこの詳細へ接続する。観測返却からdoctor/factoryへ戻る矢印は関数のreturnであり、再実行や保存の命令ではない。
 
-[提案図SVG](diagrams/proposed-hook-diagnosis-01.svg)を描画し、PNGを個別表示して、命令/検査/書込/返却/旧exportの各ラベルと矢印を確認した。第5図の原稿・SVG・PNGのhash/XMLはmanifestへ固定。現在図18件のblock/SVGは不変で、再描画しなかった。これは提案の可読性確認であり、未実装moduleの存在や保持試験合格を意味しない。
+[S1現行図SVG](diagrams/current-hook-ownership-01.svg)を描画し、PNGを個別表示して、命令/検査/書込/返却/旧exportの各ラベルと矢印を確認した。第5図の原稿・SVG・PNGのhash/XMLはmanifestへ固定。現在図18件のblock/SVGは不変で、再描画しなかった。元の提案描画はdesign-pass-01へ保持し、実装後の表題を更新した図だけ再描画/目視する。
 
 ### 採らない代替案
 
@@ -270,3 +270,14 @@ flowchart TD
 関連試験の起点は既`src/cli/install.test.mjs`・`src/cli/doctor.test.mjs`・`src/cli/factory-diagnostics.test.mjs`・`src/hook-entrypoints.test.mjs`と、新境界に必要な最小fixtureである。auto-handoffの専用CLI test fileは無く、`src/claude-auto-handoff.test.mjs`/`src/codex-auto-handoff.test.mjs`内のCLI/登録caseへ辿る。現行自動継続本体への到達を逆依存で確認し、必要ならその保持試験へ広げる。全test一律再走や実Host CLI/実DBによる受入をこの表から要求しない。実装/関連試験後に既product CIの範囲判定も記録する。
 
 S2の説明同期は上の公開契約差分を既source/試験へ照合した上で行う。AGENTSに残る「PreCompactがbatonを書く」「workerが後継起動前にin-flight captureする」等の旧索引も、現在のhandoff ID/後継初回入力の捕捉へ合わせる。過去ADRを当時から正しかったように書き換えず、現行説明から後続ADRへ辿れるようにする。Thinking/detailやNode最低版表示の未照合は、実装済みと偽る説明で埋めない。
+
+
+### S1実装と保持確認（2026-11-03）
+
+実体は [hook-commands](../../src/hosts/hook-commands.mjs) と [codex-hook-diagnosis](../../src/hosts/codex-hook-diagnosis.mjs)。前者は上表の13 named exportと内部helper、後者はread関数と内部3helperを所有する。移動した関数本文は固定設計候補94da5baと全bytes一致（readのexport追加を除く）を照合した。PACKAGE_ROOTは同じ階層から同じbinへ解決する。installは旧named exportの再exportと内部import、doctorはread importと旧_internal参照を持ち、factoryは両host moduleへ直接接続する。新moduleからCLI/DB/外部processへのimportは無い。
+
+候補内の全mjsを検索し、対象参照はinstall/doctor/factory/auto-handoff、既install/doctor test、bin動的dispatchへ結んだ。auto CLIは書込のため引き続きinstallを利用する正しい向きであり、変更していない。公開CLI/config/schema/package exportの削除・追加は無し。対象外の外部deep import利用の網羅は未確認で、旧参照を保持する。
+
+既存install/doctor/factoryの68試験に、実設定fixtureで既定readerのready/不在/破損分類とfile不変を確認する1試験を加え、移動前69件通過。移動後は旧exportと新所有者の参照一致の1試験も含め70件通過した。hook import無作用、Claude autoの引数とenable/disable登録、Codex autoの引数/初回statusの5件も選択して通過。全件は仮設定/仮home/注入fixtureで、実harness受入ではない。元install testのhome差替え失敗時returnは残るため、全OSの自然hook信用を検証したとは説明しない。
+
+最初の移動検査ではinstallのPATH確認にも必要なdelimiter importを除去して失敗した。これは移動の誤りとして戻し、同じ69件と最終70件で通過を確認。失敗logも自席implementation-pass-01に保持する。全体のS2/S3/CI範囲の受入/Astra最終整合は残る。
