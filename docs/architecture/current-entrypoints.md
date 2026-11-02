@@ -163,9 +163,29 @@ Codex captureはClaude系appendとは異なり、現在のrolloutを正本とし
 
 CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時間に達した場合の固定aggregateと分ける。復帰時は実際にcodex-cli sourceの要約が返ったことを確認して記録を解決する。非zero/JSONエラー本文と公開固定診断の境界を保つ。ここまでのsource調査は実CLI/実rollout/実DBを使っていない。
 
+## host adapterと記録側helperの対応追補
+
+以下は既存図のCLI/adapter/記録ノードの実体を補う索引で、新しい責務分割案ではない。source本文は前段で読了済みだったが、fileへの直接リンクと全export名の対応に抜けがあったため追記する。静的import列挙は確認の補助で、動的呼出・公開CLI文字列・外部consumerの閉包を保証しない。
+
+| 実file/関数・値 | 状態/入力→処理→返却・caller | 保持・失敗/取消/cleanup |
+| --- | --- | --- |
+| [hosts/identity](../../src/hosts/identity.mjs):hostOfSessionId/isCodexSessionId/isGrokSessionId/isCursorSessionId/buildCodexThroughlineSessionId/codexSessionIdToThreadId/grokBareSessionId/cursorBareSessionId、host/prefix/KNOWN_STATE_HOSTS | prefixだけで4harnessを区別。adapter選択、capture/observer/記録/投影/monitor/CLIから利用。state上の既知hostはClaude/Codexだけ | prefix無しClaude、Cursorのbc-除去、Grok/Cursorの互換state扱いを変更しない。純粋関数、保存/取消/後始末無し。新host推測を追加しない |
+| [hosts/claude](../../src/hosts/claude.mjs):deriveClaudeTranscriptPath/compactClaudeTaskNotification/compactClaudePeerMessage/readClaudeRelocatedCwd/claudeHostAdapter | host registry→記録/初回注入、transcript/backfill/Claude autoから利用。projectはrelocated行→CLAUDE_PROJECT_DIR→cwd、stdoutへ文脈を返す | JSONの実relocated行を後ろから探す。tool本文の同文字列を移動と解釈せず、読取失敗はnull。通知の出力path/定型末尾だけを落とし、意味を持つ本文を保持。stdout書込はモデル利用/画面反映ではない |
+| [hosts/codex](../../src/hosts/codex.mjs):codexHostAdapter | host registryの識別と、Claude互換入口へ流入した時の従来動作。専用captureは別のcodex-hook | completion project=cwd、flush待ち=true、追記前提、通常SessionStart消費=false、baton後起動無し。専用Codex経路の代替にはしない |
+| [hosts/cursor](../../src/hosts/cursor.mjs):isCursorEnvelope/encodeCursorProjectDir/deriveCursorTranscriptPath/normalizeCursorHookPayload/cursorHostAdapter、内部cursorCwd/cursorRawSessionId | 既知event又はversionで判定、conversation_id優先、cwd又はworkspace_roots[0]、明示path又はslugからtranscriptを導出。SessionStartで消費しadditional_context JSON返却 | beforeSubmitPromptへ注入を移さない。rewrite未実測はfalseを維持、flush待ち無し。baton後の自動起動は無し。正規化はfile保存せず、出力後の外部取消を巻戻さない |
+| [hosts/grok](../../src/hosts/grok.mjs):isGrokEnvelope/deriveGrokChatHistoryPath/normalizeGrokHookPayload/grokHostAdapter、内部lastUserPromptText、prefix/bare再export | camel/snake/envをClaude互換形へ。updatesではなくchat_historyを選び、commandは最新user本文でも確認。adapter注入はhistory更新、baton成功後tlだけgrok-continueへ | rewritesTranscript=true/flush待ち無し。history書換のdeliveredはliveモデル採用ではない。後継起動の成否は別CLI、外部host内部を所有しない。sourceの古いコメントを現行公開契約へ戻さない |
+| [cli/codex-capture](../../src/cli/codex-capture.mjs):run、内部parseArgs/renderReport | bin→引数/identity→getDb→captureCodexRolloutToDb→JSON又はtext。成功status capturedだけexit0、明示project/home/IDを運ぶ | 引数/identity/本体例外はstderr+exit1、DB初期化作用がある。公開取消API無し。保存完了はtask完了ではない。identity source field/export/exit形を保持 |
+| [turn-start](../../src/turn-start.mjs):classifyTurnStart/publicTurnStart、TURN_START_* | transcript-readerとobserverがuser行のhost印からprompt/self/unknownを投影。Claude scheduled印もself、Codexの判定は別sourceに残る | 旧NULL/未知はunknown、Cursor固定文だけ例外。本文の一般的な言い回しからselfを推測しない。pure分類でstateを進めない |
+| [constants](../../src/constants.mjs):DETAIL_KIND/DETAIL_KIND_VALUES | transcript-reader/sc-detailがL3保存値/既知kind判定に使用。tool_input/output/system/image/thinking | Thinkingは既知kindであり、sc-detailに専用表示枝が無いこととは別。値の変更は保存済みDB/reader/testへ届くため、似た文字列を別定義へ分けない |
+| [decision-log](../../src/decision-log.mjs):logDecision | SessionStart/prompt-submit/Claude pre hooks→製品private判定logへJSONL追記。phaseで入口を分ける | log失敗はstderrへ出し、元操作へthrowしない既契約。追記はDB/受領と別作用、同期APIにcancel無し。生の例外を固定runtime公開schemaへ混ぜない |
+
+[completed-turn-receipts-test-fixture](../../src/completed-turn-receipts-test-fixture.mjs)と[windows-acl-test-helper](../../src/os/windows-acl-test-helper.mjs)は本文確認済みの試験専用fixture。前者はreceipt/observer test、後者はreceipt/runtime-error store/hook testから使われる。製品公開APIや実DB/Host受入用の入口に昇格させない。test-env/test-temp-dirも[自動継続詳細](current-continuation.md)の試験専用部品に属する。
+
+[ADR0014](../adr/0014-two-phase-handoff-ghost-baton.md)の二相所有/bornAt基準baton TTL/future baton保持と、[ADR0065](../adr/0065-claude-scheduled-task-turn-and-stored-receipt-number.md)のscheduled self分類/保存済み群の実番号での受領を確認した。後から断片が増えて群の代表番号が動いても既保存本文を無断置換せず、受領は実在する保存番号へ結ぶ。[ADR0056](../adr/0056-grok-rewritten-chat-history-keeps-captured-turns-apart.md)のGrok世代/位置+本文照合は別契約で、Claude/Cursorの位置だけの既判定を一律に変更しない。関連backfill/transcript/turn-start testの未読は台帳に残す。
+
 ## 次に読む順
 
 1. 記録/引継ぎ/DB/host/Codex captureと自動継続/OSの本文確認は本図と自動継続図へ。関連試験/fixtureと全caller/設定/exportの閉包は未了。
-2. resume/context/projection/observerの本文は投影詳細へ接続。手動handoff/trimとapp-serverの未読を埋める。
-3. 導入/診断/更新/報告とmonitorの未読を埋める。
+2. resume/context/projection/observer、手動handoff/trim/app-serverのsource本文は各詳細へ接続済み。保持試験/fixtureと外部consumerを埋める。
+3. 導入/診断/更新/報告/monitorのsourceと大きな導入/診断/表示testの本文は運用詳細へ接続済み。未確認の失敗/取消coverageを残す。
 4. 各機能の全caller/試験/fixture/config/exportを索引へ戻し、Astra適用後に責務整理を設計する。

@@ -185,3 +185,13 @@ flowchart TD
 現在の主な未読は、現役契約README.ja/関連ADR、残る本体testとfixture/外部consumerである。archiveの過去計画・release証拠・宣伝画像は、現役runtime入口や現在の保持試験とは区別し、影響対象になった時に該当箇所だけ調べる。機械分類の未読数をゼロにするためだけに読み込む関所は設けない。
 
 整理検討事項は、factoryからdoctor `_internal`への参照、install内のhost別設定/検査/配布と表示の同居、診断とDB初期化作用の境界、temp writerと複数file部分確定、monitorの観測/描画/プロセス寿命の同居。既存契約が異なる箇所をただ似ているという理由で統合せず、保持契約/関連testの確認後にAstraで採否と代替案を決める。
+
+### 既存の観測・表示helperの所有
+
+| 実file/関数 | callerと状態の所有/返却 | 保持・失敗/取消/cleanup |
+| --- | --- | --- |
+| [transcript-usage](../../src/transcript-usage.mjs):inferContextWindowSize/readLatestUsage/clearUsageCache、内部hasContextWindowHint | Stop/monitor/doctorから利用。Claude assistantの最新API input+cache値とoutput参考値、model/実測又はhint由来windowを返す。path毎cacheはprocess memory | size+mtime一致時再利用、1M判定はprocess内でsticky、clearはtest用。無path/不存在null、stat/read失敗はcallerへ、JSON不正行は飛ばす。同期readerにcancel無し、live入力を製品が所有するわけではない |
+| [token-estimator](../../src/token-estimator.mjs):estimateTokens | rollout/usage/trim/smoke/手動CLI→nullは0、それ以外はceil(length/4)の推定 | API実測/モデルtokenizerとは別。注入文字予算やruntime stateを保存しない。将来tokenizer導入の古いコメントを新dependency追加の指示と解釈しない |
+| [l1-backend-recovery](../../src/l1-backend-recovery.mjs):l1BackendRecoveryPath/noteL1BackendFailure/noteL1BackendSuccess、内部read | Codex Stop→private回復file。最初/最後の失敗時刻とreportedだけを持ち、24時間復帰未確認を固定runtime診断へ。成功でfile削除し報告済みか返す | raw理由は別hook log。読書失敗stderrでhook結果は変えない。temp→renameはあるがrename失敗時temp掃除のfinallyは無い。複数caller同時更新のCAS/lockや公開cancelは供給しない。既best-effort契約を無断でhard errorへ変えない |
+
+README.jaも全文照合し、英語READMEとの表現差を保持契約の採否前に区別した。特に「未受領記録が無ければ通信しない」は現行reportの版変化時空報告を説明していない。dependency/Thinking/detailと同様に説明修正候補へ残し、通信有効化や追加probeは実施しない。

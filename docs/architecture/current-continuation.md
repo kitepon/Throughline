@@ -134,7 +134,24 @@ flowchart TD
 | [title](../../src/auto-handoff-title.mjs):composeAutoHandoffTitle/markHandedOffTitle/autoHandoffSummaryOf / [hook log](../../src/hook-failure-log.mjs):logHookFailure | 名前はAIを呼ばず既titleから生成。詳細エラーは端末内log、固定runtime aggregateと分離 | unicode/制御文字/引用/重複印を保持。log本文を公開runtime診断へ流さない |
 | [Codex手動projection](../../src/codex-handoff.mjs):renderCodexActiveWorkContext/renderCodexNewThreadHandoff/toCodexDeveloperMessageItem/toThroughlineHandoffBlock | 既handoff recordをtext/developer item/versioned JSONへ投影。自動継続memoryとは別表現で、任意memo/thinking/L1/L2とL3参照を扱う | record生成とCLIは[復元詳細](current-projections.md)へ。下流manual起動/trim本体は[手動詳細](current-manual-continuation.md)へ。全caller閉包は未完。maxDetailRefsは互換検証を残し、描画では使わない。生成はhostへの配送・読了を意味しない |
 
-今回本文を確認したtestはtitle、Claude forward、OSのterminal/runtime/URL/PTY/Windows package/portable spawn。全て未実行。Claude/Codex自動継続本体の大きなtest・hook統合fixture・install設定/export・外部consumer閉包は未読/未完のまま。構造上の整理候補はconfig/atomic writerの類似、各orchestrator内の複数責任、既存helperとの接続であり、採否・代替案は全体調査後にAstraで設計する。
+本文確認済みtestはtitle、Claude forward、OSのterminal/runtime/URL/PTY/Windows package/portable spawnに加え、claude-auto-handoff本体の全1912行。全て未実行。Codex自動継続本体の大きなtest・hook統合fixture・外部consumer閉包は未読/未完のまま。install設定/skillの確認は運用詳細へ接続する。構造上の整理候補はconfig/atomic writerの類似、各orchestrator内の複数責任、既存helperとの接続であり、採否・代替案はAstraで設計する。
+
+### 自動継続の保持根拠と未検証境界
+
+[claude-auto-handoff.test](../../src/claude-auto-handoff.test.mjs)はrequest/stop/worker/受領/今の後継/旧入力redirect/Desktop移動/Windows端末を、仮transcript・private file・in-memory DB・注入したspawn/terminal/pty/workerで確認する。CLI統合caseもtemporary homeと即失敗するfake Claudeを用いる。本文を読んだだけであり、今回の実harness受入ではない。
+
+| source責任/既図の段 | 本文確認したassert・fixture | 保持/未確認 |
+| --- | --- | --- |
+| request/有効性・project/本人性 | relocated/worktree登録とCLAUDE_PROJECT_DIR、Windows path、手動/subagent/SDK/席本人の除外、席の残requested/failed取下げ、後継付きrecord保持 | 予約したprojectの印で別会話へ記憶を渡さず、handoff IDと後継IDで束縛。保持期限でも生きた後継があるrecordは消さない |
+| claim→道具保留→受領又は確定失敗 | 並列道具でworker1回、起動IDだけでは返さない、失敗なら最初の両道具を通し途中本文を凍結しない、受領/unknownではdeny、期限はunknown | [ADR0067](../adr/0067-claude-failed-handoff-releases-source.md)/[0068](../adr/0068-claude-waits-before-stopping-source.md)が[0033](../adr/0033-claude-auto-handoff-new-session.md)の古いretry/事前captureを更新する。既結果を一律throw/再送へ変えない |
+| snapshot/後継起動/accepted | 依頼と元設定/effort・title・未実行tool/既実行tool/backgroundの区別、後継入力でcapture、独立accepted原本とworker原本の競合防止、異常exitより受領を優先 | 受領はmerge/backfill後の全文注入成功を意味しない。DB捕捉失敗でも後継を立てた既結果とin_flight_captured=falseを隠さない |
+| source保持/unknown | CLI不在と確定拒否はfailed、timeout/ID付き異常/受領期限切れはunknown、同じ後継を立て直さない、公開statusへ本文/pathを出さない | remote-control無しretryも未起動の枝に限る。実hostの現在の動作を仮spawnの結果から補完しない |
+| DesktopとWindows端末寿命 | 既定OFF/明示有効、終了mark2回安定・busy/後続入力/queued等の拒否、先へのhandoffでsuperseded、Windows terminal失敗/終了/遅い受領とlate write防止 | UI handler/pty出口のopenedと実画面は別。Windows bootstrap取消job外の所有は注入callbackのassertでありOS実測ではない |
+| 旧会話redirect/返却 | 後継実在・本人/別会話、pending転送、相関chain、同じ入力を二重出力しない、停止時はDBを開かない、logへ本文を残さない | 配送文法はconsumer契約。長文/claim/TTL/停止後wakeの詳細は既forward testと追加関連fixtureへ。全経路のcoverage済みとはしない |
+
+共通pathは[project-path](../../src/project-path.mjs):normalizeProjectPathForCompare/sameProjectPathが実在時realpath、解決不能時lexical、区切り/末尾とOS caseを扱い、[os/paths](../../src/os/paths.mjs):foldPathCaseForPlatform/isWin32PlatformがWindowsだけcase foldする。config/merge/capture/auto/手動CLI/receiptが利用し、state/無効refreshはos/pathsも直接使う。既存共通責任を再実装せず、機能固有の同一/子孫比較やSQL lower比較を根拠無くこの一関数へそろえない。同期path照会は外部fileの存在を見るが保存せず、公開cancelを持たない。
+
+[ADR0070](../adr/0070-codex-memory-preparation-before-source-stop.md)はCodexの準備ready/authorize/元実停止と不変snapshot、active goal時の明示継続、worktreeのcapture project束縛を規定する。Claudeの受領前待機とは別契約であり共通stateへ単純統合しない。Codex本体testの保持照合は次工程。新しいbatch機能をこれらの整理に混ぜない。
 
 ## 今回利用した検査・fixtureのsource
 

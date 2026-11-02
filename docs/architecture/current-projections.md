@@ -47,6 +47,15 @@ flowchart TD
 
 同期rendererとread-only queryに公開AbortSignalは無い。文脈生成失敗はcallerへ戻り、出力後の取消・reader消失で新しい消費位置を製品が保存する経路も無い。DB handleはread-only wrapperのfinallyでcloseするが、強制終了で全cleanup実行を保証しない。`handoff-record`の空/部分fallbackと外側の明示失敗の差は構造整理で保存すべき既存挙動として調べる。
 
+中間recordから返却表現までの既存共通責任も、一つの正本へ結ぶ。
+
+| 実file/関数 | caller/データと返却 | 保持/作用 |
+| --- | --- | --- |
+| [l3-summary](../../src/l3-summary.mjs):shortenMcpToolName/localizeL3Part/groupL3ByTurn/buildPartsSummary | resume-context/codex-handoff/recall→origin+turn毎の表示suffix。tool_inputだけ件数化、system/tool_outputはsuffixに載せず、Thinking/画像を区別 | 参照labelの省略はDB本文の削除ではない。Map順序を保持し、L1だけincludeBody可。pure表示、state/取消/cleanup無し |
+| [body-digest](../../src/body-digest.mjs):normalizeAuditorBody/hashAuditorBody | completed-turn-receipts/observer/auditor/caveat→NFC・改行統一・trimした本文のSHA256。完了証拠と本文投影を照合する共通責任 | hash一致をDB保存/業務完了の証明に単独使用しない。保存本文そのものをこの関数で書き換えない。正規化を変えると既receipt/cursorとの照合へ届く |
+
+[ADR0016](../adr/0016-push-pull-recall-injection.md)はADR0014のL1先詰めを置換し、現在地/取得案内とturn原子L2をpushする。古い設計の注入順へ戻さない。README.jaもL1非注入を説明している一方、Thinkingをdetailで常に取得できる説明と実表示枝には差がある。今回その有無を無断修理せず、sc-detail testと関連正本の照合対象に残す。日本語READMEのruntime依存ゼロ/版変更後の空report説明も、英語READMEと実sourceとの差分として運用詳細の照合事項へ接続する。
+
 ## Observer: 既描画の現行図を再利用
 
 ```mermaid

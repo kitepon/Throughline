@@ -76,6 +76,8 @@ Sol Highで関連保持試験/fixture/外部consumerと現行契約を照合し�
 
 機械分類source126file（fixture4を含む）の本文確認は済んだ。これは全機能の意味調査・全caller/test/fixture/config/exportの照合完了ではない。次は未読の関連試験・設定/配布入口・現行正本と外部consumerを調べ、図から実関数/状態/返却までの不足を埋める。
 
+host adapter/identity・記録側helperは[入口詳細](current-entrypoints.md#host-adapterと記録側helperの対応追補)、本文digest/L3参照は[投影詳細](current-projections.md)、path比較とClaude保持試験は[継続詳細](current-continuation.md#自動継続の保持根拠と未検証境界)、usage/推定/要約復帰は[運用詳細](current-lifecycle.md#既存の観測表示helperの所有)へ追補した。機械source126pathは5詳細内の直接参照へ接続したが、pathの出現検査は全関数・動的caller・外部consumerの意味確認を保証しない。全semanticMapping/consumer閉包は未完。
+
 最初のsource調査追補時点は本文58file（機械役割source47/test9/doc1/config1）、同blob参照1、未読358。以降の現在値は未読台帳を正本とする。source分類のうち現在4件は本文からfixtureと確認した。全fileの依存/consumer閉包は未了。各source調査でbase417fileのSHAを再照合し、実装/既存設定の変更0を確認する。関連testは本文読取だけで未実行。
 
 ## 描画と目視の固定対応

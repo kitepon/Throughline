@@ -13,9 +13,9 @@
 
 | 本文確認状態 | 件数 |
 | --- | ---: |
-| body_read | 193 |
+| body_read | 203 |
 | reference_same_blob | 1 |
-| unread | 223 |
+| unread | 213 |
 
 未読は一律に必読ではない。archive/旧release証拠/宣伝assetの適用性はmanifestへ理由を残し、現役契約・変更対象のcaller/test/fixture/config/exportを優先する。未読の適用性分類を本文読了や意味確認に補完しない。
 
@@ -66,7 +66,7 @@
 | AGENTS.md | documentation | reference_same_blob | 前ターンで読取済み、base間diff無し。本文と全sourceの整合確認は未了 |
 | CHANGELOG.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | LICENSE | config-support | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| README.ja.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| README.ja.md | documentation | body_read | 全文1..598。現行4host/自動と手動継続/9500字push・pull/報告。runtime依存/Thinking取得/版変更空報告の説明差分を区別、操作へ転用せず |
 | README.md | documentation | body_read | 全文1..1531。公開entry/host/auto/manual/observer/保持/診断/更新。現在sourceとの差分を運用詳細へ記録、引用操作は実行せず |
 | bin/throughline.mjs | source | body_read | 全文。dispatch/errorとhelp後半を本文確認。各公開CLIのcallee/外部callerと設定/試験の閉包は未了 |
 | codex/skills/throughline/SKILL.md | documentation | body_read | 全文1..194。配布artifactとしてbare/手動new-thread/元surface/表示指示を読取、実CLI操作へ転用せず。20turn全本文の説明差分を記録 |
@@ -95,9 +95,9 @@
 | docs/adr/0011-observer-o1-control-lane-reconciliation.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0012-claude-stop-transcript-flush-barrier.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0013-observer-read-busy-writer-gate.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0014-two-phase-handoff-ghost-baton.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0014-two-phase-handoff-ghost-baton.md | documentation | body_read | 全文。二相intent/初回consume、bornAt TTL/future baton保持、旧L1詰め順はADR0016へ。過去受入と今回の試験を区別 |
 | docs/adr/0015-l1-summarizer-model-effort-ratio.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0016-push-pull-recall-injection.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0016-push-pull-recall-injection.md | documentation | body_read | 全文。push現在地/案内/turn原子L2、L1非注入、固定ISO ms/session/last/skipのrecall、read-only境界。過去実測未再走 |
 | docs/adr/0017-codex-handoff-host-boundary.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0018-product-owned-database-migration.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0019-product-owned-database-migration-acceptance.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -114,7 +114,7 @@
 | docs/adr/0030-report-installed-version-once.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0031-serialized-schema-migration.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0032-claude-compact-continuation.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0033-claude-auto-handoff-new-session.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0033-claude-auto-handoff-new-session.md | documentation | body_read | 全文。Claude自動継続の設計と過去受入。baton/事前capture/failed retryなど後続ADR0053/0067/0068の更新対象を現行へ戻さず区別 |
 | docs/adr/0034-project-recent-sessions-context.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0035-observer-cursor-prefix-only.md | documentation | body_read | 全文。history_floor形を保持しprefixだけで位置検証。source/test本文と対応、関連試験は未実行 |
 | docs/adr/0036-first-read-retry-on-io-error.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -137,7 +137,7 @@
 | docs/adr/0053-claude-successor-finds-predecessor-by-handoff-id.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0054-codex-compaction-of-thread-without-rollout-is-left-alone.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0055-stop-flush-barrier-skips-queued-inputs.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0056-grok-rewritten-chat-history-keeps-captured-turns-apart.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0056-grok-rewritten-chat-history-keeps-captured-turns-apart.md | documentation | body_read | 全文。Grok rewriteの位置+本文/世代番号/保存実番号receipt、旧番号保持と既制限。現行sourceと照合、実DB/CLIへ実行せず |
 | docs/adr/0057-claude-aiterm-seat-conversation-is-not-handed-off.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0059-codex-handoff-carries-thread-goal.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0060-claude-mid-turn-input-and-host-meta-rows.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -145,12 +145,12 @@
 | docs/adr/0062-claude-handed-off-conversation-blocks-input.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0063-claude-handed-off-input-is-forwarded-to-successor.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0064-claude-stopped-successor-is-woken-by-human-input.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0065-claude-scheduled-task-turn-and-stored-receipt-number.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0065-claude-scheduled-task-turn-and-stored-receipt-number.md | documentation | body_read | 全文。scheduled metaのself開始と保存済み群の実番号receipt。旧欠落L3非復元、既存番号/本文保持を確認 |
 | docs/adr/0066-stop-receipts-batch-and-lock-deadline.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0067-claude-failed-handoff-releases-source.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0068-claude-waits-before-stopping-source.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0067-claude-failed-handoff-releases-source.md | documentation | body_read | 全文。後継も受領も無いfailedだけ元を通し再起動しない。unknown/既後継/acceptedは旧sourceを止める。過去復旧操作を今回再開せず |
+| docs/adr/0068-claude-waits-before-stopping-source.md | documentation | body_read | 全文。最初の並列道具を保留、受領/失敗待ちと210秒unknown、後継初回でcapture、独立accepted、240秒hook。未実行 |
 | docs/adr/0069-windows-claude-owned-terminal-launch.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| docs/adr/0070-codex-memory-preparation-before-source-stop.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| docs/adr/0070-codex-memory-preparation-before-source-stop.md | documentation | body_read | 全文。Codex停止前ready/authorize/実停止/snapshot、遅延取消/active goal/移動projectと系譜辺。過去実機証拠を今回の受入へ補完せず |
 | docs/adr/0071-windows-update-with-live-terminals.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/adr/0072-codex-active-source-after-failed-handoff.md | documentation | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | docs/archive/02_clear_auto_handoff_plan.md | documentation | unread | 未読。履歴資料。現役入口の代用にせず、保持契約へ影響する参照だけ必要時に読む |
@@ -226,7 +226,7 @@
 | src/caveat-context.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/claude-auto-handoff-config.mjs | source | body_read | 全文。専用schema/private file、既定disabled、project照合、temp→rename。Codex設定と別所有。test/全caller閉包未了 |
 | src/claude-auto-handoff.mjs | source | body_read | 全文。requested/stopped/launching/launched/sent/failed/unknown、席除外、途中snapshot/初回capture/accepted、Windows terminal/Unix bg、wake/forward/Desktop表示。全test/consumer閉包未了 |
-| src/claude-auto-handoff.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/claude-auto-handoff.test.mjs | test | body_read | 全文1..1912。仮DB/transcript/private状態・注入spawn/terminal/ptyとfake Claude CLI統合。project/席本人/並列claim/受領前待ち/失敗とunknown/捕捉時機/redirect/Desktop/Windows寿命。未実行 |
 | src/claude-forward-wait.mjs | source | body_read | 全文。待機交代/orphan/deadline/引継ぎ移送、claim→stderr callback後settle→exit2、SIGTERM143。関連test本文確認・未実行 |
 | src/claude-forward.mjs | source | body_read | 全文。pending/claimed/full/waiter/waking、rename所有、settle/release、unknown再送禁止、9000/60000字とTTL保持。関連test本文確認・未実行 |
 | src/claude-forward.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
