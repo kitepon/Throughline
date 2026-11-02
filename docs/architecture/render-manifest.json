@@ -19,7 +19,7 @@
       "pngBytes": 422966,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "e113cfdd5b22fd20c5a3b8ca3c035c8cbca9c065889e6d0f42281353cf675ec2",
+      "sourceDocumentSha256": "a17c02d732fa68feae3279a0c1f17dfdcef92a634e9b0519a67e6c0857fc9270",
       "pngEvidence": "png/readme-01.png"
     },
     {
@@ -36,7 +36,7 @@
       "pngBytes": 285394,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "1ee905d34ed5bf6b0dfe5a860b1831b4b3cc2d21791155484b5c167348c1c155",
+      "sourceDocumentSha256": "c13fbaa19490a5bd4da9fdd7458529bda7f4b440d71662c93a914e656e454f71",
       "pngEvidence": "png/current-continuation-01.png"
     },
     {
@@ -53,7 +53,7 @@
       "pngBytes": 277416,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "1ee905d34ed5bf6b0dfe5a860b1831b4b3cc2d21791155484b5c167348c1c155",
+      "sourceDocumentSha256": "c13fbaa19490a5bd4da9fdd7458529bda7f4b440d71662c93a914e656e454f71",
       "pngEvidence": "png/current-continuation-02.png"
     },
     {
@@ -70,7 +70,7 @@
       "pngBytes": 203419,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "1ee905d34ed5bf6b0dfe5a860b1831b4b3cc2d21791155484b5c167348c1c155",
+      "sourceDocumentSha256": "c13fbaa19490a5bd4da9fdd7458529bda7f4b440d71662c93a914e656e454f71",
       "pngEvidence": "png/current-continuation-03.png"
     },
     {
@@ -87,7 +87,7 @@
       "pngBytes": 193582,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "96ccaad956834a77fbd7f69c9aa87f7619f5fbe9b5f3a3bbc6eb758332f4a8aa",
+      "sourceDocumentSha256": "6122804bb7ca4579b9f992602020c3fff3ecf0568a81f9e3e7764e71855e400f",
       "pngEvidence": "png/current-entrypoints-01.png"
     },
     {
@@ -104,7 +104,7 @@
       "pngBytes": 215212,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "96ccaad956834a77fbd7f69c9aa87f7619f5fbe9b5f3a3bbc6eb758332f4a8aa",
+      "sourceDocumentSha256": "6122804bb7ca4579b9f992602020c3fff3ecf0568a81f9e3e7764e71855e400f",
       "pngEvidence": "png/current-entrypoints-02.png"
     },
     {
@@ -121,7 +121,7 @@
       "pngBytes": 246484,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "96ccaad956834a77fbd7f69c9aa87f7619f5fbe9b5f3a3bbc6eb758332f4a8aa",
+      "sourceDocumentSha256": "6122804bb7ca4579b9f992602020c3fff3ecf0568a81f9e3e7764e71855e400f",
       "pngEvidence": "png/current-entrypoints-03.png"
     },
     {
@@ -138,7 +138,7 @@
       "pngBytes": 210661,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "96ccaad956834a77fbd7f69c9aa87f7619f5fbe9b5f3a3bbc6eb758332f4a8aa",
+      "sourceDocumentSha256": "6122804bb7ca4579b9f992602020c3fff3ecf0568a81f9e3e7764e71855e400f",
       "pngEvidence": "png/current-entrypoints-04.png"
     },
     {
@@ -155,7 +155,7 @@
       "pngBytes": 202473,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "7ca354fe3e5c4fffea54889e8c0d4a011cb64abe3abf71fc7c904f6ca351ec49",
+      "sourceDocumentSha256": "de63a33d81124c54e682db9b132e0c5002f41cb824e9c6eabbaae84995d4302a",
       "pngEvidence": "png/current-lifecycle-01.png"
     },
     {
@@ -172,7 +172,7 @@
       "pngBytes": 218821,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "7ca354fe3e5c4fffea54889e8c0d4a011cb64abe3abf71fc7c904f6ca351ec49",
+      "sourceDocumentSha256": "de63a33d81124c54e682db9b132e0c5002f41cb824e9c6eabbaae84995d4302a",
       "pngEvidence": "png/current-lifecycle-02.png"
     },
     {
@@ -189,7 +189,7 @@
       "pngBytes": 243400,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "7ca354fe3e5c4fffea54889e8c0d4a011cb64abe3abf71fc7c904f6ca351ec49",
+      "sourceDocumentSha256": "de63a33d81124c54e682db9b132e0c5002f41cb824e9c6eabbaae84995d4302a",
       "pngEvidence": "png/current-lifecycle-03.png"
     },
     {
@@ -206,7 +206,7 @@
       "pngBytes": 208670,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "7ca354fe3e5c4fffea54889e8c0d4a011cb64abe3abf71fc7c904f6ca351ec49",
+      "sourceDocumentSha256": "de63a33d81124c54e682db9b132e0c5002f41cb824e9c6eabbaae84995d4302a",
       "pngEvidence": "png/current-lifecycle-04.png"
     },
     {
@@ -223,7 +223,7 @@
       "pngBytes": 274330,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "c63bbc672b1e45b4bdc0e27f09e29f891519ff34bfac1f9b0849b072d2094087",
+      "sourceDocumentSha256": "4d4034967f3377c11a1ff87a36812406eda1c8ab0896539d81d792f3528f2935",
       "pngEvidence": "png/current-manual-continuation-01.png"
     },
     {
@@ -240,7 +240,7 @@
       "pngBytes": 227532,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "c63bbc672b1e45b4bdc0e27f09e29f891519ff34bfac1f9b0849b072d2094087",
+      "sourceDocumentSha256": "4d4034967f3377c11a1ff87a36812406eda1c8ab0896539d81d792f3528f2935",
       "pngEvidence": "png/current-manual-continuation-02.png"
     },
     {
@@ -257,7 +257,7 @@
       "pngBytes": 257368,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "c63bbc672b1e45b4bdc0e27f09e29f891519ff34bfac1f9b0849b072d2094087",
+      "sourceDocumentSha256": "4d4034967f3377c11a1ff87a36812406eda1c8ab0896539d81d792f3528f2935",
       "pngEvidence": "png/current-manual-continuation-03.png"
     },
     {
@@ -275,7 +275,7 @@
       "xmlValid": true,
       "visualReview": "訂正後PNGを個別表示し、recall独立返却/detail別入口/破線の案内/出力まで判読可能。意味整合全体は未了。",
       "correction": "初稿はdetailをrecord生成へ、recallをdetail内部呼出へ誤結線。実関数に合わせ公開入口を分離。",
-      "sourceDocumentSha256": "3a186bb5998b90b484905faf406d23bc042840246529628cad485d05f9b3186b",
+      "sourceDocumentSha256": "ac9aae57c5708216ba2a0db2cfc81b94596d8f2dc209c0b9c630209674c1e1fb",
       "pngEvidence": "png/current-projections-01.png"
     },
     {
@@ -283,7 +283,7 @@
       "block": 2,
       "status": "reused-no-render",
       "svg": "docs/architecture/diagrams/observer-current.svg",
-      "sourceDocumentSha256": "3a186bb5998b90b484905faf406d23bc042840246529628cad485d05f9b3186b",
+      "sourceDocumentSha256": "ac9aae57c5708216ba2a0db2cfc81b94596d8f2dc209c0b9c630209674c1e1fb",
       "mermaidSha256": "c18c482eb1d4bb05c2b7d6997803f20ac5407c78e2e3d29667d979c3723f5e7b",
       "svgSha256": "b4457cc284a61f103e370c28c9dc12fed5b2e6b0f3aa322344292e62b7663029",
       "svgBytes": 27284
@@ -302,13 +302,13 @@
       "pngBytes": 294453,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "3a186bb5998b90b484905faf406d23bc042840246529628cad485d05f9b3186b",
+      "sourceDocumentSha256": "ac9aae57c5708216ba2a0db2cfc81b94596d8f2dc209c0b9c630209674c1e1fb",
       "pngEvidence": "png/current-projections-03.png"
     },
     {
       "source": "docs/architecture/current-lifecycle.md",
       "block": 5,
-      "sourceDocumentSha256": "7ca354fe3e5c4fffea54889e8c0d4a011cb64abe3abf71fc7c904f6ca351ec49",
+      "sourceDocumentSha256": "de63a33d81124c54e682db9b132e0c5002f41cb824e9c6eabbaae84995d4302a",
       "mermaidSha256": "5a13693c84148dd48fabad2dbfdda0e63f27696721785a218bc2e79532d27a00",
       "svg": "docs/architecture/diagrams/current-hook-ownership-01.svg",
       "status": "rendered-visually-reviewed",
@@ -325,6 +325,6 @@
       "pngEvidence": "png/current-hook-ownership-01.png"
     }
   ],
-  "sourceDocumentUpdatedAt": "2026-11-03T06:51:20.727011+09:00",
-  "sourceDocumentUpdateReason": "S2 docs/S3 semantic evidence/S4 Linux verification appended; all 19 Mermaid blocks/SVGs unchanged, no repeated rendering"
+  "sourceDocumentUpdatedAt": "2026-11-03T07:09:04.901416+09:00",
+  "sourceDocumentUpdateReason": "S3 final-candidate ownership/function/preservation traceability; all 19 Mermaid blocks/SVGs unchanged, no repeated render or visual review"
 }

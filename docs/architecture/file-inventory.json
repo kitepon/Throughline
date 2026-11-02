@@ -2704,8 +2704,8 @@
       "sha256": "d14b575e79df06542c4fe60ec60ada0c7879b09715e9ebfb510abc940f92b07b",
       "bytes": 17929,
       "lines": 418,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..418。完了pair/hash/project/schema、read-only WAL保持/lockとbounded busy、pending全page非部分返却。先行Linux全件passを参照し再走無し",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -4003,8 +4003,8 @@
       "sha256": "ebece281e44627281c43760906825e24511f7062822319aa0d6a02f475a0baa1",
       "bytes": 19332,
       "lines": 593,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..593。identity/payload、Stop/prompt/toolのcapture/state、75%でもrefresh非起動/backoff不使用、L1固有失敗code。先行Linux全件passを参照し再走無し",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -5265,7 +5265,7 @@
       "bytes": 5972,
       "lines": 108,
       "readState": "body_read",
-      "readNote": "本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了",
+      "readNote": "全文1..108。引数/JSON-only/既知状態exit0/固定hard error/非漏洩/v1-v2/隔離snapshot。先行Linux全件passを参照し再走無し",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -6577,8 +6577,8 @@
       "sha256": "cff2fd3c59d9ce4a322a71330bdd21a73ca74f6fc3bbd9d7c731029ef9bd7c62",
       "bytes": 25579,
       "lines": 657,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文1..657。rollback/L2置換、response_item重複、変更turnだけL1削除、L3 prefix id/時刻保持と全再作成対照のfixtureを照合。実行は先行Linux全件passを参照し再走無し",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -9676,8 +9676,8 @@
       "sha256": "347982e6d5b1244243b8cdf833083610935c34650e43ec97f609f42c1e8a540e",
       "bytes": 487,
       "lines": 19,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "body_read",
+      "readNote": "全文。package filesのClaude/Codex面とsrc全体配布の固定assert。先行Linux全件passを参照。S1新moduleを含む配布範囲不変",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": []
@@ -10000,7 +10000,7 @@
       "bytes": 53955,
       "lines": 1333,
       "readState": "partial",
-      "readNote": "1..84 fixtureと690..912のbudget試験本文を確認。budgeted7＋定数1の8件通過。無制限/auto/recent等の本文は未読で全体読了にしない",
+      "readNote": "既読1..84/690..912に加え913..1333を照合。auto途中依頼/道具/重複除外とrecent予算/原子性/重複/索引上限。85..689無制限rendererは未読を維持。先行Linux全件passを参照",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -11388,8 +11388,8 @@
       "sha256": "86b1e301a22d37e9b2ff237f0d062dfd1fe1319dd3df37449a389b9e52b14b0d",
       "bytes": 51889,
       "lines": 1606,
-      "readState": "unread",
-      "readNote": "機械列挙のみ。本文/責務/契約未調査",
+      "readState": "partial",
+      "readNote": "fixture1..257、612..649、847..957、1011..1132、1399..1455を本文照合。仮protocolによるDB記憶guard/順序/count補正/live-only/durable/timeoutの保持。全1606行読了ではなく先行Linux全件passを参照",
       "semanticMappingComplete": false,
       "callersTestsFixturesConfigExportsReviewed": false,
       "declarationHints": [
@@ -11905,5 +11905,12 @@
       "semanticMappingComplete": false,
       "note": "S1既処理移動/旧export保持。全体最終整合は未了"
     }
-  ]
+  ],
+  "namedExportFunctionAudit": {
+    "scope": "tracked src top-level named function export declarations (including test helpers); textual references/name mapping only, not AST/method/alias/external/private branch completion",
+    "count": 488,
+    "detailNamesMissing": 0,
+    "evidence": "owner project work/throughline-refactor-evidence-20261103/semantic-pass-02/named-export-references.json",
+    "semanticMappingComplete": false
+  }
 }

@@ -4,7 +4,7 @@
 
 ## 図起点リファクタの状態（2026-11-03）
 
-現行全体/詳細図・source対応とAstra責務設計は [docs/architecture/README.md](docs/architecture/README.md) を入口とする。現行18図に加えhook命令/診断の所有整理S1を実装し、その詳細図と保持試験を追補した。S2の説明同期と関連31試験まで確認した。S3・全consumer閉包・既CI全体範囲・Astra最終整合は未了。公開/本番/Host操作の既条件を変更しない。
+現行全体/詳細図・source対応とAstra責務設計は [docs/architecture/README.md](docs/architecture/README.md) を入口とする。現行18図に加えhook命令/診断の所有整理S1を実装し、その詳細図と保持試験を追補した。S2の説明同期と関連31試験まで確認した。S3の対応追補を含む最終整合候補を固定中。Linux全件1145pass/3skip/0fail、残OS・全consumer閉包・Astra最終整合は未了。公開/本番/Host操作の既条件を変更しない。
 
 ## プロジェクト概要
 

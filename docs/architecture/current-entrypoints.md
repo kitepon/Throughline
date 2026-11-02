@@ -1,6 +1,6 @@
 # source読取に対応する現行入口と記録・引継ぎ
 
-対象はbase39ff812。初回はCLI/SessionStart/DB入口、次に記録・初回引継ぎ・host adapter・receiptの本文を調べた。読取範囲と未読は[台帳](unread-ledger.md)へ分ける。図は実読した流れの初稿で、未読部分の代用ではない。新APIや構造変更の提案を描いていない。新4図は実描画/目視済み。原稿block/SVG/PNGの対応は[描画manifest](render-manifest.json)へ。Astra最終整合とconsumer閉包は未了。
+基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終整合と全体受入は未了。
 
 ```mermaid
 flowchart TD
@@ -196,3 +196,21 @@ CodexのL1 backend一回の失敗はhook logへ残し、復帰未確認が24時�
 [hook-entrypoints.test](../../src/hook-entrypoints.test.mjs)の1..86と473..684を追加確認し、import時の無作用と二相3件を選択して全4件通過した。仮HOME/XDG/stateと仮DBを使い、src直接起動でSessionStartのintentだけ→初回promptのbaton消費/merge/出力→2回目非注入、promptを持たない幽霊の非取得、走行中sessionのbaton非横取りをassertする。CLI動的dispatchとは別に、module末尾のdirect-run guardも通る接続である。S1で追加したhost moduleのimportも同じ無作用検査に入る。
 
 全hook試験/全host fixtureは本文未読が残る。この4件を全hook/全OS/自然hook発火の証明にはしない。正常返却のstdoutはhost読了と別、pendingとmerge/出力の確定順は上の初回引継ぎ図を保持する。
+
+
+## S3追補2: 記録helperの窓口と保持根拠
+
+下表は既図のノード内にある公開helperを補い、別の保存先や責任を作らない。同期の分類/文字列生成は保存せず、取消APIとcleanupは不適用。file/DBを読む入口と、ログやreceiptを書き込む入口は分けて記す。
+
+| 実file/関数 | 代表caller・入出力/所有 | 保持/失敗/検証 |
+| --- | --- | --- |
+| [transcript-reader](../../src/transcript-reader.mjs):isCompactSummaryEntry/isClaudeHostWrittenMetaEntry/isClaudeScheduledTaskPromptEntry/isGrokHostWrittenUserEntry/isJunkAssistantText | readTranscript/getLogicalTurnGroups/turn-start→hostメタ/圧縮要約/定型エラーの分類 | scheduled入力を一般メタとして捨てず、圧縮要約を人の依頼へ変換しない。前段の分類契約を保つpure判定 |
+| 同:readLatestUserGroup/getLastTurn/getLastAssistantTurn/getLastTurnPair | Claude auto/processor/doctor→transcriptから最新user群/最終発言/直前pairを選ぶ | 同じ「最新」でも完了判定は別。本文不在はnullやnull pair、file読取/JSON処理はreadTranscriptへ。これらをreceipt生成へ転用しない |
+| 同:normalizeTerminalText/normalizeToolResultContent | reader/capture→端末制御列/CRとtext-image配列の表示用正規化 | CR末尾断片、画像placeholder、非textの空文字を保持。元fileを変更しない |
+| [hosts/index](../../src/hosts/index.mjs):normalizeHookPayload | parseHookPayload→envのGrok印優先、次にGrok/Cursor envelopeをadapterへ、他は元payload | hostの正規化だけ。DBや注入先を所有せず、無効JSON拒否はparseHookPayloadに残す |
+| [thread-index](../../src/codex-thread-index.mjs):defaultCodexHome | capture/monitor/CLI→CODEX_HOME又はhome/.codex | pathの決定だけで実storeは開かない。明示homeを持つcallerの意味を変えない |
+| [receipt](../../src/completed-turn-receipts.mjs):defaultCompletedTurnReceiptStorePath/writeCompletedTurnReceipts | processorの複数完了pair→同projectの私有storeへ一度のlock/置換 | 全入力を先に検証、空arrayは無作用、cross-projectを拒否、同pair冪等、sequence/256上限を保持。単件writeもこの所有者を使う |
+| [backfill](../../src/turn-backfill.mjs):logBackfill | executor/processor→home/.throughline/logsへ追記 | ログ書込失敗はstderr、元のbackfill結果は取り消さない。同期APIにcancel無し、完了receipt/公開診断とは別 |
+| [state-file](../../src/state-file.mjs):getStateDir | doctor/monitor/test→既module定数のstate保存先を返す | path返却でありfile作成ではない。readAllSessionStatesの期限切れcleanupは既表へ |
+
+[codex-capture.test](../../src/codex-capture.test.mjs)全657行を照合した。rollback後のL2全置換、response_item/旧eventの重複除外、変化turnだけ旧L1削除、同じL3先頭のid/時刻保持、途中差込/同長本文変更/source_id重複/全消失が全再作成と同じ内容/順序になるfixtureを既図へ結ぶ。[codex-hook.test](../../src/cli/codex-hook.test.mjs)全593行を確認し、payload優先identity・monitor分離・75%でもrefresh非起動・backoff不使用・L1固有失敗codeを確認した。両試験の実行結果は先行Linux全件の成功記録を使い、今回再走していない。

@@ -1,6 +1,6 @@
 # 手動継続・trim・app-server診断の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。source読取段階の現行図で、整理案の採否・コード変更・新batch追加は含めない。新3図は実描画/目視済みで[描画manifest](render-manifest.json)へ対応付けた。Astra最終整合は未了。実app-server・rollout・Hostを操作して確かめた図ではない。
+基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終整合と全体受入は未了。
 
 ## 手動の新スレッド引継ぎ
 
@@ -115,3 +115,18 @@ binの各dispatch、doctor/trim/refresh/手動CLI/diagnostic CLIからapp-server
 今回本文確認したtestは`codex-app-server.test.mjs`、`cli/codex-handoff-start.test.mjs`、`trim-model.test.mjs`の3file。fake process/一時DB/rollout fixtureを内包するが未実行。`trim-cli.test.mjs`、refresh・smoke/auditの全test、package export/skill/hooks/installと外部consumerは未了。入力境界・例外・保持・既定無効を変えずに責務を整理する採否は、全体調査後のAstra工程で行う。
 
 [docs/05](../05_codex_first_roadmap.md)の本文を読み、現行自動新thread継続・手動新thread・明示同thread trim・無効refresh・過去実測を区別した。既存図には後追いADRの停止前準備を注記で補うものがあり、現行詳細図の実順を旧phaseのチェックリストへ合わせない。本文の読了は過去の実測を今回再実施した意味ではない。
+
+
+## S3追補2: 手動経路の補助窓口と仮protocolの根拠
+
+| 実file/関数 | 代表caller・責任/返却 | 保持/失敗/限界 |
+| --- | --- | --- |
+| [app-server](../../src/codex-app-server.mjs):buildInitializedNotification/buildTextInputItem/buildDeveloperMessageItem | initialize/trim/manual/smoke→既protocolの通知とtext/developer itemを作る | textの非空検証。builder自体は子process/remote作用無し。通知とrequest応答を同じ完了根拠へ変えない |
+| 同:compareTurnCounts/resolveRollbackTurnsForAppServer | preflight/execute→match/mismatch/unchecked/unknownとrollback数 | expected値を検証、read/resume一致時だけ差分調整しread数を上限にする。count mismatchは診断であり旧gateを復活させない |
+| 同:summarizeAppServerStderr | client/CLI→同turnのunknown-item警告を集約し既文字上限へ短縮 | 表示用返却の制限であり受信中bufferのhard上限ではない。raw log/host内部の安全を保証しない |
+| [trim-model](../../src/trim-model.mjs):findLatestSessionIdForProject/describeTrimHost | dry-run/doctor→同project最新sessionとhost能力/手順 | project比較はsameProjectPath、query失敗はnullという既互換。Claude manual-only/Codex明示execute/unknown unresolvedを分ける |
+| [無効refresh](../../src/codex-auto-refresh.mjs):buildCodexAutoRefreshRolloutState | fingerprint/結果記録→pathとcapture/rollback/注入件数の値を合成 | pure表示用state、単独では保存やrefreshを行わない。通常hookから非接続を保持 |
+| [restore audit](../../src/codex-restore-source-audit.mjs):defaultVsCodeStorageRoots/defaultVsCodeExtensionRoots/defaultVsCodeSettingsRoots/defaultVsCodeLogRoots | 明示audit→env override又はhome/portableの候補path配列 | pathを列挙するだけ。実file読取/上限/finally closeはinspect側。Hostの修理/管理を担当しない |
+| [restore smoke](../../src/codex-vscode-restore-smoke.mjs):makeCodexVsCodeRestoreSmokeMarker/buildCodexVsCodeRestoreSmokeMemory/buildCodexVsCodeRestoreSmokePrompt | prepare/verify CLI→markerとdeveloper記憶・markerを含まない質問 | marker非空検証、random値/文字列生成。実モデル呼出/注入のguardはCLIへ。prepare生成をrestart受入へ広げない |
+
+[trim-cli.test](../../src/trim-cli.test.mjs)はfixture1..257、preflight612..649、execute847..957/1011..1132/1399..1446を追加照合した。仮app-serverと仮DB/rolloutだけで、read/resumeは送るがrollback/injectは送らないpreflight、DB記憶無しなら子起動前拒否、read/resume数による補正、rollback→injectの順、live-only非zero、durable証拠成功、可視性timeoutでもdurableを別に調べるassertを確認した。全1606行読了とはしない。既app-server unitとtrim-model保持試験への接続を保ち、実モデル/同thread/旧停止中の調査は実行していない。先行Linux全件の成功を今回再走せず参照する。

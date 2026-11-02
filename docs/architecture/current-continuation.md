@@ -1,6 +1,6 @@
 # 自動継続・旧会話入力・OS起動の現行source対応
 
-基準は `39ff812d46c0e84e8fc1418096c509551cf3928b`。Solで本文を読んだ現行経路の記録で、構造変更の設計案ではない。[機能索引](README.md)と[記録/初回handoff](current-entrypoints.md)へ接続する。未読台帳と全consumer閉包は未完。以下の新3図は実描画/目視済みで[描画manifest](render-manifest.json)へ対応付けた。Astra整合未了。実CLI・OS・実DBの操作で確認した図ではない。
+基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終整合と全体受入は未了。
 
 ## Claude: 停止許可・起動・受領・表示は別の状態
 
@@ -173,3 +173,24 @@ flowchart TD
 | claimと後続作用 | pid+started_identityのclaim、一度continuedなら再実行で作成/配送を増やさない。goal/queue/名前はcontinued後 | finallyは自分のworker claimをrelease。外部thread/元DB/既配送はrollbackしない。強制終了でfinally実行は保証しない |
 
 この追補に対応する9選択試験は隔離DBと注入依存で通過した。別にhandoff record/resume/公開context 27件、hook import/二相4件も通過。実Host・実モデル・本番DB・実配送runnerの受入へ補完しない。停止前の新しい取消窓口/汎用state machineを追加していない。
+
+
+## S3追補2: 起動・配送文・storeの公開窓口
+
+| 実file/関数 | 代表caller・責任/入出力 | 保持/失敗/停止/cleanup |
+| --- | --- | --- |
+| [Claude auto](../../src/claude-auto-handoff.mjs):launchClaudeAutoHandoffWorker/launchClaudeDesktopOpen | request/tool/Stop→製品CLI子をdetached起動しpidを返す。Windows workerは既OS所有者へ | session ID検証、private logのfdはfinally close、子はunref。spawn受付を後継受領/画面成功としない。Desktop有効性/手すき判定は上位に残す |
+| 同:claudeContinuationInput | worker→handoff IDと未実行道具の実行・既完了操作の非重複を指示する固定文 | pure文字列。初回入力はfindClaudeAutoContinuationSourceの照合対象であり、この生成だけでDB mergeしない |
+| [forward](../../src/claude-forward.mjs):claudeForwardInboxDir/ensureClaudeForwardInbox/logClaudeForward/hasPendingClaudeForwards/formatClaudeForwards | auto受領とforward hook→session束縛inbox、private dir作成、配送ログ、pending有無、種別付き本文 | 不正IDはnull/false。dir/log失敗は既best-effort、本文の配送をログ成否に束縛しない。human/peer/notificationを表示で分け、pending照会でclaim/settleしない |
+| [Codex store](../../src/codex-auto-handoff-store.mjs):getAutoHandoff/findAutoHandoffForTarget/findAutoHandoffForTurn/listDeliveredAutoHandoffsForSource/listUndeliveredAutoHandoffsForSource/listContinuedAutoHandoffs/listAutoHandoffs | orchestrator/auto CLI/memory→DB rowのdecodeと既順序/絞込を返す | deliveredは送ったかもしれないsubmit stageも含む。未配送/continued一覧を同一視しない。query/JSON decode失敗はthrow、reader自体はDBを開閉/書込しない |
+| 同:continuationInput | worker/host state照合→handoff ID＋delivery IDと継続指示の固定文 | pure文字列。相関/再送禁止の原文を改名・共通化しない。Claude文法とは別 |
+| [Codex auto](../../src/codex-auto-handoff.mjs):launchAutoHandoffWorker/launchAutoHandoffGoalSettle | hook/CLI→worker/resume又はgoal整理子をdetached起動 | private log fdはfinally close。goalの間隔markerは起動前に書くためspawn失敗でも残り得る。marker/起動はgoal整理成功ではなく、子停止/外部取消APIを新設しない |
+| 同:hookIdentityShape/untrackedInheritedMemory/autoHandoffSourceFallbackTitle | request診断/memory/名前→許可identity形、最大120000 code pointの既継承文、前任title | path/本文を公開診断へ無制限に出さない。切詰めをtruncated/元文字数で明示、元DBは消さない。default titleはstore lookupを使う |
+| 同:nameAutoHandoffTarget/renderAutoHandoffFailure/showAutoHandoffFailure | worker→外部thread名、固定識別子/codeだけのHTMLとOS handler | name失敗は固定stderr/false、HTMLはescape、unknownや未停止許可には再開を案内しない。HTML/logは製品stateに残り、handler終了0を実画面と同一視しない |
+| [title](../../src/auto-handoff-title.mjs):autoHandoffProjectName/usableAutoHandoffTitle | compose/mark helper→path末尾のproject名・利用可能な最初のtitle行 | 制御列/空行/自動継続指示を除く既規則。AI/保存/外部呼出無し |
+| [Grok CLI](../../src/cli/grok-continue.mjs):buildGrokContinuePrompt/resolveGrokBin/buildGrokArgv/buildLaunchScript/defaultSpawnLaunch | run/buildContinuePlan→非空context、home/PATHの実行候補、session argv、引用済みshell script、既macOS Terminal起動 | 空context拒否/実体不在null、quoteはos/shell。生成はpure、defaultSpawnLaunchだけOS作用。保存artifactの残存と表示/読了の未確認は既表のまま |
+
+ここで起動窓口を索引化したことは実子process/Host操作の実施を表さない。S1の新命令/診断moduleと旧CLI互換参照に変更は無く、新しい配送API/daemon/取消機構は追加していない。
+
+
+試験専用の公開helperも製品runtimeと分ける。[receipt fixture](../../src/completed-turn-receipts-test-fixture.mjs):seedCompletedTurnReceiptStore は仮storeを作り、[ACL test helper](../../src/os/windows-acl-test-helper.mjs):applyWindowsPrivateAcl/verifyWindowsPrivateAcl は試験用のWindows ACL操作をguard付きで呼び、[test-temp-dir](../../src/test-temp-dir.mjs):testTempDir は仮dirとexit cleanupを提供する。製品のCLI/consumerから使う新APIへ昇格させず、外部取消や強制終了後のcleanup保証を付け足さない。

@@ -1,6 +1,6 @@
 # Throughline 機能図とsource対応
 
-状態: Astra責務設計を受け、S1構造実装/S2説明同期済み。S3追補1とLinux全件検証まで確認し、全体意味対応/残OS/Astra最終整合は未了。設計時点の調査固定候補 `747560bf1354c8b5991b69984636ffa9359172d8`、base `39ff812d46c0e84e8fc1418096c509551cf3928b`。以下の現行図と末尾の設計時点の記録を区別する。各段階の現在の到達点はS1実装/S2同期と各詳細末尾の追補を参照する。S3・全consumer閉包・Astra最終整合は未完。
+状態: S1のhook命令/診断所有整理、S2説明同期、S3の全体から実関数/保持根拠への追補を含む最終整合候補。base `39ff812d46c0e84e8fc1418096c509551cf3928b`、実装固定59150e6、説明/検証固定7e66b04を基にする。S4のLinux全件は通過、macOS/WindowsとGitHub CIは未実施。S5の適用済みAstra最終整合と全体受入は未了。
 
 - [未読台帳](unread-ledger.md): baseのtracked全417file。source126/test99/documentation141/config-support51を機械分類した。fixture4件と機械分類config-support内の現役script/設定14件は本文確認。残る意味分類と適用性は台帳へ分ける。
 - [bytes/SHAと宣言候補](file-inventory.json): 宣言行の文字列索引は部分的な手掛かりで、実関数や全callerの網羅を保証しない。全fileのsemanticMappingCompleteはfalse。
@@ -143,3 +143,17 @@ S1/S2の変更前確認は既Owner手順であり、新しい人の承認関所�
 - sc-detailのThinking表示、doctorのNode最低版表示、旧installer呼出、temp残存/一部writerのCAS無し、monitor signal寿命などは既知の未照合又は制限。今回の二つの構造境界の整理で自動解決したことにしない。
 
 S1実装記録は[運用詳細末尾](current-lifecycle.md#s1実装と保持確認2026-11-03)へ。既処理の移動と旧参照保持を実装し、focused70件と登録/import選択5件が通過。第5図を実装の現行接続へ更新した。S2の説明同期と関連31件は[運用詳細のS2記録](current-lifecycle.md#s2説明同期と保持確認2026-11-03)へ。S3と既CI全体範囲、最終整合は継続する。
+
+
+## 最終整合へ渡す候補の範囲（S3追補2）
+
+S1/S2の後に、全体図の15機能群を5詳細の責任/接続/実関数/状態/失敗・停止・取消・unknown・cleanupへ戻し、公開helperの索引と保持根拠を追補した。記録/Codex capture・hook、autoのstore/起動/配送文、manualのprotocol補助、復元/recent/公開projection、運用config/ACL/表示は各詳細末尾を現在の対応とする。上段のsource調査時点の「次工程」「未実行」は履歴として読み、現在の結果と混ぜない。
+
+- 追加の構造変更は採用していない。既source本文/固定Astra採否と照合して既責任へ結び、S1以外のstate machine統合、temp writer統合、共通parser、新API/daemon/取消機構は作らなかった。
+- S1変更対象の旧/new import・再export・既caller・設定・fixture・packはS1保持記録へ。S2の変更先は配布command/skill/README/現行docs/AGENTSへ閉じ、履歴ADRは保存した。以後の差分は図の対応表/manifestだけでruntime/config/testを変更していない。
+- named function exportの文字列索引488件（試験helperも含む）に詳細内の名前の欠落が無いことをassertした。初回検査でS1新moduleの具体名8件と試験helper4件の不足が分かり、実sourceと役割を確認して正本へ追補した。これは全AST/alias/class method/動的callerやprivate branchの意味確認完了を示す検査ではない。
+- 本文確認213/同blob1/partial4/未読199。source126pathの本文確認は全体索引の土台とし、未読資料を一律必読にしない。source本文を調べた範囲と、残る全semantic/consumer未確認を台帳へ分ける。全fileのsemanticMappingCompleteは最終整合/受入前のfalseを保持する。
+- 既知の未確認境界は、未知の外部deep import、Spotter/Caveatの現在の実consumer、Host/配送内部、未読のtest本文/fixture、monitor main/signal全coverage、強制終了時のcleanup、未改行streamのhard上限等。S1の移動や文書同期で解決したことにしない。Thinking/detailの表示欠落、doctor最低Node表示差、旧installer/無効refresh/temp残存も記述した既制限として残す。
+- 検証は先行Linux全件1145pass/3Windows skip/0failと文書/pack、19図の原稿・SVG hash/XMLを使う。今回runtime/source/testの追加差分が無いためLinux試験は再走しない。無変更の図も再描画しない。
+
+既CIの残OSは、製品所有 `.github/workflows/test.yml` のworkflow_dispatchへ候補refと比較base39ff812を固定し、environment=allで既`product-full-ci`の選択とgateへ渡す工程である。self-hosted factoryのMac/Windows/Host/利用中会話/公開に関する既条件を守り、今回のローカル図整理を起点にrunner管理や実席操作を始めない。macOS/Windowsの全件とGitHub gateが未実施である以上、3OS CI成功やrelease受入とは記さない。S5はこの固定候補と未確認範囲を合わせてAstraで照合し、受入又は具体的な補正を返す。新batchは全体成果受入後の別工程を維持する。

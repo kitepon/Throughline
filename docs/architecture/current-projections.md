@@ -1,6 +1,6 @@
 # 文脈復元・observer・外部文脈の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→file/関数へ辿る。Solのsource読取段階であり、整理案の採否/実装/Astra最終整合は未着手。実DB・実harnessで確認した図ではない。復元/room図は実描画/目視済み、observer図は既描画原稿を再利用。[描画manifest](render-manifest.json)へ対応付けた。
+基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終整合と全体受入は未了。
 
 ## 記憶の読取と表現の境界
 
@@ -139,3 +139,12 @@ flowchart TD
 | `room-routing.mjs:roomTurnsFromThroughline` | [room-context.run](../../src/cli/room-context.mjs)へJSON stdin/EOF、v1 ready・末尾messageIdを照合 | 子close/nonzeroと固定errorを検査、speaker/textを投影。DB COMMIT後の出力喪失を保存取消へ補完しない。callerに新しい取消/再送/記憶APIを要求していない |
 
 外部の子process runner/Host内部、Spotter/Caveatの現在の実caller、未知のdeep import/export利用はこの3fileの読取では未確認。公開versioned JSONと旧import面を保持し、到達できない利用を全閉包完了と記さない。新batch/token/poolや実consumer受入は別工程のまま。
+
+
+## S3追補2: 復元・公開projectionの残る保持根拠
+
+[auditor-context.test](../../src/auditor-context.test.mjs)全418行と[observer-read CLI試験](../../src/cli/observer-read.test.mjs)全108行を追加照合した。auditorはoriginと本文2hash/完了pairを照合し、Codexの不安定なordinalだけを根拠にしない。project/schema不一致と不足pairのpendingを分け、pendingには部分本文を返さない。仮WALのbytes/mtime保持、exclusive lock時の固定error、有限busy待ちのassertを確認した。CLIは既知stateのexit0、hard errorの固定stderr/exit1、v1/v2 schema、引数重複拒否を保持する。外部Spotter/Caveatの現caller受入は依然未確認で、製品側の既窓口との保持根拠を示す範囲である。
+
+[resume-context.test](../../src/resume-context.test.mjs)の既読budgetに加え913..1333を照合した。autoの途中依頼/完了済みと未実行道具/background/重複turn除外、長文の中略と件数、recentの現在文不変/残予算だけ過去本文/turn原子/途中打切り以降は索引/origin+turn重複除去/索引5件上限を確認した。無制限rendererの85..689は今回読了にせずpartialを維持する。実行結果は先行Linux全件を参照し、追加source変更が無いため再走していない。
+
+[auditor](../../src/auditor-context.mjs):defaultAuditorContextDbPath と[recall](../../src/cli/recall.mjs):defaultRecallDbPath は、それぞれ公開CLIからhome/.throughline/throughline.dbを返す既path窓口であり、呼ぶだけでDBを作成/移行しない。実接続/close/例外は各read-only wrapperが持つ。同期path決定に取消/cleanupは不適用。`codex-resume`等のgetDbを使うCLIと統合しない。

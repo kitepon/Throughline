@@ -1,6 +1,6 @@
 # 導入・監視・診断・更新・エラー報告の現行source対応
 
-基準 `39ff812d46c0e84e8fc1418096c509551cf3928b`。[全体索引](README.md)→本詳細→実file/関数へ辿る。最初の4図はsource読取で得た現行図で、実描画/目視済み。末尾の採用設計/第5図はS1の実装に対応する。[描画manifest](render-manifest.json)に対応を残す。実Host受入・Astra最終整合は未了。機械分類source126fileの本文確認はfixture4を含み、全test/config/export/consumerの照合は未完。
+基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終整合と全体受入は未了。
 
 ## 導入・解除と設定信用
 
@@ -307,3 +307,25 @@ S1候補59150e6からruntimeを変えず、採用済みの現行説明を実関�
 既`product-ci-plan.classifyPaths/selectTestFiles`へbase39ff812から現在の全変更pathを渡し、既判定がmacos-native/linux-workstation/windows-nativeの3環境・testScope=allであることを再確認した。既ルールをfocusedへ弱めず、今回の環境で`npm test`を実行した。全1148件中pass1145、fail0、skip3、cancelled0で終了0。HOME/USERPROFILE/XDG_CONFIG_HOME/XDG_STATE_HOME/LOCALAPPDATA/TMPDIRはすべて自席validation-pass-01配下へ隔離した。CLI/backendは既試験の仮fixtureであり、実席/本番DB/配送runnerの受入ではない。
 
 skip3はWindows cmd shimのargv/stdin、Windows PATH npm起動、Windows real ConPTY/更新中addonの3件。macOS/Windowsの全件とGitHub CIは未実行である。Linuxで全試験が通ったことを未読test本文の読了や全関数/consumerの意味閉包へ補完しない。S3補完1は各詳細へ戻したが、残る意味確認とS5 Astra最終整合は未了。新しいrelease/承認条件や公開操作は加えていない。
+
+
+### S3追補2: 設定・診断・表示helperの窓口
+
+| 実file/関数 | 代表caller・責任/状態/返却 | 保持/失敗/cleanup |
+| --- | --- | --- |
+| [app-dirs](../../src/os/app-dirs.mjs):windowsLocalAppData/xdgConfigHome/xdgStateHome | receipt/runtime store/report→env又はhome fallbackの保存先基底 | path生成だけ、fileは開かない。Bot/Host設定を書換えない |
+| [ACL](../../src/os/windows-acl.mjs):isWindows/applyAndVerifyWindowsAcl/verifyWindowsAcl/createWindowsPrivateFile | receipt/runtime private writer→platform判定/PowerShell ACL適用と読戻し/新規公開 | prepared tempへACLを検証してhardlink、EEXISTはfalse、finally temp削除。15秒guard/同じ既共有所有者を保ち、今回Windowsへ実行しない |
+| [runtime context](../../src/runtime-error-context.mjs):validateRuntimeErrorContext/bindRuntimeErrorContext/validateRuntimeErrorContextState/runtimeErrorMessageWithContext | observer/store→許可enum/厳格key検証、最新発生へのbinding、公開定型文の補足 | 保存指紋/件数/版/時刻の全一致だけ補足。古い/別発生に流用せず原templateへ。不正形はthrow、raw例外や本文を投影しない |
+| [report trigger](../../src/runtime-error-report-trigger.mjs):defaultRuntimeErrorReportConfigPath/defaultRuntimeErrorReportStatePath/isCanonicalRuntimeErrorReportConfig/readRuntimeErrorReportConfig | report/trigger→別configと送信state path、schema/key検証 | symlink/不正/読取失敗はnull、既定通信OFF。軽いconfig読取とstore側のprivate ACL/lock検証を同一保証としない |
+| [runtime store](../../src/runtime-error-store.mjs):defaultRuntimeErrorConfigPath/defaultRuntimeErrorStorePath/isRuntimeErrorCollectionEnabled/setRuntimeErrorCollectionEnabled/getRuntimeErrorDiagnostics | CLI/observer/report→収集config/保存先、明示boolean保存、bounded診断 | 不正/未存在設定はdisabled。setはprivate writer、diagnosticsは不読をunavailableとして返す。reporting設定を連動させない |
+| 同:withRuntimeErrorStoreLock/writeRuntimeErrorPrivateState/readRuntimeErrorPrivateState | reportとstore内部contextの既private API→store lock/ACL検証済みJSON read/write | exact optionsとdirectory capability、ENOENTだけnull、他読取失敗throw。writeは既temp/finallyを使う。callback処理の外部fileまで一括rollbackしない |
+| [report](../../src/runtime-error-report.mjs):signRuntimeErrorReportResponse | isVerifiedAcceptance/試験→同report IDとreceivedAtのHMAC | 純粋な署名生成。response検証/ackは既report本体へ、送信や状態更新はしない |
+| [hook log](../../src/hook-failure-log.mjs):hookFailureLogPath | logHookFailure/試験→home配下private log path | path生成とlog追記の作用を区別し、固定公開aggregateへraw本文を混ぜない |
+| [monitor](../../src/token-monitor.mjs):formatTimeAgo/shouldForceFullRedraw/setMeasuredColumns | main/resize/formatLine→経過表示/全描画判定/測定幅cache | pure計算とprocess内cacheのみ。値更新を端末やモデルの進捗と解釈しない。mainのsignal寿命全coverageは既制限 |
+| [VSCode task](../../src/vscode-task.mjs):detectVsCode/detectIndent/hasMonitorTask/resolveThroughlineBin/buildSetupNotice/shouldRecommendGitignore | ensureMonitorTaskFile→環境/JSON/配布bin存在/案内/ignore推奨を計算 | bin解決失敗null、利用者JSONC/設定保持、案内文生成だけでhost再読込しない。ignore照会はfileを読むが書き換えない |
+| [install](../../src/cli/install.mjs):resolveThroughlineOnPath | installの案内→PATH/PATHEXTの最初の既存候補を返す | 存在照会であり実行/版/実体の同一性は保証しない。Codex命令実体照合はS1のhost moduleに正本を残す |
+
+上のhelperは既責任に属し、S1以外の新しいruntime分割・共通writer・保存形式変更は加えていない。今回sourceを再照合しても、先行Linux全件の成功を全helperの全OS実測/全private branch coverageと説明しない。
+
+
+S1の[hook-commands](../../src/hosts/hook-commands.mjs)が所有する13 named exportのうち、既表の総称だったCodex命令は `buildCodexStopHookCommand/buildCodexUserPromptSubmitHookCommand/buildCodexPostToolUseHookCommand/buildCodexPreCompactHookCommand/isThroughlineCodexHookCommand/isThroughlineCodexStopCommand/isThroughlineCodexPostToolUseCommand`、Cursor managed判定は `isThroughlineCursorHookCommand` である。残る5名は `resolveCodexHookNodePath/parseCodexHookCommand/isEquivalentCodexHookCommand/buildGrokHookCommand/buildCursorHookCommand` で、全13名の旧install named exportを保持する。命令生成とmanaged判定は設定を変更せず、install/doctor/factoryと旧import面からこの所有者へ辿る。moduleだけのimportで実行しない。

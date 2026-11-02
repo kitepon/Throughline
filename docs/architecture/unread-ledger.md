@@ -13,10 +13,10 @@
 
 | 本文確認状態 | 件数 |
 | --- | ---: |
-| body_read | 209 |
+| body_read | 213 |
 | reference_same_blob | 1 |
-| partial | 3 |
-| unread | 204 |
+| partial | 4 |
+| unread | 199 |
 
 未読は一律に必読ではない。archive/旧release証拠/宣伝assetの適用性はmanifestへ理由を残し、現役契約・変更対象のcaller/test/fixture/config/exportを優先する。未読の適用性分類を本文読了や意味確認に補完しない。
 
@@ -217,7 +217,7 @@
 | scripts/verify-release-commit.mjs | config-support | body_read | 全文。既定branch祖先/clean payload確認と公開gate。今回公開検査/公開は実行しない |
 | scripts/verify-release-commit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/auditor-context.mjs | source | body_read | 全文。freshness導出/read-only schema9..current/project子孫/ordered全pair照合、bounded/full projection、1s busy、finally close。大きなtestと全consumer未読 |
-| src/auditor-context.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/auditor-context.test.mjs | test | body_read | 全文1..418。完了pair/hash/project/schema、read-only WAL保持/lockとbounded busy、pending全page非部分返却。先行Linux全件passを参照し再走無し |
 | src/auto-handoff-title.mjs | source | body_read | 全文。project/title/継続制御文除外/Unicode制限/印冪等。AI起動なし。test本文確認・未実行 |
 | src/auto-handoff-title.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
 | src/baton.mjs | source | body_read | 全文。project upsert、誕生時刻TTL、未来baton保持、独立consume/discard。関連test本文確認・未実行 |
@@ -245,7 +245,7 @@
 | src/cli/codex-handoff-start.mjs | source | body_read | 全文。DB記憶/structural smoke後だけ新thread developer注入、turn開始無し、host選択/表示と部分失敗。関連test本文確認・未実行 |
 | src/cli/codex-handoff-start.test.mjs | test | body_read | 全文。host優先/案内/memoとfake app-server新thread/developer注入/turn非開始。一時DB fixture内包。未実行 |
 | src/cli/codex-hook.mjs | source | body_read | 全文。EOF/event/capture/monitor/Stop要約、refresh無効、pre-compact停止/継続、backend24h失敗/復帰分類。auto本体も本文確認、全test/設定未了 |
-| src/cli/codex-hook.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/cli/codex-hook.test.mjs | test | body_read | 全文1..593。identity/payload、Stop/prompt/toolのcapture/state、75%でもrefresh非起動/backoff不使用、L1固有失敗code。先行Linux全件passを参照し再走無し |
 | src/cli/codex-host-primitive-audit.mjs | source | body_read | 全文。schema-dir/生成保持/commandのargvとJSON/text/exit。実CLI未起動、関連test未読 |
 | src/cli/codex-host-primitive-audit.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/cli/codex-restore-smoke.mjs | source | body_read | 全文。env/ID/rollout/risk guard、bounded fresh app-server検査、quoted/blocking区別とexit。実CLI未起動 |
@@ -275,7 +275,7 @@
 | src/cli/migrate.mjs | source | body_read | 全文。JSONのみ0/1/2、既DBのみmigration/future拒否/原因非公開。test本文確認・未実行 |
 | src/cli/migrate.test.mjs | test | body_read | 全文。DB fixture migration/保持/future/不在/JSONのみ、本文確認・未実行 |
 | src/cli/observer-read.mjs | source | body_read | 全文。strict args/limit1..100/wire/JSON-only、既知状態exit0/hard固定JSON exit1。test本文確認・未実行 |
-| src/cli/observer-read.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
+| src/cli/observer-read.test.mjs | test | body_read | 全文1..108。引数/JSON-only/既知状態exit0/固定hard error/非漏洩/v1-v2/隔離snapshot。先行Linux全件passを参照し再走無し |
 | src/cli/observer-wait.mjs | source | body_read | 全文。strict timeout/既存絶対project、signal/IPC/親watch→abort、EPERM非不在、finally除去。test本文確認・未実行 |
 | src/cli/observer-wait.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/cli/recall.mjs | source | body_read | 全文。明示session/before strict-ms/last/skip、read-only/close、L1未要約明示/L2全文/L3参照。注入時境界を再計算しない。全test/consumer未読 |
@@ -297,7 +297,7 @@
 | src/codex-auto-refresh.mjs | source | body_read | 全文。disabled既定/verified usage、実行前fingerprint/quiet/単純file store。hook非接続をsource参照検索。関連test未読 |
 | src/codex-auto-refresh.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-capture.mjs | source | body_read | 全文。rollout再生→L2全置換/L3共通prefix同期、変化したturnのL1削除を同transaction。旧identity再export保持。全test/caller未了 |
-| src/codex-capture.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/codex-capture.test.mjs | test | body_read | 全文1..657。rollback/L2置換、response_item重複、変更turnだけL1削除、L3 prefix id/時刻保持と全再作成対照のfixtureを照合。実行は先行Linux全件passを参照し再走無し |
 | src/codex-handoff-model-smoke.mjs | source | body_read | 全文。prompt+markerと同期ephemeral Codex exec、timeout/nonzero/marker分類。gateはCLI側。実モデル未起動 |
 | src/codex-handoff-model-smoke.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/codex-handoff-smoke.mjs | source | body_read | 全文。pure構造/文字数検査、detail suffixと任意prompt。モデル可視性とは別。関連test未読 |
@@ -384,7 +384,7 @@
 | src/os/windows-package-update.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
 | src/os/windows-terminal-runtime.mjs | source | body_read | 全文。node-pty不変content-addressed copy、copy/hash/rename/finally除去。実Windows起動なし。test本文確認・未実行 |
 | src/os/windows-terminal-runtime.test.mjs | test | body_read | 本文全体を確認。期待値/fixture/callback/中断条件のsource読取のみ、未実行。全consumer/設定/export閉包は未了 |
-| src/package-files.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/package-files.test.mjs | test | body_read | 全文。package filesのClaude/Codex面とsrc全体配布の固定assert。先行Linux全件passを参照。S1新moduleを含む配布範囲不変 |
 | src/pending-handoff.mjs | source | body_read | 全文。intent登録とconsumeの独立transaction、rollback/throw。session-start/executorの参照を検索 |
 | src/pending-handoff.test.mjs | test | body_read | 本文全体を確認。fixture/期待値のsource読取のみ、未実行。全caller/設定/exportの網羅照合は未了 |
 | src/phase0-spotter-contract.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
@@ -394,7 +394,7 @@
 | src/prompt-submit.mjs | source | body_read | 全文。EOF/host/初回引継ぎ/forwarded入力/command/baton/spike。auto/forward/Grok起動先は本文確認、context/spike内部と全test/caller未了 |
 | src/prompt-submit.test.mjs | test | body_read | 本文全体を確認。fixture/期待値のsource読取のみ、未実行。全caller/設定/exportの網羅照合は未了 |
 | src/resume-context.mjs | source | body_read | 全文。record→無制限/9500字push/現在地・案内・L2turn原子、recentの予算/重複除外、途中turnと背景/未実行道具のアンカー。全caller/test/export未了 |
-| src/resume-context.test.mjs | test | partial | 1..84 fixtureと690..912のbudget試験本文を確認。budgeted7＋定数1の8件通過。無制限/auto/recent等の本文は未読で全体読了にしない |
+| src/resume-context.test.mjs | test | partial | 既読1..84/690..912に加え913..1333を照合。auto途中依頼/道具/重複除外とrecent予算/原子性/重複/索引上限。85..689無制限rendererは未読を維持。先行Linux全件passを参照 |
 | src/room-context.mjs | source | body_read | 全文。既定DB評価後に入力検証、project/room/message同一性、conflict rollback、指定rowまで3発言COMMIT。test本文確認・未実行 |
 | src/room-context.test.mjs | test | body_read | 本文全体を確認。隔離fixture/境界/pending/取消/公開wireの期待値をsource読取、未実行。全consumer/設定/export閉包は未了 |
 | src/runtime-error-context.mjs | source | body_read | 全文。固定enum/private sidecar binding/最新発生だけの公開message。store/report側未読 |
@@ -428,7 +428,7 @@
 | src/transcript-reader.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/transcript-usage.mjs | source | body_read | 全文。size/mtime cache、usage/context window判定、sticky1m。全caller/test未了 |
 | src/transcript-usage.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
-| src/trim-cli.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
+| src/trim-cli.test.mjs | test | partial | fixture1..257、612..649、847..957、1011..1132、1399..1455を本文照合。仮protocolによるDB記憶guard/順序/count補正/live-only/durable/timeoutの保持。全1606行読了ではなく先行Linux全件passを参照 |
 | src/trim-model.mjs | source | body_read | 全文。DB/rolloutのplanとmemory優先、Codex identity、manual Claude、推定/restore診断、表示だけ短縮。関連test本文確認・未実行 |
 | src/trim-model.test.mjs | test | body_read | 全文。in-memory DB/rollout fixture、identity/DB記憶優先/手動境界/表示短縮/restore推定。未実行 |
 | src/turn-backfill.mjs | source | body_read | 全文。通常append/Grok世代検知、L2 transaction、in-flight L2/L3 transaction。関連test未読 |
@@ -439,3 +439,5 @@
 | src/turn-start.test.mjs | test | unread | 機械列挙のみ。本文/責務/契約未調査 |
 | src/vscode-task.mjs | source | body_read | 全文。VSCode/opt-out/JSONC guard、task merge/repair/temp rename、通知markerと既user設定保持。関連test未読 |
 | src/vscode-task.test.mjs | test | body_read | 全文1..993。env/JSONC/通知/marker/merge/破損path修理と利用者設定保持。仮fileのみ、本文確認で未実行 |
+
+S3追補2ではnamed function exportの文字列索引488件を既責任の詳細へ接続した。名前の出現だけで全関数/動的caller/外部consumerの意味確認済みにせず、全semanticMappingComplete=falseは維持する。fixture/開発支援も数に含む。詳細な宣言行/文字列参照はJSON内のnamedExportFunctionAuditから自席evidenceへ辿る。
