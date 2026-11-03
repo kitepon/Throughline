@@ -7,8 +7,8 @@ import { buildFactoryDiagnostics } from '../factory-diagnostics.mjs';
 import { findCodexThreadCandidate, defaultCodexHome } from '../codex-thread-index.mjs';
 import { resolveCodexThreadIdentity } from '../codex-thread-identity.mjs';
 import { CURRENT_VERSION, settleFirstRead } from '../db.mjs';
-import { isEquivalentCodexHookCommand } from './install.mjs';
-import { _internal as doctorInternal } from './doctor.mjs';
+import { isEquivalentCodexHookCommand } from '../hosts/hook-commands.mjs';
+import { readCodexHookDiagnosis } from '../hosts/codex-hook-diagnosis.mjs';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../../package.json').version;
@@ -132,7 +132,7 @@ function eventStatus({ hooks, legacyHooks, featureEnabled, expectedCommand, time
     hook.timeout === timeout && hook.async === false ? 'ready' : 'not_ready';
 }
 
-export function inspectFactoryHooks({ codexHome = defaultCodexHome(), readHooks = doctorInternal.readCodexHookDiagnosis } = {}) {
+export function inspectFactoryHooks({ codexHome = defaultCodexHome(), readHooks = readCodexHookDiagnosis } = {}) {
   try {
     const diagnosis = readHooks(codexHome);
     if ((diagnosis.configExists && !diagnosis.configReadable) ||

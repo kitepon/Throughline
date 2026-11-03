@@ -2,6 +2,12 @@
 
 このファイルは AI エージェント（Claude Code、Codex、Grok、Cursor など）がこのリポジトリで作業する際のガイダンスです。
 
+## 図起点リファクタの状態（2026-11-03）
+
+現行全体/詳細図・source対応とAstra責務設計は [docs/architecture/README.md](docs/architecture/README.md) を入口とする。現行18図に加えhook命令/診断の所有整理S1を実装し、その詳細図と保持試験を追補した。S2の説明同期と関連31試験まで確認した。S3の対応追補を含む候補をAstra xhighで最終照合し、結果と未確認をarchitecture正本のS5へ固定した。初回3OS CIはWindows競合試験1件で失敗し、stderr観測を加えたWindows CIは成功した。fixture holderへ既待機定数を設定した候補2cbe108で、3OS全件とgateが成功。固定aaec11fの全体成果は指導担当が受入済みで、通常保守へ移管した。初回原因未確定・全consumer未確認の限界と受入証跡はarchitecture末尾へ記す。公開/本番/Host操作の既条件を変更しない。
+
+別工程observer-checkは [catalog/core/CLI](docs/architecture/observer-check.md) と[候補schema](docs/observer-check.schema.json)を実装中。固定開発候補の有限性能/runner接続は検証済み。正式公開の状態はnpmとrelease契約を確認する。既read/wait/cursorの保持を確認し、全体受入済み版とこの追加差分を区別する。
+
 ## プロジェクト概要
 
 **Throughline** は Claude Code の hooks プラグインで、会話ターンを 3 層 (L1/L2/L3) に分解して SQLite に保存し、`/clear` 後も記憶を復元します。加えてマルチセッション対応のトークンモニター CLI も同梱しています。
@@ -25,7 +31,7 @@ Codex固定エラーの最新一回はADR 0025の私有補足を既message_templ
   3. baton 消費が auto 判定より先発なので両者は構造上同時成立しない
 - **注入内容 (ADR 0016, 2026-07-18〜)**: push は「現在地」だけ — ヘッダ + 現在地アンカー + 案内セクション（無条件表示）+ **L2 を新しい順に丸ごと入るターンだけ全文**（ターン原子・固定 N なし）。**L1 は注入しない**。窓 (20 ターン) の残りは `throughline recall --l2`、それより古い全ターンは `recall --l1`（要約 or 未要約明示）、一点掘りは `throughline detail <時刻>` の pull 三段構成。範囲・境界 (ISO ms strict less-than)・件数・session は全部注入時に案内コマンドへ焼き込み、recall 側は窓を再計算しない。memo / thinking は注入しない
 - **注入予算 (ADR 0014)**: hook stdout は約 10k 字超で `<persisted-output>`（path + 先頭 2KB preview）に file 化されモデル可視が劣化する（実測 9,501 字 inline / 15,286 字 file 化。10k 判定は per context string で multi-hook なら突破可能と実測済みだが構造的想定外として不採用 — ADR 0016）。注入は `buildBudgetedResumeContext`（上限 9,500 字）で行う
-- **thinking の L3 保存**: assistant の extended thinking ブロックは `details` テーブルに `kind='thinking'` で全ターン保存される。`throughline detail <時刻>` で取り出せるが、注入には含めない
+- **thinking の L3 保存**: 取得できたClaudeのextended thinkingは `details` の `kind='thinking'` に保存する。Claudeの予算付きpushには含めない。現行 `throughline detail <時刻>` はThinking行を表示しない制限がある。Codex手動rendererはrecordの最新Thinkingを含み得るが、自動継続は含めない
 - 各レコードは `origin_session_id` を保持するため、複数回の引き継ぎでも記憶がチェーン状に蓄積する（ホップ制限なし）
 - `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` は **使わない**（自動コンパクト依存の設計は放棄済み）
 - **フォールバック / 逃げ道のコードを書かない** — [docs/04_public_release_plan.md §0](docs/04_public_release_plan.md) 参照。silent try/catch、`exit(0)` でのエラー隠蔽は禁止
@@ -80,7 +86,7 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/codex-auto-refresh.mjs](src/codex-auto-refresh.mjs) | Codex automatic refresh helper。current-thread rollback / inject の判定と backoff ロジックは残すが、helper 自体も default disabled で、現行 Codex hooks はこの helper を呼ばず、常に `codex_auto_refresh_disabled` で quiet にする。明示 `trim --execute --host codex` は診断用 current-thread path として残す |
 | [src/codex-handoff.mjs](src/codex-handoff.mjs) | `HandoffRecord` から Codex-facing `throughline_handoff` v1 JSON block と Codex developer-message 用 active-work context を生成。`source='throughline'` / `trust='local'` / `kind='throughline_handoff'` を固定 |
 | [src/token-estimator.mjs](src/token-estimator.mjs) | 補助的なトークン数推定 (length/4) |
-| [src/turn-backfill.mjs](src/turn-backfill.mjs) | 共通バックフィルルーチン: 群レベル dedup・junk 代表除外・timestamp `created_at`。`deriveTranscriptPath` は `hosts/claude.mjs` の `deriveClaudeTranscriptPath` への互換再export。`captureInFlightTurn` は、hook で止めたターン（Stop が走らない）を取り込む。発言を全部つないで本文にし、transcript の末尾までの道具の入出力を details に入れる（ADR 0033。自動継続の worker が後継を立てる前に呼ぶ） |
+| [src/turn-backfill.mjs](src/turn-backfill.mjs) | 共通バックフィルルーチン: 群レベル dedup・junk 代表除外・timestamp `created_at`。`deriveTranscriptPath` は `hosts/claude.mjs` の `deriveClaudeTranscriptPath` への互換再export。`captureInFlightTurn` は、hook で止めたターン（Stop が走らない）を取り込む。発言を全部つないで本文にし、transcript の末尾までの道具の入出力を details に入れる（ADR 0033、0068。後継の初回入力でhandoff IDを照合した `findClaudeAutoContinuationSource` がmerge前に呼ぶ） |
 
 ### host 境界 `src/hosts/`（ベンダー依存の唯一の置き場）
 
@@ -112,9 +118,9 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 
 | ファイル | サブコマンド | Hook event |
 |---|---|---|
-| [src/session-start.mjs](src/session-start.mjs)<br>二相ハンドオフ第一相: sessions 登録 + pending intent 登録のみ。merge / 注入はしない (ADR 0014) | `throughline session-start` | SessionStart |
-| [src/claude-pre-compact.mjs](src/claude-pre-compact.mjs)<br>自動継続の第一段 (ADR 0033)。自動圧縮で有効な project の時だけ、baton と記録を残して exit code 2 で圧縮を止める。それ以外は exit code 0。自身の失敗は exit code 1（圧縮は止めない） | `throughline pre-compact` | PreCompact（`auto-handoff enable --host claude` が登録） |
-| [src/claude-pre-tool-use.mjs](src/claude-pre-tool-use.mjs)<br>自動継続の第二段 (ADR 0033)。記録のある会話の道具を `deny` + `continue:false` で実行させずに止め、後継を立てる worker を起動する。後継の会話では、引き継ぎ前の会話へ届いた入力が置き場で待っていれば、道具を止めずに文脈として渡す（ADR 0063）。記録も置き場も無い会話では、ファイルの有無だけを見て終わる（DB も他の module も読み込まない） | `throughline pre-tool-use` | PreToolUse（同上） |
+| [src/session-start.mjs](src/session-start.mjs)<br>Claudeでは二相ハンドオフ第一相: sessions 登録 + pending intent 登録のみ (ADR 0014)。Cursor foregroundは、この入口で第二相のmergeとadditional_context返却まで行う | `throughline session-start` | SessionStart |
+| [src/claude-pre-compact.mjs](src/claude-pre-compact.mjs)<br>自動継続の第一段 (ADR 0033)。自動圧縮で有効な project の時だけ、自動継続の要求を記録して exit code 2 で圧縮を止める。それ以外は exit code 0。自身の失敗は exit code 1（圧縮は止めない） | `throughline pre-compact` | PreCompact（`auto-handoff enable --host claude` が登録） |
+| [src/claude-pre-tool-use.mjs](src/claude-pre-tool-use.mjs)<br>自動継続の第二段 (ADR 0033)。記録のある会話では道具を保留してworkerを起動し、後継の受領又は確定失敗を待つ。受領・結果不明なら `deny` + `continue:false`、起動の確定失敗なら最初の道具から通す。後継の会話では、引き継ぎ前の会話へ届いた入力が置き場で待っていれば、道具を止めずに文脈として渡す（ADR 0063）。記録も置き場も無い会話では、ファイルの有無だけを見て終わる（DB も他の module も読み込まない） | `throughline pre-tool-use` | PreToolUse（同上） |
 | [src/claude-forward-wait.mjs](src/claude-forward-wait.mjs)<br>引き継ぎ前の会話へ届いた入力を、手すきの後継へ届ける (ADR 0063)。自分の置き場のフォルダが在る会話でだけ、入力が届くまで待ち、届いたら stderr へ出して exit code 2 で終わる（`asyncRewake` の hook は、これで会話を起こす）。置き場が無い会話・subagent・script から起動した Claude（`claude -p`）では、すぐ終わる。自分の会話がさらに引き継がれたら、残った入力を今の続きの会話へ移して終わる | `throughline claude-forward-wait` | Stop（`asyncRewake`。`auto-handoff enable --host claude` が登録） |
 | [src/turn-processor.mjs](src/turn-processor.mjs)<br>全ターン走査バックフィル（`turn-backfill.mjs` 経由、Stop 空振りの永久穴を解消） | `throughline process-turn` | Stop |
 | [src/prompt-submit.mjs](src/prompt-submit.mjs)<br>二相ハンドオフ第二相: 初回プロンプトで pending consume + merge + 予算内注入。`/tl` batonを書き、Grok `/tl` 成功後は`grok-continue`を副作用起動する。`/clear`互換分岐は残るが、現行の組み込み`/clear`はこのhookへ届かない。引き継ぎ済みのClaudeの会話へ届いた入力は、最初に止める（ADR 0062。記録のファイルが無い会話では何も読み込まない）。止めた入力は後継の置き場へ置き、後継の会話では、置き場で待っている入力を文脈として足す（ADR 0063）。記憶を注入した入力には足さない | `throughline prompt-submit` | UserPromptSubmit |
@@ -163,8 +169,8 @@ DB記憶を別プロセスへ渡す作業は [README.md](README.md) の `handoff
 | [src/cli/migrate.mjs](src/cli/migrate.mjs) | `migrate --json` — 既存の Throughline DB だけを production migration で現行 schema へ移行する正規入口。DB 不在時は作成せず `not_applicable`、現行は `already_current`、future schema と migration failure は非 0 の固定 JSON で明示する |
 | [src/cli/codex-capture.mjs](src/cli/codex-capture.mjs) | `codex-capture` — 明示 Codex thread id の rollout active turns を `codex:<thread_id>` session として DB に保存する。thread id が無い場合は自動推測しない |
 | [src/cli/codex-summarize.mjs](src/cli/codex-summarize.mjs) | `codex-summarize` — captured `codex:<thread_id>` session の古い L2 を Codex CLI backend で L1 skeleton に要約する。Claude Haiku へ fallback しない |
-| [src/cli/codex-resume.mjs](src/cli/codex-resume.mjs) | `codex-resume` — Codex primary 用 active-work context を DB から描画する。`--format handoff` で current thread を mutate しない新規 Codex thread 用 handoff prompt を出す。handoff は L2 件数 / 本文長 / detail refs を cap し、full context は通常 text renderer に残す。`--format item-json` で developer message item JSON を出す。`--memo-stdin` で Codex-primary in-flight memo を先頭に足す |
-| [src/cli/codex-handoff-smoke.mjs](src/cli/codex-handoff-smoke.mjs) | `codex-handoff-smoke` — `codex-resume --format handoff` の出力が新規 Codex thread 開始 prompt として貼れるかを read-only 検査する。header / reading contract / source session / start instruction / mutation boundary / prompt size / detail command 重複を確認し、DB / Codex thread は mutate しない |
+| [src/cli/codex-resume.mjs](src/cli/codex-resume.mjs) | `codex-resume` — Codex primary 用 active-work context を DB から描画する。`--format handoff` で current thread を mutate しない新規 Codex thread 用 handoff prompt を出す。handoff は既定で最新8本文行・各1600字へ制限し、full context は通常 text renderer に残す。`maxDetailRefs` は互換の入力検証だけで、現在のinline suffix描画数を制限しない。`--format item-json` で developer message item JSON を出す。`--memo-stdin` で Codex-primary in-flight memo を先頭に足す |
+| [src/cli/codex-handoff-smoke.mjs](src/cli/codex-handoff-smoke.mjs) | `codex-handoff-smoke` — `codex-resume --format handoff` の出力が新規 Codex thread 開始 prompt として貼れるかを構造検査する。header / reading contract / source session / start instruction / mutation boundary / prompt size / detail command 重複を確認する。検査関数自体は純粋でCodex threadは変更しないが、CLIは `getDb()` によりDB作成・schema移行を行い得る |
 | [src/cli/codex-handoff-model-smoke.mjs](src/cli/codex-handoff-model-smoke.mjs) | `codex-handoff-model-smoke` — handoff prompt を `codex exec --ephemeral --ignore-user-config --ignore-rules --sandbox read-only` に渡す明示 opt-in model smoke。`--dry-run` は env なしで readiness / command boundary を検査し、`--print-prompt` で結合 prompt を監査用に出せる。`--memo-stdin` で Codex-primary current-work memo を handoff prompt に含める。live smoke は `THROUGHLINE_EXPERIMENTAL_CODEX_HANDOFF_MODEL_SMOKE=1` 必須。事前に structural handoff smoke が ready でなければ拒否し、current thread は mutate しない |
 | [src/cli/codex-handoff-start.mjs](src/cli/codex-handoff-start.mjs) | `codex-handoff-start` — 新規 Codex thread へ移るための guided surface。structural smoke、model smoke dry-run boundary、handoff render command、optional live smoke command、`--print-prompt` の結合済み handoff prompt をまとめて出す。`--execute` では `codex app-server thread/start` + `thread/inject_items` で新 thread に developer memory を注入し、`--open-host auto\|desktop\|vscode\|cli\|none` で表示を開く。CLIは requested / resolved hostを両方報告する。`auto` はCLIプロセス環境からCodex Desktop起点を識別するが、Codex skillは永続PTYの継承環境へ依存せず現在のCodex surfaceを明示指定する。VS Code / CLI の既存経路は維持する。`--memo-stdin` 時は replay 用の個別 command にも `--memo-stdin` を伝播し、same memo を pipe する注意を出す。current thread は mutate しない |
 | [src/cli/codex-visibility-smoke.mjs](src/cli/codex-visibility-smoke.mjs) | `codex-visibility-smoke` — Codex active-work memory を app-server に inject し、`turn/start` の marker 応答で model-visible を測る実験 smoke。`--memo-stdin` / `--resume-after-inject` 対応。`THROUGHLINE_EXPERIMENTAL_CODEX_MODEL_VISIBLE_SMOKE=1` 必須。実 Codex host では marker が `item/agentMessage/delta` に出ることを確認済み |
@@ -296,12 +302,12 @@ global install 時は Codex 側も [src/cli/install.mjs](src/cli/install.mjs) �
 - Codex Stop hook は automatic refresh mutation を実行しない。verified usage が `75%` 以上でも rollback / inject を送らず、capture / L1 summarize / monitor state write のあと `codex_auto_refresh_disabled` を返す。current-thread rollback / inject は明示 `trim --execute --host codex` の診断用 path に限定する。
 - Codex guarded trim の rollback source は rollout を使って計画するが、実 rollback 直前に app-server `thread/read` / `thread/resume` が同じ turn count を返し、rollout count と差がある場合は app-server 側の差分で `numTurns` を補正する。turn-count mismatch は診断であり mutation 前 blocker ではない。注入 memory は Throughline DB の `/tl` contract を正とする。`--session` 未指定時の Codex memory source は現在の `CODEX_THREAD_ID` / `THROUGHLINE_CODEX_THREAD_ID` に対応する `codex:<thread_id>` であり、同じ project の latest session へ fallback しない。古い turn は L1 summaries、直近 20 turn は L2 full bodies、L3 は reference only で、L3 bodies / tool payloads は注入しない。rollout preview を DB memory の代わりとして注入せず、DB memory が無い execute は mutation 前に拒否する。`codex-host-primitive-audit` と restore-safety diagnostics は表示するが、mutation 前 blocker にはしない。`doctor --codex` と `doctor --trim --host codex` はこの inject memory source / contract / L1-L2-L3 counts を表示する。
 - Codex trim の削減量は host tokenizer の厳密実測ではなく、現時点では rollout text の `chars / 4` heuristic estimate として dry-run に表示する。rollback candidate turns が 0 の場合は、削減量も 0 と明示する。
-- L2 → L1 要約は現行実装で唯一の subagent 的 external model call。backend 順序は Codex CLI（既定 `gpt-5.6-luna`@`low`、ADR 0015 の実測評価で選定）→ Claude Haiku → raw L2。削減割合は既定 1/5 で `THROUGHLINE_L1_RATIO` により割合形式のまま変更できる。`/tl` の in-flight memo はメイン Claude が slash command 手順で書く
+- L2 → L1 要約は現行実装で唯一の subagent 的 external model call。backend 順序は Codex CLI（既定 `gpt-5.6-luna`@`low`、ADR 0015 の実測評価で選定）→ Claude Haiku → raw L2。この順序はClaude-primaryに限り、Codex-primaryはCodex CLIだけを使って失敗を明示する。削減割合は既定 1/5 で `THROUGHLINE_L1_RATIO` により変更できる。Claude `/tl` はbatonを置き、memoは書かない
 - Claude CLI を実際に呼ぶテスト / smoke は、明示的に必要な場合だけ実行し、モデルは Haiku を使う。他モデルを使う必要がある場合は根拠を残してから実行する
 - 現行 install は Throughline 管理 Codex hook の shape を更新する。同じ `throughline codex-hook stop` command が既にあっても、絶対パス型 command / `timeout` / `async` などを [src/cli/install.mjs](src/cli/install.mjs) の生成値に合わせる。旧 `timeoutSec` entry も command identity で除去し、canonical entryへ置換する。ただし、登録済みの絶対パス型 command が今の node と `throughline.mjs` の実体（realpath）を指している時は、その文字列のまま書く（[ADR 0052](docs/adr/0052-install-keeps-registered-codex-hook-command.md)）。node の表記は入れる側の PATH で変わり、Codex は命令の文字列で hook の信用を決めるので、表記だけを書き換えると信用済みの hook が `modified` になり、新しい会話が「Hooks need review」で止まる。
 - **UserPromptSubmit** は二相ハンドオフ第二相 (pending intent 消費 + merge + 予算内注入) + `/tl` バトン書き込み + VSCode tasks.json 自動プロビジョニングの3役 (ADR 0014)。`/clear`互換分岐は残るが、組み込み`/clear`は実測したクライアントからこのhookへ届かない。Grok `/tl` のあとだけ `throughline grok-continue --session <id>` を副作用で呼ぶ。Claude / Codex と Grok `/clear` では呼ばない。注入がこの hook に移ったため、SessionStart 側の注入は廃止（旧「二重注入回避」制約は消滅）。tasks.json 作成は SessionStart / Stop にも同じ呼び出しがあり、どれか 1 つでも発火すれば生成される（冪等）
 - **Claude PostToolUse** は登録しない（schema v4 で廃止）。Codex PostToolUse は別用途で、tool loop 中の rollout capture / monitor state write hook として登録する。current-session refresh instruction は注入しない。
-- **Claude PreCompact / PreToolUse** は `throughline install` では登録しない。`auto-handoff enable --host claude` が2つを登録し、`disable` が外す（ADR 0033）。有効な project の自動圧縮だけ、PreCompact が圧縮を止め（exit code 2）、PreToolUse が次の道具を実行させずに止めて、新しい会話へ引き継ぐ。PreToolUse は道具の呼び出しのたびに走るので、使わない端末には置かない。無効な端末の install は、0.13.0 が置いた PreCompact を外す。Codexは明示有効化した自動新規タスク継続の`PreCompact(auto)`だけを使用する。
+- **Claude PreCompact / PreToolUse** は `throughline install` では登録しない。`auto-handoff enable --host claude` がPreCompact・PreToolUse・Stopを登録し、`disable` が外す（ADR 0033）。有効な project の自動圧縮だけ、PreCompact が圧縮を止め（exit code 2）、PreToolUse が次の道具を保留して後継の受領を待つ。起動の確定失敗なら最初の道具から旧い応答を続け、受領又は結果不明なら旧い道具を通さない（ADR 0067、0068）。PreToolUse は道具の呼び出しのたびに走るので、使わない端末には置かない。無効な端末の install は、0.13.0 が置いた PreCompact を外す。Codexは明示有効化した自動新規タスク継続の`PreCompact(auto)`だけを使用する。
 - dev 時に spike 系 hook（`spike/hook-logger.mjs` 等）が並行登録されている場合があるが、動作ログ採取用で実害なし
 
 ---
@@ -404,7 +410,7 @@ EOF
 - **データベース**: `node:sqlite`（Node.js 組み込み、同期 API）
 - **外部依存**: `aiterm-steer-delivery`（自動継続の公開配送API。版の正本はpackage.json）
 - **対応プラットフォーム**: Windows、Linux、macOS
-- **L1 要約 backend**: 既定は Codex CLI `gpt-5.6-luna`@`low`（Codex 契約の認証、ADR 0015）。sidecar configured 時はそちら優先、両方不在時の fallback が `claude -p --model claude-haiku-4-5-20251001`（Claude Max 契約の認証を使う、API キー不要）
+- **L1 要約 backend**: 既定は Codex CLI `gpt-5.6-luna`@`low`（Codex 契約の認証、ADR 0015）。Claude-primaryは失敗時に `claude -p --model claude-haiku-4-5-20251001`、さらに失敗時はraw L2へ進む。Codex-primaryはCodex CLIだけを使い、失敗を明示する。Claude経路はClaude Max認証を使いAPIキー不要
 
 ---
 

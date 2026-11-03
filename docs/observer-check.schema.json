@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Throughline observer-check v1 candidate contract",
+  "$comment": "One UTF-8 JSON request <=1048576 encoded bytes. Consumers preserve request order, split by bytes and count, and start no process for N0. Candidate only; schema publication does not establish package/runner supply.",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "$comment": "Additionally enforce UTF-8 bytes1..128."
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^tloc1\\.[A-Za-z0-9_-]+$",
+      "maxLength": 512,
+      "$comment": "Opaque comparison value, not a consumer cursor; version/project/canonical encoding is validated by the product."
+    },
+    "item": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "projectPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "$comment": "UTF-8 bytes1..4096; absolute on the product OS. Existence/permissions are per-item source checks."
+        },
+        "after": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 512,
+          "$comment": "If string: UTF-8 bytes1..512. Malformed or foreign opaque value yields per-item resync_required."
+        }
+      },
+      "required": [
+        "id",
+        "projectPath",
+        "after"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "enum": [
+                "changed",
+                "unchanged"
+              ]
+            },
+            "token": {
+              "$ref": "#/$defs/token"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "token"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "const": "resync_required"
+            },
+            "token": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "token"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "const": "error"
+            },
+            "token": {
+              "type": "null"
+            },
+            "code": {
+              "const": "E_OBSERVER_CHECK_SOURCE"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "token",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "throughline.observer_check_request.v1"
+        },
+        "projects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/item"
+          },
+          "$comment": "IDs must be unique; canonical project aliases may share calculations."
+        }
+      },
+      "required": [
+        "schema",
+        "projects"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "throughline.observer_check_result.v1"
+        },
+        "status": {
+          "const": "complete"
+        },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/result"
+          },
+          "$comment": "Exactly one result per request item, same ID and order."
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "results"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "throughline.observer_check_result.v1"
+        },
+        "status": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "E_OBSERVER_CHECK_ARGS",
+            "E_OBSERVER_CHECK_INTERNAL",
+            "E_OBSERVER_CHECK_CANCELLED"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "code"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

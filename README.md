@@ -200,7 +200,7 @@ one or two turns, then `/tl`.
 | **Tool I/O handling** | retired to L3, retrievable by `/sc-detail HH:MM:SS` | gone | folded into summary, unreadable | folded into summary |
 | **Coding-assistant fit** | high — tool I/O is the heavy 80% | low — you lose the thread | medium — but irreversible | medium |
 | **Auto-inheritance risk** | low (`/tl` names the predecessor; VS Code `/clear` freezes one transcript-backed candidate) | n/a | n/a | high |
-| **Runtime deps** | **zero** (Node 22.13+ built-in `node:sqlite`) | n/a | n/a | many |
+| **Runtime deps** | `aiterm-steer-delivery`; optional `node-pty` (SQLite is built in to Node 22.13+) | n/a | n/a | many |
 | **Multi-session token monitor** | ✅ real `message.usage` / Codex rollout `token_count` | — | — | — |
 
 **Short version**: `/clear` throws everything away, `/compact` blurs everything together, Throughline keeps the *text* you wrote verbatim and only retires the *tool output* — which is where 80% of the bloat lives.
@@ -281,10 +281,12 @@ flowchart LR
 | **L3** | Detail    | SQLite only           | tool I/O, system messages, images, **extended thinking** (on-demand)  | heavy, retired |
 
 The layers are **complementary and disjoint** — nothing is duplicated across
-them. Extended thinking blocks are stored at L3 (`kind='thinking'`) so the
-next session can see *what the previous Claude was thinking* at the moment it
-was interrupted, not just what it said aloud. Thinking is never injected —
-it stays retrievable via `throughline detail <time>`.
+them. Captured Claude extended thinking is stored at L3 (`kind='thinking'`).
+The budgeted Claude resume injection excludes Thinking. The current
+`throughline detail <time>` renderer displays tool, system, image, and legacy
+rows but omits `thinking` rows; it cannot currently retrieve their text.
+Codex manual handoff renderers can include captured latest Thinking from the
+record, while Codex automatic handoff excludes it.
 
 At the **first user prompt** of the next session (two-phase handoff, ADR
 0014), Throughline rebuilds the context from SQLite and injects it as plain
@@ -305,7 +307,8 @@ Claude-primary path the backend order is: **Codex CLI** (default
 `gpt-5.6-luna` at reasoning effort `low`, chosen by measured evaluation —
 see ADR 0015; override via `THROUGHLINE_L1_MODEL` / `THROUGHLINE_L1_EFFORT`)
 → **Claude Haiku 4.5** via a subprocess (`claude -p`), reusing your Claude
-Max login — no API key required. Each attempted backend records its result.
+Max login → raw L2 stored as L1 if both fail. No API key is required.
+The result records the chosen source and the Codex CLI outcome.
 For Codex-primary capture, the L1 backend is the Codex CLI only; failures are
 explicit and do not fall back to Claude Haiku or raw L2.
 
@@ -463,7 +466,7 @@ THROUGHLINE_EXPERIMENTAL_CODEX_MODEL_VISIBLE_SMOKE=1 \
 throughline codex-threads --limit 5
 ```
 
-The L2→L1 summarizer uses Codex CLI for Claude-primary capture, then Claude Haiku if Codex CLI fails.
+For Claude-primary capture, L2→L1 uses Codex CLI, then Claude Haiku, then raw L2 if both fail.
 Codex-primary capture uses Codex CLI only and reports its failures.
 
 **Codex current-thread rollback / inject is explicit-only.** The 2026-05-06
@@ -818,13 +821,10 @@ Example output:
   is never pointed at a Codex rollout.
 - **Non-blocking Claude Stop hook (v0.3.22+).** The Claude Stop hook is registered with
   `"async": true` so `throughline process-turn` runs in the background and
-  does not delay Claude's reply from reaching you. L1 Haiku summarization
-  (`claude -p` subprocess + inference, seconds to tens of seconds) would
-  otherwise stall the user-facing response of every turn; since L1 is only
-  needed for the *next* session's injection, there is no reason
-  to block the current turn on it. Existing installs need
-  `throughline uninstall && throughline install` to promote the flag (the
-  dedup logic skips entries that match by command string).
+  does not delay Claude's reply from reaching you. L1 summarization can run
+  Codex CLI and, on failure, Claude Haiku; these subprocesses may take seconds
+  to tens of seconds. L1 is pulled when older context is needed.
+  `throughline install` updates the managed Stop hook shape on existing installs.
 
 ### VS Code auto-start (automatic)
 
@@ -934,6 +934,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
+| `throughline observer-check --json` | Batch check of completed sources from JSON stdin; see the schema and limits below |
 | `throughline observer-read --project <absolute-directory> [--wire v2] --json` | Read one completed-turn Observer page through the JSON-only public boundary; `--wire v2` returns full bodies, the real harness, and how each turn started |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
@@ -1157,6 +1158,40 @@ Reusing a message ID with identical content is idempotent. Reusing it with diffe
 content exits with an error. The command owns its SQLite migration and storage;
 consumers use only this public JSON interface.
 
+### Batch Observer check (candidate)
+
+`throughline observer-check --json` reads one UTF-8 JSON request from stdin through
+EOF and returns one complete JSON result. The [v1 schema](docs/observer-check.schema.json)
+and [ownership/cancellation contract](docs/architecture/observer-check.md) describe
+this implementation. Confirmation values are independent of observer-read cursors.
+
+Requests use `throughline.observer_check_request.v1` and contain 1..256 ordered
+`{id, projectPath, after}` entries. The encoded request is at most 1 MiB; ids are
+1..128 UTF-8 bytes, absolute paths 1..4096 bytes, and `after` is null or 1..512
+UTF-8 bytes. Unknown fields, duplicate ids and invalid bounds fail the entire
+request before source work. Canonical aliases share source work but retain each id.
+A consumer starts no process for an empty candidate set and splits larger sets by
+both bytes and count.
+
+Results use `throughline.observer_check_result.v1` with `status:complete` and one
+entry per input in the same order. `changed` and `unchanged` carry an opaque ASCII
+comparison token (at most 512 bytes); `resync_required` and `error` carry null.
+An item error adds `E_OBSERVER_CHECK_SOURCE`. A complete result may contain item
+failures and still exits 0. Global errors exit 1, leave stdout empty and emit one
+fixed schema/status/code error on stderr: `E_OBSERVER_CHECK_ARGS`,
+`E_OBSERVER_CHECK_INTERNAL` or `E_OBSERVER_CHECK_CANCELLED`.
+
+Tokens compare completed sources; they are not read cursors or evidence of body
+projection, saved replies or UI completion. Pending projects are read first and
+excluded from that check request. Adopt the check-time token only after every
+read page, reply append and consumer state save succeeds. Keep read cursors on a
+check resync; retain old tokens on cancellation or an incomplete response. A
+request is one cancellation unit; earlier saved chunks remain committed.
+The command performs no DB creation/migration, writes, vendor launch or child CLI.
+It observes signals/disconnect/parent loss at asynchronous boundaries; synchronous
+source reads and forced termination do not promise immediate cancellation or
+finally cleanup. Output pipe failure makes the response unknown and unusable.
+
 ### Observer completed-turn feed (development)
 
 `observer-read` and `observer-wait` are JSON-only, read-only CLI boundaries for
@@ -1266,8 +1301,10 @@ throughline auditor-context --session claude-session-id --project "$PWD" \
   either way
 - Works on **Windows, macOS, Linux**
 
-Throughline has **zero runtime dependencies**. The published tarball is just
-plain `.mjs` files.
+SQLite uses Node’s built-in `node:sqlite`, without an external SQLite binding.
+Runtime packages are `aiterm-steer-delivery` for automatic handoff delivery and
+optional `node-pty` for the Windows Claude terminal. Versions are defined in
+`package.json`.
 
 ---
 

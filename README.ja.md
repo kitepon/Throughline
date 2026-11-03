@@ -183,7 +183,7 @@ Windowsの起動条件と、記録が見つからない場合の確認手順は
 | **ツール I/O の扱い** | L3 に退避、`/sc-detail HH:MM:SS` で取り戻せる | 消える | 要約に溶けて読めない | 要約に溶ける |
 | **コーディング用途への適合** | 高 — ツール I/O こそ重い 80% | 低 — 文脈が切れる | 中 — ただし不可逆 | 中 |
 | **誤継承リスク** | 低 (`/tl` は前任を指名、VS Code `/clear` はtranscriptのある候補を凍結) | n/a | n/a | 高 |
-| **ランタイム依存** | **ゼロ** (Node 22.13+ 同梱の `node:sqlite`) | n/a | n/a | 多数 |
+| **ランタイム依存** | `aiterm-steer-delivery`、任意の `node-pty`（SQLiteはNode 22.13+組み込み） | n/a | n/a | 多数 |
 | **マルチセッション トークン監視** | ✅ 実測 `message.usage` / Codex rollout `token_count` | — | — | — |
 
 **ひとことで**: `/clear` は全部捨てる、`/compact` は全部混ぜる、Throughline は **書いた本文はそのまま残し、ツール出力 (= 80% の重量物) だけ退避** する。
@@ -261,10 +261,10 @@ flowchart LR
 | **L3** | ディテール | SQLite のみ | ツール I/O、システムメッセージ、画像、**拡張思考** (オンデマンド) | 重い、退避済 |
 
 3 層は **互いに補完的かつ排他的** で、重複保存はありません。
-拡張思考ブロックは L3 (`kind='thinking'`) に格納されるので、次セッションは
-**前セッションの Claude が中断時に何を考えていたか** を、発話だけでなく
-内省レベルで参照できます。思考は注入されず、`throughline detail <時刻>` で
-いつでも取得できます。
+取得できたClaudeの拡張思考は L3 (`kind='thinking'`) に保存します。Claudeの予算付き
+再開文脈には含めません。現在の `throughline detail <時刻>` はツール・system・画像・
+legacyを表示しますが、Thinking行の本文は表示しない制限があります。Codexの手動
+引継ぎでは取得済みの最新Thinkingが含まれる場合があり、自動継続では含めません。
 
 次セッションの **初回ユーザープロンプト** 時（二相ハンドオフ、ADR 0014）、
 Throughline は SQLite からコンテキストを再構築し、プレーンテキストとして
@@ -282,8 +282,9 @@ L1 要約は遅延実行で、20 ターン未満で終わるセッションで�
 `THROUGHLINE_L1_RATIO` で変更可。不正値は明示エラー）を目標にします。
 Claude-primary 経路のbackend順は **Codex CLI**（既定 `gpt-5.6-luna`@`low`、実測評価で選定 — ADR 0015。
 `THROUGHLINE_L1_MODEL` / `THROUGHLINE_L1_EFFORT` で変更可）→ **Claude Haiku 4.5**
-（`claude -p` サブプロセス、Claude Max のログイン認証流用）で、API キーは
-不要です。各段の失敗理由は記録されます。
+（`claude -p` サブプロセス、Claude Max のログイン認証流用）→ 両方失敗した時は
+L2全文をL1へ保存します。APIキーは不要です。結果には採用元とCodex CLIの結果を残します。
+Codex-primaryではCodex CLIだけを使い、失敗は明示エラーにします。
 
 3 層 (L1/L2/L3) の書き込みパスは schema v5 から動作しています。
 `/sc-detail HH:MM:SS` はユーザー / アシスタント本文 (L2) と、そのターンで
@@ -397,7 +398,7 @@ slash command / transcript / baton / resume behavior を置き換えるもので
 adapter / projection として追加されます。
 
 現時点で core Throughline が外部モデルを呼ぶのは L2→L1 要約だけです。
-backend順はCodex CLI（既定`gpt-5.6-luna`）→ Claude Haikuです（ADR 0015）。
+Claude-primaryのbackend順はCodex CLI（既定`gpt-5.6-luna`）→ Claude Haiku → 両方失敗時のL2全文です（ADR 0015）。Codex-primaryはCodex CLIだけを使い、失敗を明示します。
 
 Codex 側 trim (= same-thread context trim) は、診断・実験として明示した場合だけ
 `throughline trim --execute --host codex` で発火します。bare `$throughline` は
@@ -464,7 +465,7 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 | `throughline runtime-errors diagnostics --json` | collection/store状態をpathやraw errorなしで診断 |
 | `throughline runtime-errors report-enable --credential-file <path> --json` | credential fileの受け口へaggregateを送る設定を有効化（既定OFF） |
 | `throughline runtime-errors report-disable --json` | 送信を無効化 |
-| `throughline runtime-errors report --json` | 未受領のaggregateを今1回送る。`sent`と`nothing_pending`だけexit 0 |
+| `throughline runtime-errors report --json` | 未受領のaggregate、または未受領の現在版を記録0件で今1回送る。`sent`と`nothing_pending`だけexit 0 |
 | `throughline runtime-errors report-status --json` | 最後に試した時刻と結果の固定codeを読む。宛先・credential・pathは出さない |
 | `throughline handoff-preview --session <id>` | Codex 向け `throughline_handoff` JSON projection を表示 |
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。`--sessions recent`を付けると、同じprojectの直近の複数sessionから同じ9,500字枠で文脈を作る。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
@@ -505,7 +506,9 @@ throughline runtime-errors report-status --json
 ```
 
 有効にすると、ClaudeとCodexのhook入口が、多くて1時間に1回、切り離した送信processを起こします。
-未受領の記録が無ければ通信しません。hookは送信を待ちません。送るのはsnapshotの公開項目
+未受領の記録がある時と、現在の版をまだ受領されていない時に通信します。後者では
+記録0件でも版と時刻を送ります。同じ版の受領後は、未受領記録が無ければ通信しません。
+hookは送信を待ちません。送るのはsnapshotの公開項目
 （固定code・定型文・回数・時刻・版・解決記録）だけです。secretは送らず、本文へ
 `HMAC-SHA256(secret, ts + "\n" + SHA-256(本文))`の署名を付けます。redirectは追いません。
 受領済みにするのは、受け口が`200`・`accepted: true`・同じ`report_id`・正しい応答署名
@@ -564,6 +567,16 @@ DB作成・migration・baton消費・session merge・
 
 ---
 
+## 複数projectのobserver確認
+
+`throughline observer-check --json` はstdinのUTF-8 JSONをEOFまで読み、1回のJSONで完了sourceの変化を返します。[v1 schema](docs/observer-check.schema.json)と[所有・取消契約](docs/architecture/observer-check.md)を参照してください。確認値とobserver-readの消費cursorは独立しています。
+
+requestは `throughline.observer_check_request.v1`、`projects`は順序付き1〜256件の`{id, projectPath, after}`。符号化後1MiB以内、idはUTF-8で1〜128 bytes、一意、絶対pathは1〜4096 bytes、afterはnull又は1〜512 bytesです。未知field/重複id/上限超過はsource処理前に全体拒否します。consumerは件数と符号化bytesの両方で分割し、対象0件なら起動しません。
+
+結果は `throughline.observer_check_result.v1` / `status:complete`、入力と同じid/順序/件数です。changed/unchangedは512 ASCII bytes以内の不透明確認値、resync_required/errorはnull。個別errorは固定`E_OBSERVER_CHECK_SOURCE`を持ち、全件返せればexit0です。全体ARGS/INTERNAL/CANCELLEDはstdout空・固定schema/status/codeのstderr1行・exit1。確認値は消費cursorや本文保存の証拠とは別です。
+
+pendingを先行readして同巡checkから除外し、read全page/回答append/state保存後だけcheck時の確認値を採用します。check resyncでread cursorを消さず、取消/欠損/結果不明なら旧値を保ちます。取消はrequest単位で、前の成功chunkを取り消しません。製品DB作成/移行/書込・vendor/子CLI起動はありません。同期read中の即時取消、強制終了finally、pipe切断時の完全応答は保証しません。
+
 ## 動作要件
 
 - **Node.js 22.13 以上** (組み込み `node:sqlite` モジュール使用、ネイティブビルド不要)
@@ -573,7 +586,9 @@ DB作成・migration・baton消費・session merge・
 - 対応 OS: **Windows / macOS / Linux**
 - Windowsでnpm版Codexを起動する場合は **PowerShell 7**（`pwsh.exe`）がPATHに必要。
 
-ランタイム依存 **ゼロ**。npm パッケージは純 `.mjs` ファイルのみで構成されています。
+SQLiteにはNode組み込みの `node:sqlite` を使います。ランタイム依存は、自動継続の配送用
+`aiterm-steer-delivery` と、WindowsのClaude端末用の任意依存 `node-pty` です。
+必要な版は `package.json` を正本とします。
 
 ---
 

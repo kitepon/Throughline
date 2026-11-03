@@ -192,3 +192,5 @@ function isSameProjectOrDescendant(candidate, root) {
   if (!candidate || !root) return false;
   return candidate === root || candidate.startsWith(`${root}/`);
 }
+
+export { normalizePath as normalizeCodexProjectPath, isSameProjectOrDescendant as isCodexProjectOrDescendant };

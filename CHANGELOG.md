@@ -10,6 +10,27 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.52] — 2026-11-03
+
+### Added
+
+- Add `observer-check --json` with a bounded batch request, project-bound opaque
+  confirmation values, ordered per-project results, and request cancellation.
+  Reuse completion-source discovery within each request without changing the
+  independent observer-read cursor.
+
+### Changed
+
+- Separate hook command construction and Codex configuration diagnostics while
+  preserving existing entry points, and document feature ownership and contracts.
+
+### Fixed
+
+- Keep Linux Desktop-origin conversations running when the successor CLI is not
+  authenticated or its required Remote Control launch is rejected. Confirm both
+  a real model response and Remote Control registration before marking that
+  successor sent; preserve failed or unconfirmed successors without redelivery.
+
 ## [0.16.51] — 2026-10-29
 
 ### Fixed
@@ -2868,7 +2889,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.51...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.52...HEAD
+[0.16.52]: https://github.com/kitepon/Throughline/compare/v0.16.51...v0.16.52
 [0.16.51]: https://github.com/kitepon/Throughline/compare/v0.16.50...v0.16.51
 [0.16.50]: https://github.com/kitepon/Throughline/compare/v0.16.49...v0.16.50
 [0.16.49]: https://github.com/kitepon/Throughline/compare/v0.16.48...v0.16.49

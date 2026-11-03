@@ -62,6 +62,8 @@ test('hook modules can be imported without executing their hook body', () => {
         '-e',
         [
           "await import('./src/prompt-submit.mjs');",
+          "await import('./src/hosts/hook-commands.mjs');",
+          "await import('./src/hosts/codex-hook-diagnosis.mjs');",
           "await import('./src/session-start.mjs');",
           "await import('./src/turn-processor.mjs');",
         ].join('\n'),

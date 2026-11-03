@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   COMPLETED_TURN_RECEIPT_LIMIT,
+  COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS,
   COMPLETED_TURN_RECEIPT_STORE_SCHEMA,
   defaultCompletedTurnReceiptStorePath,
   readCompletedTurnReceiptSnapshot,
@@ -305,24 +306,29 @@ test('completed turn receipt: competing writer waits beyond five seconds and pre
   try {
     const first = writeCompletedTurnReceipt(input(), { storePath: box.storePath });
     const code = `const { DatabaseSync } = require('node:sqlite');
-      const db = new DatabaseSync(process.argv[1]); db.exec('BEGIN IMMEDIATE');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA busy_timeout=${COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS}; BEGIN IMMEDIATE');
       process.stdout.write('locked\\n');
       setTimeout(() => { db.exec('COMMIT'); db.close(); }, 14000);`;
     holder = childProcess.spawn(process.execPath, ['-e', code, box.storePath + '.lock.sqlite'],
       { stdio: ['ignore', 'pipe', 'pipe'] });
-    const exited = new Promise((resolve, reject) => {
-      holder.once('error', reject);
-      holder.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`holder exit ${code}`)));
+    let stderr = '';
+    holder.stderr.setEncoding('utf8');
+    holder.stderr.on('data', (chunk) => { stderr += chunk; });
+    const exited = new Promise((resolve) => {
+      holder.once('close', (code, signal) => resolve({ code, signal }));
     });
     await new Promise((resolve, reject) => {
       holder.stdout.once('data', resolve);
       holder.once('error', reject);
-      holder.once('exit', () => reject(new Error('holder exited before locking')));
+      holder.once('close', (code, signal) => reject(new Error(
+        `holder exited before locking: code=${code} signal=${signal}\n${stderr}`)));
     });
     const next = writeCompletedTurnReceipts([input(), input(2)], { storePath: box.storePath });
     assert.deepEqual(next[0], first);
     assert.equal(next[1].sequence, 2);
-    await exited;
+    const result = await exited;
+    assert.equal(result.code, 0, `holder exit ${result.code} signal=${result.signal}\n${stderr}`);
     assert.equal(JSON.parse(readFileSync(box.storePath, 'utf8')).receipts.length, 2);
   } finally {
     if (holder?.exitCode === null) holder.kill();

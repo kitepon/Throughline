@@ -1,4 +1,5 @@
 import { statSync } from 'node:fs';
+import { installCancellation, OBSERVER_PARENT_WATCH_INTERVAL_MS } from '../observer-cancellation.mjs';
 import { isAbsolute } from 'node:path';
 import {
   OBSERVER_WAIT_SCHEMA,
@@ -12,7 +13,7 @@ const ERRORS = Object.freeze({
   cancelled: { schema: OBSERVER_WAIT_SCHEMA, status: 'error', code: 'E_OBSERVER_WAIT_CANCELLED', message: 'observer wait was cancelled' },
   internal: { schema: OBSERVER_WAIT_SCHEMA, status: 'error', code: 'E_OBSERVER_WAIT_INTERNAL', message: 'observer wait failed' },
 });
-const PARENT_WATCH_INTERVAL_MS = 1000;
+const PARENT_WATCH_INTERVAL_MS = OBSERVER_PARENT_WATCH_INTERVAL_MS;
 
 export function parseArgs(argv = []) {
   const out = { projectPath: null, afterCursor: null, timeoutSeconds: DEFAULT_OBSERVER_WAIT_TIMEOUT_SECONDS, json: false };
@@ -84,34 +85,6 @@ function assertProjectDirectory(projectPath) {
   }
 }
 
-function installCancellation({ controller, processRef, setIntervalFn, clearIntervalFn, parentWatchIntervalMs }) {
-  const abort = () => controller.abort();
-  const parentPid = processRef.ppid;
-  processRef.on('SIGINT', abort);
-  processRef.on('SIGTERM', abort);
-  processRef.on('disconnect', abort);
-
-  let parentTimer = null;
-  if (Number.isSafeInteger(parentPid) && parentPid > 1) {
-    const checkParent = () => {
-      if (processRef.ppid !== parentPid) return abort();
-      try {
-        processRef.kill(parentPid, 0);
-      } catch (error) {
-        if (error?.code === 'ESRCH') abort();
-      }
-    };
-    parentTimer = setIntervalFn(checkParent, parentWatchIntervalMs);
-    parentTimer?.unref?.();
-  }
-
-  return () => {
-    processRef.removeListener('SIGINT', abort);
-    processRef.removeListener('SIGTERM', abort);
-    processRef.removeListener('disconnect', abort);
-    if (parentTimer !== null) clearIntervalFn(parentTimer);
-  };
-}
 
 function mapError(error) {
   if (error?.code === 'E_OBSERVER_WAIT_CANCELLED') return ERRORS.cancelled;
