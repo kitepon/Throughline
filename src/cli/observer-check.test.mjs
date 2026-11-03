@@ -98,19 +98,42 @@ test('check bin/help execute an empty-source snapshot in a hermetic fixture', ()
 });
 
 test('check bin cancels an open stdin without a fake complete response', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'tl-check-open-'));
-  const child = spawn(process.execPath, [BIN, 'observer-check', '--json'], { env: { ...process.env, HOME: root, USERPROFILE: root, CODEX_HOME: join(root, 'codex') }, stdio: ['pipe','pipe','pipe'] });
-  let stdout = ''; let stderr = '';
-  child.stdout.on('data', c => { stdout += c; }); child.stderr.on('data', c => { stderr += c; });
-  try {
-    const result = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
-    child.stdin.write('{');
-    await new Promise(resolve => setTimeout(resolve, 120)); child.kill('SIGTERM');
-    const exit = await result;
-    assert.equal(stdout, '');
-    if (process.platform !== 'win32') { assert.equal(exit.code, 1); assert.equal(JSON.parse(stderr).code, 'E_OBSERVER_CHECK_CANCELLED'); }
-    else assert.notEqual(exit.code, 0);
-  } finally { if (child.exitCode === null && child.signalCode === null) child.kill(); rmSync(root, { recursive: true, force: true }); }
+  for (const startupDelay of [0, 350]) {
+    const root = mkdtempSync(join(tmpdir(), 'tl-check-open-'));
+    // Observe actual input readiness; process startup is not bounded by a fixed sleep.
+    const preload = `
+      process.stdin.on('newListener', function observe(event) {
+        if (event !== 'data') return;
+        process.stdin.removeListener('newListener', observe);
+        setImmediate(() => process.send({ ready: true, handlers: process.listenerCount('SIGTERM') }));
+      });
+      await new Promise(resolve => setTimeout(resolve, ${startupDelay}));
+    `;
+    const child = spawn(process.execPath, ['--import', 'data:text/javascript,'+encodeURIComponent(preload), BIN, 'observer-check', '--json'], {
+      env: { ...process.env, HOME: root, USERPROFILE: root, CODEX_HOME: join(root, 'codex'), XDG_STATE_HOME: join(root, 'state'), LOCALAPPDATA: join(root, 'state') },
+      stdio: ['pipe','pipe','pipe','ipc'],
+    });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', c => { stdout += c; }); child.stderr.on('data', c => { stderr += c; });
+    let spawnError;
+    child.once('error', error => { spawnError = error; });
+    const result = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal, error: spawnError })));
+    const ready = new Promise(resolve => child.once('message', resolve));
+    const deadline = setTimeout(() => child.kill('SIGKILL'), 5000);
+    try {
+      child.stdin.write('{');
+      const observed = await Promise.race([ready, result.then(exit => { throw new Error(`CLI closed before input readiness: ${JSON.stringify(exit)} ${stderr}`); })]);
+      assert.equal(observed.ready, true); assert.ok(observed.handlers > 0);
+      child.kill('SIGTERM');
+      const exit = await result;
+      assert.equal(exit.error, undefined); assert.equal(stdout, '');
+      if (process.platform !== 'win32') { assert.equal(exit.code, 1); assert.equal(exit.signal, null); assert.equal(JSON.parse(stderr).code, 'E_OBSERVER_CHECK_CANCELLED'); }
+      else assert.notEqual(exit.code, 0);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await result; clearTimeout(deadline); rmSync(root, { recursive: true, force: true });
+    }
+  }
 });
 
 test('check CLI does not process a syntactically complete request before EOF', async () => {
