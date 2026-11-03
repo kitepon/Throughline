@@ -6,13 +6,13 @@
 
 ```mermaid
 flowchart TD
-  Compact[PreCompact auto / payload] --> Check[config / host / subagent / Aiterm席 / projectを照合]
+  Compact[PreCompact auto / payload] --> Check[config / host / subagent / Aiterm席 / projectと元のRC登録を照合]
   Check -->|対象外 / 確定した前回起動失敗| Continue[圧縮又は元の道具を通す]
   Check --> Request[requestedを私有recordへ保存 / 圧縮をexit2で止める]
   Request -->|道具なしでStop| Withdraw[requestedだけ削除 / 後継を作らない]
   Request --> Tool[PreToolUse / claimを排他的作成]
   Tool --> Stopped[stopped: 道具保留 / worker起動]
-  Stopped --> Auth{Linux remote必須: CLI認証確認}
+  Stopped --> Auth{Unix remote必須: CLI認証確認}
   Auth -->|未認証又は照会失敗| Failed
   Auth -->|認証あり又は対象外| Snapshot[launching: transcriptから依頼・設定・途中作業snapshot]
   Snapshot --> OS{OS}
@@ -24,7 +24,7 @@ flowchart TD
   First --> Capture[handoff IDで前任照合 / 途中turn DB capture / merge]
   Capture --> Accept[accepted sidecar / inbox作成]
   Accept --> Context[backfill / 文脈生成 / adapter出力]
-  Accept --> Ready{Linux remote必須: API応答と接続登録}
+  Accept --> Ready{Unix remote必須: API応答と接続登録}
   Ready -->|対象外又は実モデル応答とURLあり| Sent[workerが継続可能性を観測 / sent]
   Ready -->|APIエラー| FailedTarget[failed: 後継と受領を保持 / 再配送なし]
   Ready -->|未確認のまま期限| Unknown
@@ -211,6 +211,13 @@ Linuxでremote_control.wantedの引継ぎは、workerが後継を立てる前に
 Linuxのremote必須起動が明示拒否され、後継IDも受領も無い時はremoteなしで再起動せずhandoff_remote_control_unavailableを保存して元の会話を継続する。結果不明時の再送禁止とMacの既再試行契約を保持する。
 
 
-Linux remote必須の受領後は、同じ後継のtranscript末尾を最大1MiB読取り、isApiErrorMessageを実モデル進捗に数えない。認証APIエラーはhandoff_successor_authentication_failed、その他APIエラーはhandoff_successor_api_failedとして後継/受領を保持しfailedを記録する。実モデルassistantとremote接続URLの両方を観測した時だけsent。期限内に両方揃わなければunknown/handoff_successor_readiness_unconfirmed。受領済みの起動応答不明もLinux remote必須ではunknownとして、fail helperからsentへ抜けない。後継がある失敗/不明では元の仕事を同時に走らせず、hookへ継続未確認と返す。起動前の後継なしfailedだけ元を解放する。既API失敗会話の安全な復旧と本人画面の受入は、この自動判定とは別に必要。
+Unix remote必須の受領後は、同じ後継のtranscript末尾を最大1MiB読取り、isApiErrorMessageを実モデル進捗に数えない。認証APIエラーはhandoff_successor_authentication_failed、その他APIエラーはhandoff_successor_api_failedとして後継/受領を保持しfailedを記録する。実モデルassistantとremote接続URLの両方を観測した時だけsent。期限内に両方揃わなければunknown/handoff_successor_readiness_unconfirmed。受領済みの起動応答不明もUnix remote必須ではunknownとして、fail helperからsentへ抜けない。後継がある失敗/不明では元の仕事を同時に走らせず、hookへ継続未確認と返す。起動前の後継なしfailedだけ元を解放する。既API失敗会話の安全な復旧と本人画面の受入は、この自動判定とは別に必要。
 
 登録済みremote URLは既公開remote_control_urlへ投影し、元会話の案内にも同じ後継のURLを返す。後継がさらに引き継がれた場合に古いURLへ誘導せず、既currentSuccessorの解決結果を使う。ADR0048のLinux追補と同契約。
+
+
+## CLI起点でも元の表示接続を引き継ぐ（2026-11-03修理）
+
+remoteControlWantedは明示off/onを先に守り、次に既readClaudeTerminalRemoteControlで同じnative session IDの実登録を確認する。entrypoint=cliでも元のbridgeSessionIdがあれば後継remote_control.wanted=trueを保存する。他sessionの登録やbridge無しを元の表示接続へ補完しない。Desktop起点判定と既handoff chain継承は保持する。手動/tl→/clearのbaton/同画面の経路は変更しない。背景workerを止めてDesktopへ移す既定OFFも勝手に変えない。
+
+0.16.53では認証/受領後の実モデル・登録確認と不可視fallback防止をmacOSにも適用する。実RC登録のあるCLI起点も同じ必須接続契約に入る。
