@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { testTempDir } from './test-temp-dir.mjs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defaultRuntimeErrorConfigPath, defaultRuntimeErrorStorePath } from './runtime-error-store.mjs';
 import { applyWindowsPrivateAcl } from './os/windows-acl-test-helper.mjs';
 
@@ -265,7 +265,7 @@ test('Codexの観測開始時にhookが中断されても、元の例外と処�
   // DBを開く通常処理で例外を起こす。実DB/rolloutは使わない。
   mkdirSync(join(root, '.throughline', 'throughline.db'), { recursive: true });
   const payload = { session_id: 'thread-private-log', transcript_path: join(root, 'rollout.jsonl'), cwd: root };
-  const result = spawnSync(process.execPath, ['--import', preload, BIN, 'codex-hook', 'post-tool-use'], {
+  const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, BIN, 'codex-hook', 'post-tool-use'], {
     env, input: JSON.stringify(payload), encoding: 'utf8',
   });
   assert.equal(result.status, 23, result.stderr);
