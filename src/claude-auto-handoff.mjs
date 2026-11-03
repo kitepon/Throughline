@@ -23,7 +23,7 @@
 
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, posix, resolve, win32 } from 'node:path';
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -170,18 +170,18 @@ export function publicClaudeAutoHandoff(record, { dir = claudeAutoHandoffDir() }
  * OS で違うので、旧い会話の transcript の場所から projects をたどり、その下のフォルダを順に見る。
  */
 /** Claude の projects の下から、後継の transcript を探して session id を返す。渡すのは session id か、その頭8字。 */
-function findSuccessorSessionId(record) {
+function findSuccessorTranscriptPath(record) {
   const known = record?.successor?.session_id;
   const prefix = validSessionId(known) ? known : record?.successor?.short_id;
   if (typeof prefix !== 'string' || !/^[0-9a-f-]{8,}$/.test(prefix) || typeof record.transcript_path !== 'string') return null;
   const own = dirname(record.transcript_path);
   const inFolder = folder => {
-    if (validSessionId(known)) return existsSync(join(folder, `${known}.jsonl`)) ? known : null;
+    if (validSessionId(known)) return existsSync(join(folder, `${known}.jsonl`)) ? join(folder, `${known}.jsonl`) : null;
     let names;
     try { names = readdirSync(folder); }
     catch { return null; }
     const file = names.find(name => name.startsWith(prefix) && name.endsWith('.jsonl'));
-    return file ? file.slice(0, -'.jsonl'.length) : null;
+    return file ? join(folder, file) : null;
   };
   const found = inFolder(own);
   if (found) return found;
@@ -193,6 +193,11 @@ function findSuccessorSessionId(record) {
     if (id) return id;
   }
   return null;
+}
+
+function findSuccessorSessionId(record) {
+  const path = findSuccessorTranscriptPath(record);
+  return path ? basename(path, '.jsonl') : null;
 }
 
 function successorRemains(record) {
@@ -952,13 +957,15 @@ export function wakeStoppedClaudeSuccessor({ record, successorSessionId, sourceS
 }
 
 function stopOutput(record, dir) {
-  const reason = record.successor?.short_id
+  const reason = record.error_code && record.successor?.short_id
+    ? `Throughline: 後継は作られましたが、継続を確認できません（${record.error_code}）。重複実行を避けるため再配送していません。`
+    : record.successor?.short_id
     ? handedOffReason(record, dir)
     : `Throughlineが、自動圧縮の代わりに新しい会話へ引き継ぎます（引き継ぎID: ${record.handoff_id}）。` +
       (record.desktop?.wanted
         ? '後継の会話は裏で作業を続け、そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。'
         : '後継の会話は裏で作業を続けます。`claude agents` の一覧に出ます。') +
-      (record.remote_control?.wanted ? '後継はリモートコントロール付きで立てるので、claude.ai/code とClaudeのアプリからも見られます。' : '');
+      (record.remote_control?.wanted ? '後継のリモート接続は確認中です。登録確認まではアプリで見られるとは限りません。' : '');
   return {
     continue: false,
     stopReason: reason,
@@ -1242,7 +1249,9 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     const accepted = readAcceptance(sessionId, record.handoff_id, dir);
     if (accepted) {
       rmSync(acceptancePath(sessionId, dir), { force: true });
-      return update({ state: 'sent', error_code: null, accepted_at: accepted.accepted_at,
+      return update({ state: platform === 'linux' && record.remote_control?.wanted ? 'unknown' : 'sent',
+        error_code: platform === 'linux' && record.remote_control?.wanted ? 'handoff_successor_readiness_unconfirmed' : null,
+        accepted_at: accepted.accepted_at,
         ...captureFields(accepted),
         successor: { short_id: accepted.successor_session_id.slice(0, 8), session_id: accepted.successor_session_id } });
     }
@@ -1405,6 +1414,25 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   for (const deadline = Date.now() + acceptTimeoutMs; Date.now() < deadline;) {
     const acceptance = readAcceptance(sessionId, record.handoff_id, dir);
     if (acceptance) {
+      if (platform === 'linux' && record.remote_control?.wanted) {
+        update({ accepted_at: acceptance.accepted_at, ...captureFields(acceptance),
+          successor: { short_id: shortId, session_id: acceptance.successor_session_id } });
+        const path = findSuccessorTranscriptPath(record);
+        const entries = path ? readTranscriptTail(path)?.entries ?? [] : [];
+        const assistant = entries.findLast(entry => entry.type === 'assistant');
+        if (assistant?.isApiErrorMessage) {
+          rmSync(acceptancePath(sessionId, dir), { force: true });
+          return update({ state: 'failed', error_code: assistant.error === 'authentication_failed'
+            ? 'handoff_successor_authentication_failed' : 'handoff_successor_api_failed',
+            remote_control: { ...record.remote_control, state: 'failed' } });
+        }
+        const url = readTerminalRemoteControl(acceptance.successor_session_id, { env: successorEnv(env) });
+        if (url) update({ remote_control: { ...record.remote_control, state: 'registered', url } });
+        if (!url || !assistant || typeof assistant.message?.model !== 'string' || !assistant.message.model || assistant.message.model === '<synthetic>') {
+          await delay(pollMs);
+          continue;
+        }
+      }
       rmSync(acceptancePath(sessionId, dir), { force: true });
       return update({ state: 'sent', error_code: null, accepted_at: acceptance.accepted_at,
         ...captureFields(acceptance),
@@ -1412,7 +1440,8 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     }
     await delay(pollMs);
   }
-  return update({ state: 'unknown', error_code: 'handoff_delivery_unconfirmed' });
+  return update({ state: 'unknown', error_code: record.accepted_at
+    ? 'handoff_successor_readiness_unconfirmed' : 'handoff_delivery_unconfirmed' });
 }
 
 /** `claude agents --json --all` から、その後継（裏の会話）の行を読む。読めない時は null。 */

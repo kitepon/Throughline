@@ -972,15 +972,15 @@ test('PreCompact: Claude Desktop から始まった会話と、その後継の�
 test('PreToolUse: Desktop で開く引き継ぎは、止めた理由に、後継がターンを終えた時に Desktop へ開く事を書く', () => withDir(async dir => {
   const desktopTranscript = join(dir, 'desktop.jsonl');
   writeFileSync(desktopTranscript, jsonl([{ ...user('読んで', '2026-10-08T12:00:00.000Z'), entrypoint: 'claude-desktop' }]));
-  // 既定では移さない。止めた理由には、裏で続ける事と、リモートコントロールで見られる事だけを書く
+  // 接続登録の前に、アプリで見られるとは約束しない。
   request(dir, { platform: 'darwin', transcriptPath: desktopTranscript });
   const kept = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', tool_use_id: 't1' }, dir, launchWorker: async () => 1 });
-  assert.match(kept.stopReason, /後継の会話は裏で作業を続けます。`claude agents` の一覧に出ます。後継はリモートコントロール付きで立てるので、claude\.ai\/code とClaudeのアプリからも見られます。/);
+  assert.match(kept.stopReason, /後継の会話は裏で作業を続けます。`claude agents` の一覧に出ます。後継のリモート接続は確認中です。登録確認まではアプリで見られるとは限りません。/);
   assert.doesNotMatch(kept.stopReason, /Claude Desktopへ開きます/);
   rmSync(join(dir, `${SESSION}.json`), { force: true });
   request(dir, { platform: 'darwin', transcriptPath: desktopTranscript, env: OPEN });
   const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION, cwd: '/work/app', tool_use_id: 't1' }, dir, launchWorker: async () => 1 });
-  assert.match(output.stopReason, /そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。後継はリモートコントロール付きで立てるので、claude\.ai\/code とClaudeのアプリからも見られます。$/);
+  assert.match(output.stopReason, /そのターンを終えた時にClaude Desktopへ開きます。途中の様子は `claude agents` の一覧で見られます。後継のリモート接続は確認中です。登録確認まではアプリで見られるとは限りません。$/);
 }));
 
 test('PreCompact: Claude Desktop から始まった会話と、その後継の引き継ぎだけ、後継をリモートコントロール付きで立てる印を付ける（OS に関係なく）', () => withDir(dir => {
@@ -1021,17 +1021,20 @@ test('worker: 印のある引き継ぎは、後継を --remote-control=<後継�
       dir, launchWorker: async () => {} });
     const launches = [];
     const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
+      readTerminalRemoteControl: () => 'https://claude.ai/code/session_test',
       spawn: (command, args) => {
         if (args[0] === 'auth') return { status: 0, stdout: JSON.stringify({ loggedIn: true }) };
-        launches.push(args); successorStarts(dir, sessionId)(args); return launchedOk(); } });
+        launches.push(args); successorStarts(dir, sessionId)(args);
+        writeFileSync(join(dir, `${SUCCESSOR}.jsonl`), jsonl([assistant('作業を続けます。', '2026-10-10T05:00:13Z')]));
+        return launchedOk(); } });
     return { record, launches };
   };
   const desktop = await run('bbbbbbbb-0000-4000-8000-000000000001', { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' });
   assert.equal(desktop.launches.length, 1);
   assert.deepEqual(desktop.launches[0].slice(0, 3), ['--bg', '--name=OpenLogicool｜マビノギ BOT 開発（自動引き継ぎ）', '--remote-control=OpenLogicool｜マビノギ BOT 開発（自動引き継ぎ）']);
   assert.equal(desktop.record.state, 'sent');
-  assert.deepEqual(desktop.record.remote_control, { wanted: true, state: 'requested' });
-  assert.equal(publicClaudeAutoHandoff(desktop.record).remote_control_state, 'requested');
+  assert.deepEqual(desktop.record.remote_control, { wanted: true, state: 'registered', url: 'https://claude.ai/code/session_test' });
+  assert.equal(publicClaudeAutoHandoff(desktop.record).remote_control_state, 'registered');
 
   const terminal = await run('bbbbbbbb-0000-4000-8000-000000000002', {});
   assert.ok(!terminal.launches[0].some(arg => arg.startsWith('--remote-control')));
@@ -1953,3 +1956,43 @@ test('Linux Desktop handoff: rejected remote control never falls back to an invi
   assert.equal(record.successor, null);
   assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir })).continue, true);
 }));
+
+for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registration', 'no-model-progress', 'missing-model', 'launch-timeout']) {
+  test(`Linux Desktop readiness: ${mode}`, () => withDir(async dir => {
+    const transcriptPath = join(dir, `${SESSION}.jsonl`);
+    writeFileSync(transcriptPath, '');
+    writeRecord(dir, SESSION, { state: 'stopped', successor: null, accepted_at: null,
+      transcript_path: transcriptPath, remote_control: { wanted: true, state: null } });
+    let launches = 0;
+    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform: 'linux', env: {},
+      acceptTimeoutMs: 30, pollMs: 1,
+      readTerminalRemoteControl: () => mode === 'no-registration' ? null : 'https://claude.ai/code/session_test',
+      spawn: (command, args) => {
+        if (args[0] === 'auth') return { status: 0, stdout: '{"loggedIn":true}' };
+        launches++;
+        successorStarts(dir)(args);
+        const entry = mode.endsWith('api-error')
+          ? { ...assistant('Authentication failed', '2026-11-03T09:18:43Z', '<synthetic>'),
+            error: mode === 'api-error' ? 'authentication_failed' : 'rate_limit', isApiErrorMessage: true }
+          : assistant('続けます。', '2026-11-03T09:18:43Z');
+        if (mode === 'missing-model') delete entry.message.model;
+        writeFileSync(join(dir, `${SUCCESSOR}.jsonl`), mode === 'no-model-progress' ? '' : jsonl([entry]));
+        return mode === 'launch-timeout' ? { error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }) } : launchedOk();
+      } });
+    assert.equal(launches, 1);
+    assert.equal(record.successor.session_id, SUCCESSOR);
+    assert.equal(record.accepted_at, 5000);
+    if (mode === 'authenticated') {
+      assert.equal(record.state, 'sent');
+      assert.equal(record.remote_control.state, 'registered');
+    } else {
+      assert.equal(record.state, mode.endsWith('api-error') ? 'failed' : 'unknown');
+      assert.equal(record.error_code, mode === 'api-error' ? 'handoff_successor_authentication_failed'
+        : mode === 'other-api-error' ? 'handoff_successor_api_failed' : 'handoff_successor_readiness_unconfirmed');
+      const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir });
+      assert.equal(output.continue, false, '既に後継がある時は元の仕事を重複実行しない');
+      assert.match(output.stopReason, /継続を確認できません/);
+      assert.doesNotMatch(output.stopReason, /アプリからも見られます/);
+    }
+  }));
+}

@@ -12,7 +12,9 @@ flowchart TD
   Request -->|道具なしでStop| Withdraw[requestedだけ削除 / 後継を作らない]
   Request --> Tool[PreToolUse / claimを排他的作成]
   Tool --> Stopped[stopped: 道具保留 / worker起動]
-  Stopped --> Snapshot[launching: transcriptから依頼・設定・途中作業snapshot]
+  Stopped --> Auth{Linux remote必須: CLI認証確認}
+  Auth -->|未認証又は照会失敗| Failed
+  Auth -->|認証あり又は対象外| Snapshot[launching: transcriptから依頼・設定・途中作業snapshot]
   Snapshot --> OS{OS}
   OS -->|Unix| BG[claude --bg / 最初の指示にhandoff ID]
   OS -->|Windows| PTY[製品所有の非表示端末 / 明示session ID]
@@ -22,7 +24,11 @@ flowchart TD
   First --> Capture[handoff IDで前任照合 / 途中turn DB capture / merge]
   Capture --> Accept[accepted sidecar / inbox作成]
   Accept --> Context[backfill / 文脈生成 / adapter出力]
-  Accept --> Sent[workerが受領を観測 / sent]
+  Accept --> Ready{Linux remote必須: API応答と接続登録}
+  Ready -->|対象外又は実モデル応答とURLあり| Sent[workerが継続可能性を観測 / sent]
+  Ready -->|APIエラー| FailedTarget[failed: 後継と受領を保持 / 再配送なし]
+  Ready -->|未確認のまま期限| Unknown
+  FailedTarget --> Deny
   Sent --> Deny[元の道具をdeny / continue false]
   Launched -->|起動済みか受領したか不明| Unknown[unknown / 後継・入力を増やさない]
   Unknown --> Deny
@@ -200,11 +206,9 @@ flowchart TD
 
 Linuxでremote_control.wantedの引継ぎは、workerが後継を立てる前に同じcwdとsuccessorEnvで公開`claude auth status --json`を最大10秒で照会する。loggedIn=falseはhandoff_authentication_required、照会失敗/不明/不正JSONはhandoff_authentication_check_failedとしてfailedへ保存する。後継も受領も作らず、既failedWithoutSuccessor契約で元の道具と会話を継続する。認証情報は保存/出力しない。これは現CLI未認証の予防であり、起動後API認証失敗/リモート登録成立の検証と既存の後継の復旧は別途未完。
 
-```mermaid
-flowchart LR
-  Stopped[Linux Desktop起点 worker] --> Auth[同じ起動環境でCLI認証照会]
-  Auth -->|未認証又は照会不明| Failed[failed 後継なし 元の会話を継続]
-  Auth -->|loggedIn true| Launch[既後継起動と受領経路]
-```
+
 
 Linuxのremote必須起動が明示拒否され、後継IDも受領も無い時はremoteなしで再起動せずhandoff_remote_control_unavailableを保存して元の会話を継続する。結果不明時の再送禁止とMacの既再試行契約を保持する。
+
+
+Linux remote必須の受領後は、同じ後継のtranscript末尾を最大1MiB読取り、isApiErrorMessageを実モデル進捗に数えない。認証APIエラーはhandoff_successor_authentication_failed、その他APIエラーはhandoff_successor_api_failedとして後継/受領を保持しfailedを記録する。実モデルassistantとremote接続URLの両方を観測した時だけsent。期限内に両方揃わなければunknown/handoff_successor_readiness_unconfirmed。受領済みの起動応答不明もLinux remote必須ではunknownとして、fail helperからsentへ抜けない。後継がある失敗/不明では元の仕事を同時に走らせず、hookへ継続未確認と返す。起動前の後継なしfailedだけ元を解放する。既API失敗会話の安全な復旧と本人画面の受入は、この自動判定とは別に必要。

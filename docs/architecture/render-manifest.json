@@ -25,19 +25,19 @@
     {
       "source": "docs/architecture/current-continuation.md",
       "block": 1,
-      "mermaidSha256": "243123f15d0b4b5bc908c3d8eb953d5fc1a09fb6d9bd13c7ac76d4c33ebd2ba3",
+      "mermaidSha256": "e5b7595d5265cfec7bcc127c9adf2880c1a0c952b34720c8e97c65c9a32d9ef8",
       "svg": "docs/architecture/diagrams/current-continuation-01.svg",
       "status": "rendered-visually-reviewed",
       "svgExit": 0,
-      "svgSha256": "b9ec9f7ed7cde6e390b22051c75220df0b5e491649c13a7d7af5cbdcba730687",
-      "svgBytes": 227117,
+      "svgSha256": "b6dd2df6ed2ab74a19132e7b5ead960dc68a535afc35fb5ba795ff182fd97e37",
+      "svgBytes": 237949,
       "pngExit": 0,
-      "pngSha256": "b625584613ba84375db3f0ae63f91322be3e92c648acf63da644508de64400c5",
-      "pngBytes": 285394,
+      "pngSha256": "bfd03c6ac0eca229f9ba47aa624ac2f6fb94f7d12f19261ad73bcab03314e092",
+      "pngBytes": 271693,
       "xmlValid": true,
-      "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "b34977f57120771920882cc45f247854012a1c762fcdcd2d53678a072973dc68",
-      "pngEvidence": "png/current-continuation-01.png"
+      "visualReview": "Linux認証確認/受領後APIエラー/接続未確認と成功の分岐、元を継続する起動前失敗と二重配送しない起動後失敗をPNGで確認。",
+      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
+      "pngEvidence": "work/throughline-linux-visibility-20261103/diagrams/current-continuation-01.png"
     },
     {
       "source": "docs/architecture/current-continuation.md",
@@ -53,7 +53,7 @@
       "pngBytes": 277416,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "b34977f57120771920882cc45f247854012a1c762fcdcd2d53678a072973dc68",
+      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
       "pngEvidence": "png/current-continuation-02.png"
     },
     {
@@ -70,7 +70,7 @@
       "pngBytes": 203419,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "b34977f57120771920882cc45f247854012a1c762fcdcd2d53678a072973dc68",
+      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
       "pngEvidence": "png/current-continuation-03.png"
     },
     {
