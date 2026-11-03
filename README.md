@@ -934,6 +934,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
+| `throughline observer-check --json` | Candidate batch check of completed sources from JSON stdin; see the candidate schema and supply limits below |
 | `throughline observer-read --project <absolute-directory> [--wire v2] --json` | Read one completed-turn Observer page through the JSON-only public boundary; `--wire v2` returns full bodies, the real harness, and how each turn started |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
@@ -1156,6 +1157,40 @@ conversation text and speaker; tool logs and Bot session details are not copied.
 Reusing a message ID with identical content is idempotent. Reusing it with different
 content exits with an error. The command owns its SQLite migration and storage;
 consumers use only this public JSON interface.
+
+### Batch Observer check (candidate)
+
+`throughline observer-check --json` reads one UTF-8 JSON request from stdin through
+EOF and returns one complete JSON result. The candidate [v1 schema](docs/observer-check.schema.json)
+and [ownership/cancellation contract](docs/architecture/observer-check.md) describe
+this implementation. It is not yet a released package or an accepted runner/performance supply.
+
+Requests use `throughline.observer_check_request.v1` and contain 1..256 ordered
+`{id, projectPath, after}` entries. The encoded request is at most 1 MiB; ids are
+1..128 UTF-8 bytes, absolute paths 1..4096 bytes, and `after` is null or 1..512
+UTF-8 bytes. Unknown fields, duplicate ids and invalid bounds fail the entire
+request before source work. Canonical aliases share source work but retain each id.
+A consumer starts no process for an empty candidate set and splits larger sets by
+both bytes and count.
+
+Results use `throughline.observer_check_result.v1` with `status:complete` and one
+entry per input in the same order. `changed` and `unchanged` carry an opaque ASCII
+comparison token (at most 512 bytes); `resync_required` and `error` carry null.
+An item error adds `E_OBSERVER_CHECK_SOURCE`. A complete result may contain item
+failures and still exits 0. Global errors exit 1, leave stdout empty and emit one
+fixed schema/status/code error on stderr: `E_OBSERVER_CHECK_ARGS`,
+`E_OBSERVER_CHECK_INTERNAL` or `E_OBSERVER_CHECK_CANCELLED`.
+
+Tokens compare completed sources; they are not read cursors or evidence of body
+projection, saved replies or UI completion. Pending projects are read first and
+excluded from that check request. Adopt the check-time token only after every
+read page, reply append and consumer state save succeeds. Keep read cursors on a
+check resync; retain old tokens on cancellation or an incomplete response. A
+request is one cancellation unit; earlier saved chunks remain committed.
+The command performs no DB creation/migration, writes, vendor launch or child CLI.
+It observes signals/disconnect/parent loss at asynchronous boundaries; synchronous
+source reads and forced termination do not promise immediate cancellation or
+finally cleanup. Output pipe failure makes the response unknown and unusable.
 
 ### Observer completed-turn feed (development)
 

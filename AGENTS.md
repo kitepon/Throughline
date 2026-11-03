@@ -6,7 +6,7 @@
 
 現行全体/詳細図・source対応とAstra責務設計は [docs/architecture/README.md](docs/architecture/README.md) を入口とする。現行18図に加えhook命令/診断の所有整理S1を実装し、その詳細図と保持試験を追補した。S2の説明同期と関連31試験まで確認した。S3の対応追補を含む候補をAstra xhighで最終照合し、結果と未確認をarchitecture正本のS5へ固定した。初回3OS CIはWindows競合試験1件で失敗し、stderr観測を加えたWindows CIは成功した。fixture holderへ既待機定数を設定した候補2cbe108で、3OS全件とgateが成功。固定aaec11fの全体成果は指導担当が受入済みで、通常保守へ移管した。初回原因未確定・全consumer未確認の限界と受入証跡はarchitecture末尾へ記す。公開/本番/Host操作の既条件を変更しない。
 
-別工程observer-checkは [段階1の内部catalog](docs/architecture/observer-check.md) を実装中。新CLI/公開schema/供給版/性能受入は未供給。既read/wait/cursorの保持を確認し、全体受入済み版とこの追加差分を区別する。
+別工程observer-checkは [catalog/core/CLI](docs/architecture/observer-check.md) と[候補schema](docs/observer-check.schema.json)を実装中。正式公開版/性能/runner供給受入は未成立。既read/wait/cursorの保持を確認し、全体受入済み版とこの追加差分を区別する。
 
 ## プロジェクト概要
 

@@ -136,6 +136,11 @@ switch (cmd) {
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
+  case 'observer-check': {
+    const exitCode = await (await import('../src/cli/observer-check.mjs')).run(rest);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    break;
+  }
   case 'observer-read': {
     const exitCode = (await import('../src/cli/observer-read.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
@@ -296,6 +301,9 @@ Usage:
                               and return the latest three turns in that room
                               Read three completed dialogue turns and available thinking;
                               --host claude|codex --transcript <path> verifies freshness
+  throughline observer-check --json
+                              Check completed sources for 1..256 projects from JSON stdin;
+                              one complete response, no bodies or consumer cursor changes
   throughline observer-read --project <absolute-directory> [--wire v2] --json
                               Read one JSON-only completed-turn Observer page;
                               --wire v2 adds full bodies, harness, and turn start

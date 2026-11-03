@@ -3,7 +3,7 @@
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
   "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
-  "scope": "Accepted19 figures unchanged; new observer-check catalog figure rendered; CLI/schema/serializer/runner and supply acceptance pending",
+  "scope": "Accepted19 figures unchanged; observer-check catalog and CLI figures rendered; candidate schema/core/CLI implemented; finite source performance/runner/3OS and package supply pending",
   "rows": [
     {
       "source": "docs/architecture/README.md",
@@ -19,7 +19,7 @@
       "pngBytes": 422966,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "fe40565b8081c581cc233416b5c8233d518583555bf3162409c91f2cf36d9cd8",
+      "sourceDocumentSha256": "7c6820a5ff038e907ce18cd603c52c645aa170befe25a88ddcd51dee6ad20833",
       "pngEvidence": "png/readme-01.png"
     },
     {
@@ -327,19 +327,36 @@
     {
       "source": "docs/architecture/observer-check.md",
       "block": 1,
-      "mermaidSha256": "0e6a5a8aa68ce2972733855bb778bd8d90eec254accd358f5b433588e220277f",
+      "mermaidSha256": "d19d5bd35c018872d25107a61a92b7461586832a0b3146ee7bb0fd1b106c0554",
       "svg": "docs/architecture/diagrams/observer-check-01.svg",
       "status": "rendered-visually-reviewed",
       "svgExit": 0,
-      "svgSha256": "c6edc400101f3157861935ed5a1d5cbb6f797e3cc363abd83ac8083c56232603",
-      "svgBytes": 28260,
+      "svgSha256": "288e42bf7dca48c56c6e1274f2c095435ed6f4674ee54ca96055cd19ca99c304",
+      "svgBytes": 28252,
       "pngExit": 0,
-      "pngSha256": "adb87050ad1f37faba3dac1d0ff3c50f46b9cc6ca1b67be860493d03ff8cd522",
-      "pngBytes": 156453,
+      "pngSha256": "02649c7ba5ce23cf5f0f08f8e6682df4da1e07e33d64190a3aa89c3ffc2f8249",
+      "pngBytes": 155186,
       "xmlValid": true,
-      "visualReview": "新catalogの一覧失敗/metadata不明、source変化/破損、既chain共有、caller finally closeと未供給CLIの区別をPNGで確認。",
-      "sourceDocumentSha256": "6f18a27a4a252d2ebfa28a5a10411892c653f25cfa637687ea30fdfcd2d0d4d3",
-      "pngEvidence": "work/throughline-observer-check-20261103/catalog-diagram/observer-check-01.png (product owner project)"
+      "visualReview": "catalog共有とcore/CLI/取消/出力確定/失敗/cleanupの新差分をPNGで確認。図2は余白を広げ端のedge labelを判読可能にした。",
+      "sourceDocumentSha256": "c3e32ddb016357e197594b1ba3ace11bcc277f28b10347643ae51609db3133ba",
+      "pngEvidence": "work/throughline-observer-check-20261103/stage2-diagram/observer-check-01.png (product owner project)"
+    },
+    {
+      "source": "docs/architecture/observer-check.md",
+      "block": 2,
+      "mermaidSha256": "56eebda8756e8c7e427cfb2af45d25ad98d5309edd896af5ccf88ea741f214d2",
+      "svg": "docs/architecture/diagrams/observer-check-02.svg",
+      "status": "rendered-visually-reviewed",
+      "svgExit": 0,
+      "svgSha256": "eaa9adeded549d90cafb5436831e5b7dd23e2f89b041f0e0f408443b6cd38447",
+      "svgBytes": 41080,
+      "pngExit": 0,
+      "pngSha256": "9768e144b4a39994634eb99a721dff8d1d11eb9a617e9d8d65afb92d637e86e9",
+      "pngBytes": 231715,
+      "xmlValid": true,
+      "visualReview": "catalog共有とcore/CLI/取消/出力確定/失敗/cleanupの新差分をPNGで確認。図2は余白を広げ端のedge labelを判読可能にした。",
+      "sourceDocumentSha256": "c3e32ddb016357e197594b1ba3ace11bcc277f28b10347643ae51609db3133ba",
+      "pngEvidence": "work/throughline-observer-check-20261103/stage2-diagram/observer-check-02.png (product owner project)"
     }
   ],
   "sourceDocumentUpdatedAt": "2026-11-03T07:28:08.052973+09:00",

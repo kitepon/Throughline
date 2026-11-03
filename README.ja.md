@@ -567,6 +567,16 @@ DB作成・migration・baton消費・session merge・
 
 ---
 
+## 複数projectのobserver確認（候補）
+
+`throughline observer-check --json` はstdinのUTF-8 JSONをEOFまで読み、1回のJSONで完了sourceの変化を返します。[候補v1 schema](docs/observer-check.schema.json)と[所有・取消契約](docs/architecture/observer-check.md)を参照してください。正式公開版・runner接続・性能の供給受入は未成立です。
+
+requestは `throughline.observer_check_request.v1`、`projects`は順序付き1〜256件の`{id, projectPath, after}`。符号化後1MiB以内、idはUTF-8で1〜128 bytes、一意、絶対pathは1〜4096 bytes、afterはnull又は1〜512 bytesです。未知field/重複id/上限超過はsource処理前に全体拒否します。consumerは件数と符号化bytesの両方で分割し、対象0件なら起動しません。
+
+結果は `throughline.observer_check_result.v1` / `status:complete`、入力と同じid/順序/件数です。changed/unchangedは512 ASCII bytes以内の不透明確認値、resync_required/errorはnull。個別errorは固定`E_OBSERVER_CHECK_SOURCE`を持ち、全件返せればexit0です。全体ARGS/INTERNAL/CANCELLEDはstdout空・固定schema/status/codeのstderr1行・exit1。確認値は消費cursorや本文保存の証拠とは別です。
+
+pendingを先行readして同巡checkから除外し、read全page/回答append/state保存後だけcheck時の確認値を採用します。check resyncでread cursorを消さず、取消/欠損/結果不明なら旧値を保ちます。取消はrequest単位で、前の成功chunkを取り消しません。製品DB作成/移行/書込・vendor/子CLI起動はありません。同期read中の即時取消、強制終了finally、pipe切断時の完全応答は保証しません。
+
 ## 動作要件
 
 - **Node.js 22.13 以上** (組み込み `node:sqlite` モジュール使用、ネイティブビルド不要)

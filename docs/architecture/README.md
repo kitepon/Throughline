@@ -239,4 +239,4 @@ Sol High適用後、holderへ既待機constantを渡した候補 `2cbe1085c924f6
 
 ## 受入後の別工程: observer-check
 
-[request内完了source共有](observer-check.md)は880801d受入後の新機能差分。全体整理の既19図とは区別し、内部catalogを段階実装中。新CLI/公開schema/供給版/性能受入は未供給。既read/waitとconsumer cursor/pending契約は保持する。
+[request内完了source共有](observer-check.md)は880801d受入後の新機能差分。全体整理の既19図とは区別し、catalog/core/CLIと候補schemaを実装。正式公開版・有限性能・runner供給受入は未成立。既read/waitとconsumer cursor/pending契約は保持する。
