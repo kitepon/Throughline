@@ -384,10 +384,12 @@ export async function run(argv = []) {
     parsed = parseArgs(argv);
     payload = parsePayload(await readStdin());
   } catch (err) {
+    logHookFailure('HOOK_CODEX_FAILED', err, { context: {
+      event: parsed?.event ?? 'unknown', stage: parsed ? 'payload' : 'arguments',
+    } });
     recordRuntimeErrorBestEffort('HOOK_CODEX_FAILED', { env: process.env, context: {
       event: parsed?.event ?? 'unknown', stage: parsed ? 'payload' : 'arguments', effect: 'hook_exit_nonzero',
     } });
-    logHookFailure('HOOK_CODEX_FAILED', err);
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[codex-hook] ${msg}\n`);
     process.exit(1);
@@ -455,6 +457,13 @@ export async function run(argv = []) {
     process.exit(typeof result.continue === 'boolean' || result.status === 'ok' || result.status === 'skipped' ? 0 : 1);
   } catch (err) {
     const code = codexHookFailureCode(err);
+    // 観測子processを待つ間に中断されても、元の例外の手掛かりを残す。
+    logHookFailure(code, err, { context: {
+      event: parsed.event, stage: 'processing',
+      session_id: parsed.codexThreadId ?? payload?.session_id ?? payload?.sessionId
+        ?? process.env.THROUGHLINE_CODEX_THREAD_ID ?? process.env.CODEX_THREAD_ID,
+      transcript_path: payload?.transcript_path ?? payload?.transcriptPath,
+    } });
     if (code === 'L1_SUMMARIZER_BACKEND_FAILED') {
       // 取り込みは済み、要約は次の Stop がやり直す。1回ごとの失敗（通信の断・利用上限・取り消しを含む）は
       // 端末の診断（hook-failures.log）にだけ残す。復帰を24時間確認できていない時だけ数える（ADR 0041）。
@@ -467,7 +476,6 @@ export async function run(argv = []) {
         event: parsed.event, stage: 'processing', effect: 'hook_exit_nonzero',
       } });
     }
-    logHookFailure(code, err);
     const msg = err instanceof Error ? err.message : 'unknown';
     if (parsed.json) {
       process.stdout.write(

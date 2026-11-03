@@ -3,7 +3,7 @@
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
   "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
-  "scope": "Accepted19 figures unchanged; observer-check catalog and CLI figures rendered; candidate schema/core/CLI implemented; finite source performance/runner/3OS and package supply pending",
+  "scope": "0.16.54 Codex hook local exception preservation; only current-entrypoints block4 rerendered and visually checked; other existing figures unchanged.",
   "rows": [
     {
       "source": "docs/architecture/README.md",
@@ -87,7 +87,7 @@
       "pngBytes": 193582,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "84c8ad36bbef900a9123ce82ae01a3a5f67b30032d7f7a58fcb60368e78aa30b",
+      "sourceDocumentSha256": "c8f39eefa2a8ec92c732e712ca853c6ea37ecbc1ca38b0a1b773dab0e6663ee9",
       "pngEvidence": "png/current-entrypoints-01.png"
     },
     {
@@ -104,7 +104,7 @@
       "pngBytes": 215212,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "84c8ad36bbef900a9123ce82ae01a3a5f67b30032d7f7a58fcb60368e78aa30b",
+      "sourceDocumentSha256": "c8f39eefa2a8ec92c732e712ca853c6ea37ecbc1ca38b0a1b773dab0e6663ee9",
       "pngEvidence": "png/current-entrypoints-02.png"
     },
     {
@@ -121,25 +121,25 @@
       "pngBytes": 246484,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "84c8ad36bbef900a9123ce82ae01a3a5f67b30032d7f7a58fcb60368e78aa30b",
+      "sourceDocumentSha256": "c8f39eefa2a8ec92c732e712ca853c6ea37ecbc1ca38b0a1b773dab0e6663ee9",
       "pngEvidence": "png/current-entrypoints-03.png"
     },
     {
       "source": "docs/architecture/current-entrypoints.md",
       "block": 4,
-      "mermaidSha256": "efbf65a1a153faa73f2278ddab5301434a13dc2c7358cb3be06ff080295078eb",
+      "mermaidSha256": "f7a50425cd3e25e8b6a5c94073eda34f8b7c2bfc96f7c0be74170dd87250f6d8",
       "svg": "docs/architecture/diagrams/current-entrypoints-04.svg",
       "status": "rendered-visually-reviewed",
       "svgExit": 0,
-      "svgSha256": "793a72dd77c0310d3700c2f60989c8c7c51f5b0ea47efea6fe934f9012ceba57",
-      "svgBytes": 219460,
+      "svgSha256": "d2c0fe076004d6793794595dc9defd122e771ce11a874357780bdbfbde37f78d",
+      "svgBytes": 224080,
       "pngExit": 0,
-      "pngSha256": "dd9ad77680ae3e5b80ee57b82900f5f01ad295d87a590a2307d7bbde18263937",
-      "pngBytes": 210661,
+      "pngSha256": "473f3f09211bb99b504bb4da142c0cfb4c7be7bce9c828a05ce8980191fe28ef",
+      "pngBytes": 222769,
       "xmlValid": true,
-      "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "84c8ad36bbef900a9123ce82ae01a3a5f67b30032d7f7a58fcb60368e78aa30b",
-      "pngEvidence": "png/current-entrypoints-04.png"
+      "visualReview": "例外をprivate logへ先行保存→固定aggregate→exit1の順、各label/矢印をPNGで目視。元障害の原因を確定する図ではない。",
+      "sourceDocumentSha256": "c8f39eefa2a8ec92c732e712ca853c6ea37ecbc1ca38b0a1b773dab0e6663ee9",
+      "pngEvidence": "work/throughline-container-post-tool-20261104/diagram/current-entrypoints-04.png"
     },
     {
       "source": "docs/architecture/current-lifecycle.md",
@@ -155,7 +155,7 @@
       "pngBytes": 202473,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dbe752b865f0afef2d91cb2b69fc524400a24be2ea5c602286ac257095525305",
+      "sourceDocumentSha256": "614a034d25fb7bdb15318183a7cd7b18043342491af86b43e7a4662b10970fd3",
       "pngEvidence": "png/current-lifecycle-01.png"
     },
     {
@@ -172,7 +172,7 @@
       "pngBytes": 218821,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dbe752b865f0afef2d91cb2b69fc524400a24be2ea5c602286ac257095525305",
+      "sourceDocumentSha256": "614a034d25fb7bdb15318183a7cd7b18043342491af86b43e7a4662b10970fd3",
       "pngEvidence": "png/current-lifecycle-02.png"
     },
     {
@@ -189,7 +189,7 @@
       "pngBytes": 243400,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dbe752b865f0afef2d91cb2b69fc524400a24be2ea5c602286ac257095525305",
+      "sourceDocumentSha256": "614a034d25fb7bdb15318183a7cd7b18043342491af86b43e7a4662b10970fd3",
       "pngEvidence": "png/current-lifecycle-03.png"
     },
     {
@@ -206,7 +206,7 @@
       "pngBytes": 208670,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "dbe752b865f0afef2d91cb2b69fc524400a24be2ea5c602286ac257095525305",
+      "sourceDocumentSha256": "614a034d25fb7bdb15318183a7cd7b18043342491af86b43e7a4662b10970fd3",
       "pngEvidence": "png/current-lifecycle-04.png"
     },
     {
@@ -308,7 +308,7 @@
     {
       "source": "docs/architecture/current-lifecycle.md",
       "block": 5,
-      "sourceDocumentSha256": "dbe752b865f0afef2d91cb2b69fc524400a24be2ea5c602286ac257095525305",
+      "sourceDocumentSha256": "614a034d25fb7bdb15318183a7cd7b18043342491af86b43e7a4662b10970fd3",
       "mermaidSha256": "5a13693c84148dd48fabad2dbfdda0e63f27696721785a218bc2e79532d27a00",
       "svg": "docs/architecture/diagrams/current-hook-ownership-01.svg",
       "status": "rendered-visually-reviewed",

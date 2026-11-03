@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.54] — 2026-11-04
+
+### Fixed
+
+- Preserve the original Codex hook exception before waiting for diagnostic
+  observation. Include the fixed hook event and processing stage, plus known
+  session and transcript references, in the local failure log. Public error
+  aggregates and hook failure exit codes remain unchanged.
+
 ## [0.16.53] — 2026-11-04
 
 ### Fixed
@@ -2898,7 +2907,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.53...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.54...HEAD
+[0.16.54]: https://github.com/kitepon/Throughline/compare/v0.16.53...v0.16.54
 [0.16.53]: https://github.com/kitepon/Throughline/compare/v0.16.52...v0.16.53
 [0.16.52]: https://github.com/kitepon/Throughline/compare/v0.16.51...v0.16.52
 [0.16.51]: https://github.com/kitepon/Throughline/compare/v0.16.50...v0.16.51

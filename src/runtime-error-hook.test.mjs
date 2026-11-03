@@ -251,6 +251,34 @@ test('store failure preserves product failure and emits only fixed storage diagn
   assert.doesNotMatch(result.stderr, /runtime error store schema invalid/);
 });
 
+test('Codexの観測開始時にhookが中断されても、元の例外と処理位置を端末内に残す', () => {
+  const { root, env } = createEnabledEnvironment('throughline-codex-interrupted-');
+  const preload = join(root, 'interrupt-observer.mjs');
+  writeFileSync(preload, `
+    import childProcess from 'node:child_process';
+    const original = childProcess.spawnSync;
+    childProcess.spawnSync = function(command, args, options) {
+      if (args?.[0]?.endsWith('runtime-error-observer.mjs')) process.exit(23);
+      return original.call(this, command, args, options);
+    };
+  `);
+  // DBを開く通常処理で例外を起こす。実DB/rolloutは使わない。
+  mkdirSync(join(root, '.throughline', 'throughline.db'), { recursive: true });
+  const payload = { session_id: 'thread-private-log', transcript_path: join(root, 'rollout.jsonl'), cwd: root };
+  const result = spawnSync(process.execPath, ['--import', preload, BIN, 'codex-hook', 'post-tool-use'], {
+    env, input: JSON.stringify(payload), encoding: 'utf8',
+  });
+  assert.equal(result.status, 23, result.stderr);
+  const log = join(root, '.throughline', 'logs', 'hook-failures.log');
+  assert.equal(existsSync(log), true, 'reporting must not precede preservation of the original exception');
+  const [entry] = readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(entry.code, 'HOOK_CODEX_FAILED');
+  assert.equal(entry.event, 'post-tool-use'); assert.equal(entry.stage, 'processing');
+  assert.equal(entry.session_id, payload.session_id); assert.equal(entry.transcript_path, payload.transcript_path);
+  assert.ok(entry.message.length > 0); assert.ok(entry.stack.length > 0);
+  assert.equal(existsSync(defaultRuntimeErrorStorePath(env)), false);
+});
+
 test('FIFO config cannot block the original hook failure', { skip: process.platform === 'win32' }, () => {
   const { env } = createEnabledEnvironment('throughline-runtime-hook-fifo-');
   const config = defaultRuntimeErrorConfigPath(env);
