@@ -6,9 +6,9 @@ import { pathToFileURL } from 'node:url';
 const traceDir=mkdtempSync(join(tmpdir(),'tl-hook-diagnosis-'));
 const trace=join(traceDir,'events.jsonl');
 const preload=pathToFileURL(resolve('scripts/diagnose-windows-preload.mjs')).href;
-const child=spawn(process.execPath,['--import','./src/test-env.mjs','--test','--test-name-pattern','別の project へ移した会話','src/claude-auto-handoff.test.mjs'],{
-  stdio:'inherit',windowsHide:true,env:{...process.env,TL_WINDOWS_DIAG_TRACE:trace,NODE_OPTIONS:`${process.env.NODE_OPTIONS??''} --import=${preload}`.trim()}});
-const timeout=setTimeout(()=>child.kill(),330000);
+const child=spawn(process.execPath,['scripts/run-product-ci-tests.mjs'],{
+  stdio:'inherit',windowsHide:true,env:{...process.env,TL_WINDOWS_DIAG_TRACE:trace,PRODUCT_CI_TEST_SCOPE:'all',NODE_OPTIONS:`${process.env.NODE_OPTIONS??''} --import=${preload}`.trim()}});
+const timeout=setTimeout(()=>child.kill(),420000);
 const result=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',(code,signal)=>resolve({code,signal}));});
 clearTimeout(timeout);
 if(existsSync(trace))console.log('FINAL_TRACE',readFileSync(trace,'utf8'));

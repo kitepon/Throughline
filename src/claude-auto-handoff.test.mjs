@@ -39,7 +39,18 @@ const SUCCESSOR = 'a41a97ae-6b2a-421b-b2d5-1a0b07988d06';
 const OPEN = { THROUGHLINE_AUTO_HANDOFF_OPEN: 'origin' };
 const ENABLED = { enabled: true, projects: [] };
 
-async function withDir(fn) {
+function withDir(fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-claude-auto-'));
+  const finish = () => rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
+  let result;
+  try { result = fn(dir); }
+  catch (error) { finish(); throw error; }
+  if (result && typeof result.then === 'function') return result.finally(finish);
+  finish();
+  return result;
+}
+
+async function withDiagnosis(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'tl-claude-auto-'));
   let primary, result;
   try { result = await fn(dir); }
@@ -1622,7 +1633,7 @@ test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（C
   assert.deepEqual(decisions.filter(entry => entry.phase === 'prompt-submit').map(entry => [entry.merged, entry.merge_skip_reason ?? null]), [[true, null]]);
 }));
 
-test('hook: 別の project へ移した会話（Claude Desktop）を、移った後に1回も Stop を通らないまま引き継いでも、後継へ記憶が入る', () => withDir(async home => {
+test('hook: 別の project へ移した会話（Claude Desktop）を、移った後に1回も Stop を通らないまま引き継いでも、後継へ記憶が入る', () => withDiagnosis(async home => {
   // Desktop は「フォルダなし」で始めた会話を project へ移す。SessionStart は移る前の場所で呼ばれ、
   // CLAUDE_PROJECT_DIR は移った後も移る前の場所のまま届く。
   const scratch = join(home, 'scratch-2026-10-05-ac3fa8');
