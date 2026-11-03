@@ -24,6 +24,13 @@ shipped to npm but were not individually tagged on GitHub.
 - Separate hook command construction and Codex configuration diagnostics while
   preserving existing entry points, and document feature ownership and contracts.
 
+### Fixed
+
+- Keep Linux Desktop-origin conversations running when the successor CLI is not
+  authenticated or its required Remote Control launch is rejected. Confirm both
+  a real model response and Remote Control registration before marking that
+  successor sent; preserve failed or unconfirmed successors without redelivery.
+
 ## [0.16.51] — 2026-10-29
 
 ### Fixed

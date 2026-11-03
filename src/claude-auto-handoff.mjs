@@ -1419,7 +1419,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
           successor: { short_id: shortId, session_id: acceptance.successor_session_id } });
         const path = findSuccessorTranscriptPath(record);
         const entries = path ? readTranscriptTail(path)?.entries ?? [] : [];
-        const assistant = entries.findLast(entry => entry.type === 'assistant');
+        const assistant = entries.findLast(entry => entry?.type === 'assistant');
         if (assistant?.isApiErrorMessage) {
           rmSync(acceptancePath(sessionId, dir), { force: true });
           return update({ state: 'failed', error_code: assistant.error === 'authentication_failed'

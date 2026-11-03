@@ -1957,7 +1957,7 @@ test('Linux Desktop handoff: rejected remote control never falls back to an invi
   assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir })).continue, true);
 }));
 
-for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registration', 'no-model-progress', 'missing-model', 'launch-timeout']) {
+for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registration', 'no-model-progress', 'missing-model', 'launch-timeout', 'invalid-entries']) {
   test(`Linux Desktop readiness: ${mode}`, () => withDir(async dir => {
     const transcriptPath = join(dir, `${SESSION}.jsonl`);
     writeFileSync(transcriptPath, '');
@@ -1976,13 +1976,13 @@ for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registr
             error: mode === 'api-error' ? 'authentication_failed' : 'rate_limit', isApiErrorMessage: true }
           : assistant('続けます。', '2026-11-03T09:18:43Z');
         if (mode === 'missing-model') delete entry.message.model;
-        writeFileSync(join(dir, `${SUCCESSOR}.jsonl`), mode === 'no-model-progress' ? '' : jsonl([entry]));
+        writeFileSync(join(dir, `${SUCCESSOR}.jsonl`), mode === 'no-model-progress' ? '' : jsonl(mode === 'invalid-entries' ? [null, 42, entry, null] : [entry]));
         return mode === 'launch-timeout' ? { error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }) } : launchedOk();
       } });
     assert.equal(launches, 1);
     assert.equal(record.successor.session_id, SUCCESSOR);
     assert.equal(record.accepted_at, 5000);
-    if (mode === 'authenticated') {
+    if (mode === 'authenticated' || mode === 'invalid-entries') {
       assert.equal(record.state, 'sent');
       assert.equal(record.remote_control.state, 'registered');
     } else {
