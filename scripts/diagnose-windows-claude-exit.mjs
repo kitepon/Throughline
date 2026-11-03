@@ -15,11 +15,18 @@ if (process.argv[2] === '--child') {
   const OriginalWorker = workerThreads.Worker;
   workerThreads.Worker = class extends OriginalWorker {
     constructor(file, options) {
-      const preload = `data:text/javascript,${encodeURIComponent(`await new Promise(r=>setTimeout(r,${delayMs}));`)}`;
-      super(file, { ...options, execArgv: ['--import', preload] });
+      super(file, options);
       record('conout-worker-created');
       this.on('message', message => record('conout-worker-message', { message }));
       this.on('error', error => record('conout-worker-error', { message: error.message }));
+    }
+    emit(event, ...args) {
+      if (event === 'message' && args[0] === 1 && delayMs > 0) {
+        record('ready-message-held', { delayMs });
+        setTimeout(() => super.emit(event, ...args), delayMs);
+        return true;
+      }
+      return super.emit(event, ...args);
     }
   };
   const marker = join(home, 'fake-exit.txt');
