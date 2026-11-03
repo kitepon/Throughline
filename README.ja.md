@@ -567,9 +567,9 @@ DB作成・migration・baton消費・session merge・
 
 ---
 
-## 複数projectのobserver確認（候補）
+## 複数projectのobserver確認
 
-`throughline observer-check --json` はstdinのUTF-8 JSONをEOFまで読み、1回のJSONで完了sourceの変化を返します。[候補v1 schema](docs/observer-check.schema.json)と[所有・取消契約](docs/architecture/observer-check.md)を参照してください。正式公開版・runner接続・性能の供給受入は未成立です。
+`throughline observer-check --json` はstdinのUTF-8 JSONをEOFまで読み、1回のJSONで完了sourceの変化を返します。[v1 schema](docs/observer-check.schema.json)と[所有・取消契約](docs/architecture/observer-check.md)を参照してください。確認値とobserver-readの消費cursorは独立しています。
 
 requestは `throughline.observer_check_request.v1`、`projects`は順序付き1〜256件の`{id, projectPath, after}`。符号化後1MiB以内、idはUTF-8で1〜128 bytes、一意、絶対pathは1〜4096 bytes、afterはnull又は1〜512 bytesです。未知field/重複id/上限超過はsource処理前に全体拒否します。consumerは件数と符号化bytesの両方で分割し、対象0件なら起動しません。
 

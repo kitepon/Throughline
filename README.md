@@ -934,7 +934,7 @@ once with `npm install --global throughline@latest`, then run
 | `throughline recall --l2\|--l1 --session <id> --before <ISO> ...` | Pull older memory referenced by the injection's guidance section (read-only; the exact command is baked into each injection) |
 | `throughline caveat-context --session <id> --project <root> --json` | Return three completed dialogue turns and available Thinking for Caveat, without tool logs; `--host claude\|codex --transcript <path>` checks freshness |
 | `throughline room-context --json`              | Record a room turn from JSON stdin and return the latest three turns through that message as `throughline.room_context.v1` |
-| `throughline observer-check --json` | Candidate batch check of completed sources from JSON stdin; see the candidate schema and supply limits below |
+| `throughline observer-check --json` | Batch check of completed sources from JSON stdin; see the schema and limits below |
 | `throughline observer-read --project <absolute-directory> [--wire v2] --json` | Read one completed-turn Observer page through the JSON-only public boundary; `--wire v2` returns full bodies, the real harness, and how each turn started |
 | `throughline observer-wait --project <absolute-directory> --after-cursor <opaque> [--timeout-seconds 3600] --json` | Wait up to 3600 seconds for a completed-turn Observer cursor change |
 | `throughline doctor`                           | Check Node version, hook registration, DB writability, PATH  |
@@ -1161,9 +1161,9 @@ consumers use only this public JSON interface.
 ### Batch Observer check (candidate)
 
 `throughline observer-check --json` reads one UTF-8 JSON request from stdin through
-EOF and returns one complete JSON result. The candidate [v1 schema](docs/observer-check.schema.json)
+EOF and returns one complete JSON result. The [v1 schema](docs/observer-check.schema.json)
 and [ownership/cancellation contract](docs/architecture/observer-check.md) describe
-this implementation. It is not yet a released package or an accepted runner/performance supply.
+this implementation. Confirmation values are independent of observer-read cursors.
 
 Requests use `throughline.observer_check_request.v1` and contain 1..256 ordered
 `{id, projectPath, after}` entries. The encoded request is at most 1 MiB; ids are
