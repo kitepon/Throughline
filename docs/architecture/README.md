@@ -235,3 +235,8 @@ Sol High適用後、holderへ既待機constantを渡した候補 `2cbe1085c924f6
 この引継ぎで図起点リファクタの専任と通常依頼の遮断を終了し、製品の図・実装・互換性・試験と保守へ戻す。main統合、配布、公開/本番反映、実consumer受入は既手順の別工程。Host/OS/他製品の所有、旧Windows追跡・実DB/実席の停止は解除しない。新batchも既利用側契約の別工程とする。
 
 初回stderr未保存/exact原因未確定、全semanticMappingComplete=false、未知consumerと既知制限を保持する。担当の進行正本 `docs/throughline-refactor-20261103.md` と通常保守 `docs/throughline-maintenance.md` へ受入/文書版/終了処理を接続した。担当の証跡原本と候補を履歴照合・後続統合のため保持し、2026-12-03以降に重複控えを整理判断する。
+
+
+## 受入後の別工程: observer-check
+
+[request内完了source共有](observer-check.md)は880801d受入後の新機能差分。全体整理の既19図とは区別し、内部catalogを段階実装中。新CLI/公開schema/供給版/性能受入は未供給。既read/waitとconsumer cursor/pending契約は保持する。

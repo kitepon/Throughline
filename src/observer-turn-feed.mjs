@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { listCodexThreadCandidates } from './codex-thread-index.mjs';
+import { listCodexThreadCandidates, normalizeCodexProjectPath, isCodexProjectOrDescendant } from './codex-thread-index.mjs';
 import { parseCodexRolloutFile } from './codex-rollout-memory.mjs';
 import { hashAuditorBody } from './body-digest.mjs';
 import { buildBodyRowsFromActiveTurns, buildCodexThroughlineSessionId } from './codex-capture.mjs';
@@ -180,12 +180,53 @@ function claudeCandidates(projectPath, receiptOptions) {
 
 function codexCandidates(projectPath, codexHome) {
   return listCodexThreadCandidates({ codexHome, projectPath, limit: Number.MAX_SAFE_INTEGER })
-    .map((item) => {
-      const parsed = parseCodexRolloutFile(item.rolloutPath);
-      const chain = parsed.activeTurns.flatMap((turn) => codexTurnEntry(turn, item.id, item.rolloutPath));
-      return candidate('codex', sha256(item.id), chain, 1, buildCodexThroughlineSessionId(item.id));
-    })
+    .map((item) => codexCandidateFromParsed(item, parseCodexRolloutFile(item.rolloutPath)))
     .filter((item) => item.chain.length > 0);
+}
+
+function codexCandidateFromParsed(item, parsed) {
+  const chain = parsed.activeTurns.flatMap((turn) => codexTurnEntry(turn, item.id, item.rolloutPath));
+  return candidate('codex', sha256(item.id), chain, 1, buildCodexThroughlineSessionId(item.id));
+}
+
+/** One request owns the catalog and must close it after checking its projects. */
+export function createObserverCheckCatalog({ codexHome, receiptOptions } = {}) {
+  let items = listCodexThreadCandidates({ codexHome, allProjects: true, limit: Number.MAX_SAFE_INTEGER });
+  if (items.some((item) => typeof item.cwd !== 'string' || item.cwd.length === 0)) {
+    throw new Error('observer check source project unavailable');
+  }
+  items = items.map((item) => ({ ...item, projectKey: normalizeCodexProjectPath(item.cwd) }));
+  const parsed = new Map();
+  return {
+    read(projectPath) {
+      if (items === null) throw new Error('observer check catalog closed');
+      const project = canonicalExistingProject(projectPath);
+      const key = normalizeCodexProjectPath(project);
+      const candidates = [...claudeCandidates(project, receiptOptions)];
+      for (const item of items) {
+        if (!isCodexProjectOrDescendant(item.projectKey, key)) continue;
+        if (!parsed.has(item.rolloutPath)) {
+          try {
+            const before = statSync(item.rolloutPath);
+            if (before.mtimeMs !== item.mtimeMs) throw new Error('observer check source changed after discovery');
+            const value = parseCodexRolloutFile(item.rolloutPath);
+            const after = statSync(item.rolloutPath);
+            if (value.stats.corruptRows > 0 || ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].some((field) => before[field] !== after[field])) {
+              throw new Error('observer check source changed or corrupt');
+            }
+            parsed.set(item.rolloutPath, codexCandidateFromParsed(item, value));
+          } catch (error) { parsed.set(item.rolloutPath, error); }
+        }
+        const current = parsed.get(item.rolloutPath);
+        if (current instanceof Error) throw current;
+        if (current.chain.length > 0) candidates.push(current);
+      }
+      const fingerprints = candidates.map((item) => [item.host, item.threadHash, item.historyFloor, prefixDigest(item.chain)]);
+      fingerprints.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      return { projectSha256: sha256(project), fingerprint: sha256(JSON.stringify(fingerprints)), ambiguous: selectLatest(candidates)?.ambiguous === true };
+    },
+    close() { parsed.clear(); items = null; },
+  };
 }
 
 function codexTurnEntry(turn, threadId, rolloutPath) {

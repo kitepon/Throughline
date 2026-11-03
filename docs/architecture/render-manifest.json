@@ -3,7 +3,7 @@
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
   "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
-  "scope": "19 current figures unchanged; S5 reviewed; corrected fixture passed full3OS/gate; aaec11f artifact accepted and handed to maintenance; initial exact stderr unavailable and semantic limits retained",
+  "scope": "Accepted19 figures unchanged; new observer-check catalog figure rendered; CLI/schema/serializer/runner and supply acceptance pending",
   "rows": [
     {
       "source": "docs/architecture/README.md",
@@ -19,7 +19,7 @@
       "pngBytes": 422966,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "6754afb463292df955555f8e8121052e0fa6ce47238b78db0f624d42b7aa8190",
+      "sourceDocumentSha256": "fe40565b8081c581cc233416b5c8233d518583555bf3162409c91f2cf36d9cd8",
       "pngEvidence": "png/readme-01.png"
     },
     {
@@ -323,6 +323,23 @@
       "xmlValid": true,
       "evidenceDirectory": "work/throughline-refactor-evidence-20261103/implementation-pass-01",
       "pngEvidence": "png/current-hook-ownership-01.png"
+    },
+    {
+      "source": "docs/architecture/observer-check.md",
+      "block": 1,
+      "mermaidSha256": "0e6a5a8aa68ce2972733855bb778bd8d90eec254accd358f5b433588e220277f",
+      "svg": "docs/architecture/diagrams/observer-check-01.svg",
+      "status": "rendered-visually-reviewed",
+      "svgExit": 0,
+      "svgSha256": "c6edc400101f3157861935ed5a1d5cbb6f797e3cc363abd83ac8083c56232603",
+      "svgBytes": 28260,
+      "pngExit": 0,
+      "pngSha256": "adb87050ad1f37faba3dac1d0ff3c50f46b9cc6ca1b67be860493d03ff8cd522",
+      "pngBytes": 156453,
+      "xmlValid": true,
+      "visualReview": "新catalogの一覧失敗/metadata不明、source変化/破損、既chain共有、caller finally closeと未供給CLIの区別をPNGで確認。",
+      "sourceDocumentSha256": "6f18a27a4a252d2ebfa28a5a10411892c653f25cfa637687ea30fdfcd2d0d4d3",
+      "pngEvidence": "work/throughline-observer-check-20261103/catalog-diagram/observer-check-01.png (product owner project)"
     }
   ],
   "sourceDocumentUpdatedAt": "2026-11-03T07:28:08.052973+09:00",
