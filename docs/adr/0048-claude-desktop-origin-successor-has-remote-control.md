@@ -50,3 +50,7 @@ Claude Code には `--remote-control [name]` がある。付けて立てた会�
 ## 2026-11-03 Linux修理による更新
 
 Linuxではremote必須の起動前にCLI認証を照会し、未認証やremote起動拒否時は後継を作らず元の会話を継続する。remoteなしの再試行は行わない。受領後は実モデル応答とremote登録が揃った時だけsentとし、APIエラーはfailed、未確認はunknownとして同じ後継を保持し再配送しない。registeredのURLを既公開remote_control_urlと元の会話の案内へ出す。初期の『remoteへつなげたか見ない』という決定はLinuxのremote必須経路ではこの判定に置き換わる。実画面で本人が会話を続けられる受入は別途必要。
+
+CLI起点でも同じnative sessionのRemote Control実登録がある場合は、その表示接続を後継へ引き継ぐ。entrypoint=cliを「アプリから見ていない」と解釈しない（2026-11-03のMacベル原件）。
+
+0.16.53でLinuxの認証/接続確認をmacOSにも適用し、表示接続が必要な起動を拒否された時はremote無し再試行をせず元の会話を継続する。

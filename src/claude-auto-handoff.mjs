@@ -336,11 +336,12 @@ function openInDesktopWanted({ sessionId, transcriptPath, env, dir, platform }) 
  * この会話の後継を、リモートコントロール付きで立てるか（ADR 0048）。
  * Claude Desktop の画面から始まった会話と、その後継がさらに引き継ぐ時だけ付ける。後継は裏の会話で、ターンを終えるまで
  * Desktop の一覧に出ない。リモートコントロールがあれば、作業の最中も claude.ai/code と Claude のアプリから見られる。
- * 端末から始めた会話の後継は `claude agents`・`claude attach` で見られるので付けない。
+ * CLI起点でも、元の会話が既にRemote Controlへ登録されていれば表示接続を引き継ぐ。
  */
 function remoteControlWanted({ sessionId, transcriptPath, env, dir }) {
   if (env[REMOTE_CONTROL_OVERRIDE_ENV] === 'off') return false;
   if (env[REMOTE_CONTROL_OVERRIDE_ENV] === 'on') return true;
+  if (readClaudeTerminalRemoteControl(sessionId, { env })) return true;
   if (env.CLAUDE_CODE_ENTRYPOINT === DESKTOP_ENTRYPOINT || readLatestEntrypoint(transcriptPath) === DESKTOP_ENTRYPOINT) return true;
   return listClaudeAutoHandoffs({ dir }).some(record => record.successor?.session_id === sessionId && record.remote_control?.wanted);
 }
@@ -1251,8 +1252,8 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     const accepted = readAcceptance(sessionId, record.handoff_id, dir);
     if (accepted) {
       rmSync(acceptancePath(sessionId, dir), { force: true });
-      return update({ state: platform === 'linux' && record.remote_control?.wanted ? 'unknown' : 'sent',
-        error_code: platform === 'linux' && record.remote_control?.wanted ? 'handoff_successor_readiness_unconfirmed' : null,
+      return update({ state: platform !== 'win32' && record.remote_control?.wanted ? 'unknown' : 'sent',
+        error_code: platform !== 'win32' && record.remote_control?.wanted ? 'handoff_successor_readiness_unconfirmed' : null,
         accepted_at: accepted.accepted_at,
         ...captureFields(accepted),
         successor: { short_id: accepted.successor_session_id.slice(0, 8), session_id: accepted.successor_session_id } });
@@ -1264,7 +1265,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   // 止めた時点の依頼・ここまでにしたこと・その時のモデルを写し、止めたターンを DB へ取り込む。
   // 後継の最初の指示が、これを現在地として受け取る。前の引き継ぎの受領が残っていれば消す。
   rmSync(acceptancePath(sessionId, dir), { force: true });
-  if (platform === 'linux' && record.remote_control?.wanted) {
+  if (platform !== 'win32' && record.remote_control?.wanted) {
     const auth = spawn('claude', ['auth', 'status', '--json'], {
       cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 10_000,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -1383,19 +1384,17 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
     cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const backgroundedId = result => BACKGROUNDED_PATTERN.exec(normalizeTerminalText(`${result.stdout ?? ''}`))?.[1];
-  let launched = launch(Boolean(record.remote_control?.wanted));
+  const launched = launch(Boolean(record.remote_control?.wanted));
   if (record.remote_control?.wanted) {
     if (!launched.error && launched.status === 0 && backgroundedId(launched)) {
       update({ remote_control: { ...record.remote_control, state: 'requested' } });
     } else if (!launched.error && launched.status !== 0 && !backgroundedId(launched) &&
         !readAcceptance(sessionId, record.handoff_id, dir)) {
-      if (platform === 'linux') return fail('handoff_remote_control_unavailable');
-      // リモートコントロールを付けると立てられない（未ログイン、古い Claude Code など）。後継は立っていないので、
-      // 付けずに立て直す。引き継ぎは止めない。
+      // 表示接続が必要な後継を、見えない状態で作り直さない。
       process.stderr.write(`[auto-handoff] claude --bg --remote-control exit=${launched.status} ` +
-        `stderr=${JSON.stringify(`${launched.stderr ?? ''}`.slice(0, 300))}; retrying without remote control\n`);
+        `stderr=${JSON.stringify(`${launched.stderr ?? ''}`.slice(0, 300))}; keeping source session\n`);
       update({ remote_control: { ...record.remote_control, state: 'unavailable' } });
-      launched = launch(false);
+      return fail('handoff_remote_control_unavailable');
     }
   }
   if (launched.error) {
@@ -1416,7 +1415,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   for (const deadline = Date.now() + acceptTimeoutMs; Date.now() < deadline;) {
     const acceptance = readAcceptance(sessionId, record.handoff_id, dir);
     if (acceptance) {
-      if (platform === 'linux' && record.remote_control?.wanted) {
+      if (platform !== 'win32' && record.remote_control?.wanted) {
         update({ accepted_at: acceptance.accepted_at, ...captureFields(acceptance),
           successor: { short_id: shortId, session_id: acceptance.successor_session_id } });
         const path = findSuccessorTranscriptPath(record);

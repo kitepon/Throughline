@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.16.53] — 2026-11-04
+
+### Fixed
+
+- Preserve Remote Control visibility when a CLI-origin conversation already has
+  a registered connection. Carry that connection into automatic successors on
+  every platform. Apply authentication and registration checks to macOS as well
+  as Linux, and keep the source conversation when a required remote launch fails.
+
 ## [0.16.52] — 2026-11-03
 
 ### Added
@@ -2889,7 +2898,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.52...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.53...HEAD
+[0.16.53]: https://github.com/kitepon/Throughline/compare/v0.16.52...v0.16.53
 [0.16.52]: https://github.com/kitepon/Throughline/compare/v0.16.51...v0.16.52
 [0.16.51]: https://github.com/kitepon/Throughline/compare/v0.16.50...v0.16.51
 [0.16.50]: https://github.com/kitepon/Throughline/compare/v0.16.49...v0.16.50

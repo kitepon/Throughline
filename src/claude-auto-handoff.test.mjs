@@ -1042,7 +1042,7 @@ test('worker: 印のある引き継ぎは、後継を --remote-control=<後継�
   assert.equal(publicClaudeAutoHandoff(terminal.record).remote_control_state, null);
 }));
 
-test('worker: リモートコントロールを付けると立てられない時は、付けずに立て直す。引き継ぎは止めない', () => withDir(async dir => {
+test('worker: macOSの表示接続を拒否された時は、不可視の後継へ再試行せず元を継続する', () => withDir(async dir => {
   const sessionId = 'cccccccc-0000-4000-8000-000000000001';
   const transcriptPath = join(dir, `${sessionId}.jsonl`);
   writeFileSync(transcriptPath, jsonl([{ ...user('読んで', '2026-10-10T05:00:10Z'), entrypoint: 'claude-desktop' }, assistant('読みました。', '2026-10-10T05:00:12Z')]));
@@ -1058,8 +1058,10 @@ test('worker: リモートコントロールを付けると立てられない時
       if (launches.length === 1) return { status: 1, stdout: '', stderr: 'Remote Control requires a claude.ai login' };
       successorStarts(dir, sessionId)(args); return launchedOk();
     } });
-  assert.deepEqual(launches, [true, false], '1回目は付けて、2回目は付けずに立てる');
-  assert.equal(record.state, 'sent'); assert.equal(record.error_code, null);
+  assert.deepEqual(launches, [true], '表示無しでの再起動はしない');
+  assert.equal(record.state, 'failed'); assert.equal(record.error_code, 'handoff_remote_control_unavailable');
+  assert.equal(record.successor, null);
+  assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: sessionId }, dir })).continue, true);
   assert.deepEqual(record.remote_control, { wanted: true, state: 'unavailable' });
   assert.equal(publicClaudeAutoHandoff(record).remote_control_state, 'unavailable');
   assert.equal(publicClaudeAutoHandoff(record).desktop_state, 'waiting', 'Desktop へ開く印は変わらない');
@@ -1599,7 +1601,7 @@ test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（C
   let handoff;
   for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
   assert.equal(handoff.error_code, process.platform === 'win32' ? 'handoff_terminal_exited_before_accept'
-    : process.platform === 'linux' ? 'handoff_remote_control_unavailable' : 'handoff_successor_launch_failed',
+    : 'handoff_remote_control_unavailable',
     '偽CLIは認証後の起動を拒否する。Linux Desktopはremoteなしで再起動しない');
   assert.equal(handoff.project_path, worktree, '後継を立てる場所は、前任が動いていた作業ツリー');
 
@@ -1919,16 +1921,16 @@ test('Windows: publish a terminal failure when the worker can finish, without a 
   assert.equal(readClaudeAutoHandoff(SESSION,dir).state,'stopped');
 }));
 
-for (const [label, auth, code] of [
+for (const platform of ['linux', 'darwin']) for (const [label, auth, code] of [
   ['unauthenticated', { status: 1, stdout: '{"loggedIn":false}' }, 'handoff_authentication_required'],
   ['malformed', { status: 0, stdout: 'not JSON' }, 'handoff_authentication_check_failed'],
   ['unknown', { status: 0, stdout: '{}' }, 'handoff_authentication_check_failed'],
 ]) {
-  test(`Linux Desktop handoff: ${label} CLI never launches a successor or stops the source`, () => withDir(async dir => {
+  test(`${platform} Desktop handoff: ${label} CLI never launches a successor or stops the source`, () => withDir(async dir => {
     writeRecord(dir, SESSION, { state: 'stopped', successor: null, accepted_at: null,
       remote_control: { wanted: true, state: null } });
     const calls = [];
-    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform: 'linux', env: {},
+    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform, env: {},
       spawn: (command, args) => { calls.push([command, args]); return auth; } });
     assert.deepEqual(calls, [['claude', ['auth', 'status', '--json']]]);
     assert.equal(record.state, 'failed');
@@ -1957,14 +1959,14 @@ test('Linux Desktop handoff: rejected remote control never falls back to an invi
   assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir })).continue, true);
 }));
 
-for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registration', 'no-model-progress', 'missing-model', 'launch-timeout', 'invalid-entries']) {
-  test(`Linux Desktop readiness: ${mode}`, () => withDir(async dir => {
+for (const platform of ['linux', 'darwin']) for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registration', 'no-model-progress', 'missing-model', 'launch-timeout', 'invalid-entries']) {
+  test(`${platform} Desktop readiness: ${mode}`, () => withDir(async dir => {
     const transcriptPath = join(dir, `${SESSION}.jsonl`);
     writeFileSync(transcriptPath, '');
     writeRecord(dir, SESSION, { state: 'stopped', successor: null, accepted_at: null,
       transcript_path: transcriptPath, remote_control: { wanted: true, state: null } });
     let launches = 0;
-    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform: 'linux', env: {},
+    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform, env: {},
       acceptTimeoutMs: 30, pollMs: 1,
       readTerminalRemoteControl: () => mode === 'no-registration' ? null : 'https://claude.ai/code/session_test',
       spawn: (command, args) => {
@@ -1999,3 +2001,29 @@ for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registr
     }
   }));
 }
+
+test('PreCompact: CLI-origin conversation already visible through Remote Control keeps visibility on every OS', () => withDir(dir => {
+  const configDir = join(dir, 'native-config');
+  mkdirSync(join(configDir, 'sessions'), { recursive: true });
+  const metadata = join(configDir, 'sessions', '123.json');
+  const transcriptPath = join(dir, 'source.jsonl');
+  writeFileSync(transcriptPath, jsonl([{ ...user('続けて', '2026-11-03T14:00:00Z'), entrypoint: 'cli' }]));
+  for (const platform of ['darwin', 'linux', 'win32']) {
+    for (const [nativeSession, bridge, override, expected] of [
+      [SESSION, 'session_visible123', undefined, true],
+      [SUCCESSOR, 'session_other123', undefined, false],
+      [SESSION, null, undefined, false],
+      [SESSION, 'session_visible123', 'off', false],
+    ]) {
+      rmSync(join(dir, `${SESSION}.json`), { force: true });
+      writeFileSync(metadata, JSON.stringify({ sessionId: nativeSession, bridgeSessionId: bridge }));
+      const db = makeBatonDb();
+      try {
+        requestClaudeAutoHandoff({ payload: { session_id: SESSION, trigger: 'auto', cwd: '/work/app', transcript_path: transcriptPath },
+          env: { CLAUDE_CONFIG_DIR: configDir, ...(override ? { THROUGHLINE_AUTO_HANDOFF_REMOTE_CONTROL: override } : {}) },
+          config: ENABLED, openDb: () => db, dir, platform });
+        assert.equal(readClaudeAutoHandoff(SESSION, dir).remote_control.wanted, expected, `${platform}: ${nativeSession}/${bridge}/${override}`);
+      } finally { db.close(); }
+    }
+  }
+}));
