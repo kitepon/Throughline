@@ -144,11 +144,16 @@ flowchart TD
   StopState --> L1[最古未要約を最大1turn / codex-primary backend]
   L1 --> Result[JSON又は無出力 / exit]
   State --> Result
-  L1 -->|backend失敗| Error[private log / 24h復帰未確認だけaggregate / exit1]
+  L1 -->|backend失敗| Error[private logを先に保存 / event・stage・session]
+  CLI -->|引数・payload・処理例外| Error
+  Error --> Observe[固定aggregate / L1は24h復帰未確認だけ]
+  Observe --> FailExit[元の例外を返す / exit1]
   CLI -->|pre-compact| Auto[自動継続request: 詳細は自動継続図 / continue true又はfalse]
 ```
 
 Codex captureはClaude系appendとは異なり、現在のrolloutを正本としてL2全置換、L3は共通prefixを保持する。一つのDB transaction内で古くなったL1だけを除き、capture済みの後で要約が失敗しても取り込みは残る。`captured`は進行中turnも含み得る保存結果であり、完了turn receipt・後継の配送・画面反映を意味しない。通常prompt/tool hookのcurrent-thread refreshは無効のまま。
+
+Codexの引数/payload/通常処理例外は、別processによる固定aggregate記録を待つ前に端末内hook-failures.logへ保存する。処理中の診断には固定event/stageと取得済みsession/transcript参照を添え、payload本文は加えない。観測待ち中にhookが中断されても先行ログを残せるが、ログ保存前の中断や別HOMEへの保存、書込自体の失敗を救済する保証は無い。公開snapshot/reportの指紋・件数・語彙は変えず、元の失敗や会話の回復を診断改善だけで宣言しない。
 
 | file/関数 | 実sourceで確認した責任/状態/返却 | 残確認 |
 | --- | --- | --- |

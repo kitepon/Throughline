@@ -37,9 +37,9 @@ function stackFrames(error) {
 /**
  * @param {string} code runtime error の定型 code（例: HOOK_PROCESS_TURN_FAILED）
  * @param {unknown} error 失敗の原因
- * @param {{ home?: string, now?: number, stderr?: { write: (s: string) => unknown } }} [options]
+ * @param {{ home?: string, now?: number, stderr?: { write: (s: string) => unknown }, context?: object }} [options]
  */
-export function logHookFailure(code, error, { home, now = Date.now(), stderr = process.stderr } = {}) {
+export function logHookFailure(code, error, { home, now = Date.now(), stderr = process.stderr, context } = {}) {
   const message = error instanceof Error ? error.message : String(error);
   const entry = {
     ts: new Date(now).toISOString(),
@@ -57,11 +57,13 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
   if (typeof error?.errcode === 'number') entry.errcode = error.errcode;
   // どの会話の失敗かを残す（errorが `hookContext` を持つ時）。回数と文面だけでは、失敗した会話を
   // 端末の他の記録から探すことになる。
-  const context = error?.hookContext;
-  if (typeof context?.session_id === 'string' && context.session_id) entry.session_id = context.session_id;
-  if (typeof context?.transcript_path === 'string' && context.transcript_path) {
-    entry.transcript_path = context.transcript_path;
+  const hookContext = error?.hookContext ?? context;
+  if (typeof hookContext?.session_id === 'string' && hookContext.session_id) entry.session_id = hookContext.session_id;
+  if (typeof hookContext?.transcript_path === 'string' && hookContext.transcript_path) {
+    entry.transcript_path = hookContext.transcript_path;
   }
+  if (['stop', 'user-prompt-submit', 'post-tool-use', 'pre-compact', 'unknown'].includes(context?.event)) entry.event = context.event;
+  if (['arguments', 'payload', 'processing', 'handoff_request'].includes(context?.stage)) entry.stage = context.stage;
   // 不正な合図の形（errorが `hookIdentity` を持つ時）。文面が同じ失敗でも、どの値が不正だったかを残す。
   // 値は呼び出し側が ID・種類・「絶対 path かどうか」へ直してある。ここでは短い文字列だけを通す。
   const identity = error?.hookIdentity;

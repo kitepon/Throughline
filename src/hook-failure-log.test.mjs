@@ -66,6 +66,27 @@ test('logHookFailureは、不正な合図の形を残す', () => {
   }
 });
 
+test('Codexの固定event/stageと既知の参照だけを保存し、例外自体は変更しない', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-hook-context-'));
+  try {
+    const error = Object.freeze(new Error('capture failed'));
+    logHookFailure('HOOK_CODEX_FAILED', error, { home, context: {
+      event: 'post-tool-use', stage: 'processing', session_id: 'thread-a',
+      transcript_path: '/codex/sessions/a.jsonl', payload: 'private conversation',
+    } });
+    logHookFailure('HOOK_CODEX_FAILED', error, { home, context: {
+      event: 'private event text', stage: 'private stage text',
+    } });
+    const [entry, invalid] = readFileSync(hookFailureLogPath({ home }), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(entry.event, 'post-tool-use'); assert.equal(entry.stage, 'processing');
+    assert.equal(entry.session_id, 'thread-a'); assert.equal(entry.transcript_path, '/codex/sessions/a.jsonl');
+    assert.equal('payload' in entry, false); assert.equal('hookContext' in error, false);
+    assert.equal('event' in invalid, false); assert.equal('stage' in invalid, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('logHookFailureは、どの会話の失敗かを残す', () => {
   const home = mkdtempSync(join(tmpdir(), 'tl-hook-failure-log-'));
   try {
