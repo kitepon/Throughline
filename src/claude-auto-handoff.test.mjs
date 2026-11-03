@@ -39,14 +39,20 @@ const SUCCESSOR = 'a41a97ae-6b2a-421b-b2d5-1a0b07988d06';
 const OPEN = { THROUGHLINE_AUTO_HANDOFF_OPEN: 'origin' };
 const ENABLED = { enabled: true, projects: [] };
 
-function withDir(fn) {
+async function withDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'tl-claude-auto-'));
-  const finish = () => rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
-  let result;
-  try { result = fn(dir); }
-  catch (error) { finish(); throw error; }
-  if (result && typeof result.then === 'function') return result.finally(finish);
-  finish();
+  let primary, result;
+  try { result = await fn(dir); }
+  catch (error) { primary = error; console.error('DIAG_PRIMARY', error); }
+  const handoffs = join(dir, '.throughline', 'claude-auto-handoff');
+  if (existsSync(handoffs)) for (const file of readdirSync(handoffs)) {
+    if (/\.(json|log)$/.test(file)) console.error('DIAG_HANDOFF', file, readFileSync(join(handoffs,file),'utf8'));
+  }
+  if (process.env.TL_WINDOWS_DIAG_TRACE && existsSync(process.env.TL_WINDOWS_DIAG_TRACE))
+    console.error('DIAG_TRACE', readFileSync(process.env.TL_WINDOWS_DIAG_TRACE,'utf8'));
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 }); }
+  catch (cleanup) { if (primary) throw new AggregateError([primary,cleanup], 'test and fixture cleanup failed'); throw cleanup; }
+  if (primary) throw primary;
   return result;
 }
 

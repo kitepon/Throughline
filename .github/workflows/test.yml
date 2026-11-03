@@ -51,5 +51,5 @@ jobs:
       documentation-command: npm run verify:docs
       full-command: >-
         node --version &&
-        node scripts/diagnose-windows-claude-exit.mjs &&
+        node scripts/diagnose-windows-hook.mjs &&
         node bin/throughline.mjs --version
