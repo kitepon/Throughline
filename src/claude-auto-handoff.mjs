@@ -157,10 +157,11 @@ export function publicClaudeAutoHandoff(record, { dir = claudeAutoHandoffDir() }
     desktop_state: record.desktop?.wanted ? (record.desktop.state ?? 'waiting') : null,
     desktop_error_code: record.desktop?.error_code ?? null,
     // 後継をリモートコントロール付きで立てる引き継ぎか（null は対象外）。requested は指定を付けて立てた、unavailable は付けずに立て直した。
-    // 付けて立てた後に、Claude Code がリモートへつなげたかまでは見ていない。
+    // Linuxのremote必須経路と専用端末ではregisteredを接続登録の確認に使う。
     remote_control_state: record.remote_control?.wanted ? (record.remote_control.state ?? 'waiting') : null,
-    ...(record.terminal ? { terminal_state: record.terminal.state,
-      remote_control_url: record.remote_control?.url ?? null } : {}),
+    ...(record.terminal ? { terminal_state: record.terminal.state } : {}),
+    ...(record.terminal || record.remote_control?.state === 'registered'
+      ? { remote_control_url: record.remote_control?.url ?? null } : {}),
     requested_at, updated_at };
 }
 
@@ -749,7 +750,7 @@ function currentSuccessor(record, dir) {
  * `claude rm` で一覧から消した後継は `claude attach` では開けない（記録は残る）。その時に開ける命令も添える。
  */
 function handedOffReason(record, dir) {
-  if (record.terminal) return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
+  if (record.terminal || record.remote_control?.state === 'registered') return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
     `続きはこちらで行ってください: ${openSuccessorCommand(record, dir)}`;
   const { shortId, sessionId } = currentSuccessor(record, dir);
   return `この会話はThroughlineが新しい会話へ引き継ぎ済みです（引き継ぎID: ${record.handoff_id}）。` +
@@ -764,7 +765,8 @@ function handedOffReason(record, dir) {
  */
 function openSuccessorCommand(record, dir) {
   const { shortId, sessionId } = currentSuccessor(record, dir);
-  if (record.terminal) return record.remote_control?.url ?? `claude --resume ${sessionId}`;
+  if (record.remote_control?.state === 'registered' && record.remote_control.url && record.successor?.session_id === sessionId) return record.remote_control.url;
+  if (record.terminal) return `claude --resume ${sessionId}`;
   return `claude attach ${shortId}` + (sessionId ? `（一覧に無い時は claude --resume ${sessionId}）` : '');
 }
 

@@ -36,7 +36,7 @@
       "pngBytes": 271693,
       "xmlValid": true,
       "visualReview": "Linux認証確認/受領後APIエラー/接続未確認と成功の分岐、元を継続する起動前失敗と二重配送しない起動後失敗をPNGで確認。",
-      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
+      "sourceDocumentSha256": "5eaa78003e49ad5584645557f60c8cdd08887250505c6a174919a58a164f5d00",
       "pngEvidence": "work/throughline-linux-visibility-20261103/diagrams/current-continuation-01.png"
     },
     {
@@ -53,7 +53,7 @@
       "pngBytes": 277416,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
+      "sourceDocumentSha256": "5eaa78003e49ad5584645557f60c8cdd08887250505c6a174919a58a164f5d00",
       "pngEvidence": "png/current-continuation-02.png"
     },
     {
@@ -70,7 +70,7 @@
       "pngBytes": 203419,
       "xmlValid": true,
       "visualReview": "PNGを個別表示。ラベル・分岐・矢印・末尾の外部所有まで判読可能。全体図は交差が多いため詳細への索引として利用し、意味整合の完了証拠とはしない。",
-      "sourceDocumentSha256": "5d1b1dd17fa8b913bd8aded72b4780b451b8098706f80fb615097d55c6fc8c07",
+      "sourceDocumentSha256": "5eaa78003e49ad5584645557f60c8cdd08887250505c6a174919a58a164f5d00",
       "pngEvidence": "png/current-continuation-03.png"
     },
     {

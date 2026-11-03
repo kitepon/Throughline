@@ -1985,6 +1985,9 @@ for (const mode of ['authenticated', 'api-error', 'other-api-error', 'no-registr
     if (mode === 'authenticated' || mode === 'invalid-entries') {
       assert.equal(record.state, 'sent');
       assert.equal(record.remote_control.state, 'registered');
+      assert.equal(publicClaudeAutoHandoff(record).remote_control_url, 'https://claude.ai/code/session_test');
+      const output = await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir });
+      assert.match(output.stopReason, /https:\/\/claude.ai\/code\/session_test/);
     } else {
       assert.equal(record.state, mode.endsWith('api-error') ? 'failed' : 'unknown');
       assert.equal(record.error_code, mode === 'api-error' ? 'handoff_successor_authentication_failed'
