@@ -1021,7 +1021,9 @@ test('worker: 印のある引き継ぎは、後継を --remote-control=<後継�
       dir, launchWorker: async () => {} });
     const launches = [];
     const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
-      spawn: (command, args) => { launches.push(args); successorStarts(dir, sessionId)(args); return launchedOk(); } });
+      spawn: (command, args) => {
+        if (args[0] === 'auth') return { status: 0, stdout: JSON.stringify({ loggedIn: true }) };
+        launches.push(args); successorStarts(dir, sessionId)(args); return launchedOk(); } });
     return { record, launches };
   };
   const desktop = await run('bbbbbbbb-0000-4000-8000-000000000001', { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' });
@@ -1046,8 +1048,9 @@ test('worker: リモートコントロールを付けると立てられない時
     env: OPEN, config: ENABLED, openDb: () => db, dir, platform: 'darwin' });
   await stopClaudeTurnForHandoff({ payload: { session_id: sessionId, cwd: '/work/app', transcript_path: transcriptPath }, dir, launchWorker: async () => {} });
   const launches = [];
-  const record = await runClaudeAutoHandoffWorker(sessionId, { dir, env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
+  const record = await runClaudeAutoHandoffWorker(sessionId, { dir, platform: 'darwin', env: {}, pollMs: 10, acceptTimeoutMs: 300, transcriptTimeoutMs: 50,
     spawn: (command, args) => {
+      if (args[0] === 'auth') return { status: 0, stdout: JSON.stringify({ loggedIn: true }) };
       launches.push(args.some(arg => arg.startsWith('--remote-control')));
       if (launches.length === 1) return { status: 1, stdout: '', stderr: 'Remote Control requires a claude.ai login' };
       successorStarts(dir, sessionId)(args); return launchedOk();
@@ -1335,7 +1338,7 @@ function fakeClaudePath(home) {
   mkdirSync(bin, { recursive: true });
   if (process.platform === 'win32') writeFileSync(join(bin, 'claude.ps1'), 'exit 1\r\n');
   else {
-    writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexit 1\n');
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\nif [ "$1" = auth ]; then echo '{"loggedIn":true}'; exit 0; fi\nexit 1\n`);
     chmodSync(join(bin, 'claude'), 0o755);
   }
   const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
@@ -1592,7 +1595,9 @@ test('hook: 作業ツリーの後継を Claude Desktop が取り込んだ後（C
   const status = () => JSON.parse(cli(home, ['auto-handoff', 'status', '--host', 'claude', '--json']).stdout).handoffs;
   let handoff;
   for (let i = 0; i < 100 && (handoff = status()[0]).state !== 'failed'; i++) await new Promise(r => setTimeout(r, 100));
-  assert.equal(handoff.error_code, process.platform === 'win32' ? 'handoff_terminal_exited_before_accept' : 'handoff_successor_launch_failed', '偽の claude で止まる。本物は起動しない');
+  assert.equal(handoff.error_code, process.platform === 'win32' ? 'handoff_terminal_exited_before_accept'
+    : process.platform === 'linux' ? 'handoff_remote_control_unavailable' : 'handoff_successor_launch_failed',
+    '偽CLIは認証後の起動を拒否する。Linux Desktopはremoteなしで再起動しない');
   assert.equal(handoff.project_path, worktree, '後継を立てる場所は、前任が動いていた作業ツリー');
 
   // 後継は作業ツリーで立ち、最初の指示（起動時に渡された継続の指示）を受ける
@@ -1909,4 +1914,42 @@ test('Windows: publish a terminal failure when the worker can finish, without a 
   const file=join(dir,SESSION+'.json');const recovered={...readClaudeAutoHandoff(SESSION,dir),state:'stopped'};
   writeFileSync(file,JSON.stringify(recovered));await new Promise(resolve=>setTimeout(resolve,110));
   assert.equal(readClaudeAutoHandoff(SESSION,dir).state,'stopped');
+}));
+
+for (const [label, auth, code] of [
+  ['unauthenticated', { status: 1, stdout: '{"loggedIn":false}' }, 'handoff_authentication_required'],
+  ['malformed', { status: 0, stdout: 'not JSON' }, 'handoff_authentication_check_failed'],
+  ['unknown', { status: 0, stdout: '{}' }, 'handoff_authentication_check_failed'],
+]) {
+  test(`Linux Desktop handoff: ${label} CLI never launches a successor or stops the source`, () => withDir(async dir => {
+    writeRecord(dir, SESSION, { state: 'stopped', successor: null, accepted_at: null,
+      remote_control: { wanted: true, state: null } });
+    const calls = [];
+    const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform: 'linux', env: {},
+      spawn: (command, args) => { calls.push([command, args]); return auth; } });
+    assert.deepEqual(calls, [['claude', ['auth', 'status', '--json']]]);
+    assert.equal(record.state, 'failed');
+    assert.equal(record.error_code, code);
+    assert.equal(record.successor, null);
+    assert.equal(record.accepted_at, null);
+    assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir })).continue, true);
+  }));
+}
+
+test('Linux Desktop handoff: rejected remote control never falls back to an invisible successor', () => withDir(async dir => {
+  writeRecord(dir, SESSION, { state: 'stopped', successor: null, accepted_at: null,
+    remote_control: { wanted: true, state: null } });
+  const calls = [];
+  const record = await runClaudeAutoHandoffWorkerActual(SESSION, { dir, platform: 'linux', env: {},
+    spawn: (command, args) => {
+      calls.push(args);
+      return args[0] === 'auth' ? { status: 0, stdout: '{"loggedIn":true}' }
+        : { status: 1, stdout: '', stderr: 'remote control unavailable' };
+    } });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].some(arg => arg.startsWith('--remote-control=')));
+  assert.equal(record.state, 'failed');
+  assert.equal(record.error_code, 'handoff_remote_control_unavailable');
+  assert.equal(record.successor, null);
+  assert.equal((await stopClaudeTurnForHandoff({ payload: { session_id: SESSION }, dir })).continue, true);
 }));

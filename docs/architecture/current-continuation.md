@@ -194,3 +194,17 @@ flowchart TD
 
 
 試験専用の公開helperも製品runtimeと分ける。[receipt fixture](../../src/completed-turn-receipts-test-fixture.mjs):seedCompletedTurnReceiptStore は仮storeを作り、[ACL test helper](../../src/os/windows-acl-test-helper.mjs):applyWindowsPrivateAcl/verifyWindowsPrivateAcl は試験用のWindows ACL操作をguard付きで呼び、[test-temp-dir](../../src/test-temp-dir.mjs):testTempDir は仮dirとexit cleanupを提供する。製品のCLI/consumerから使う新APIへ昇格させず、外部取消や強制終了後のcleanup保証を付け足さない。
+
+
+## Linux Desktop起点の認証事前確認（修理作業中）
+
+Linuxでremote_control.wantedの引継ぎは、workerが後継を立てる前に同じcwdとsuccessorEnvで公開`claude auth status --json`を最大10秒で照会する。loggedIn=falseはhandoff_authentication_required、照会失敗/不明/不正JSONはhandoff_authentication_check_failedとしてfailedへ保存する。後継も受領も作らず、既failedWithoutSuccessor契約で元の道具と会話を継続する。認証情報は保存/出力しない。これは現CLI未認証の予防であり、起動後API認証失敗/リモート登録成立の検証と既存の後継の復旧は別途未完。
+
+```mermaid
+flowchart LR
+  Stopped[Linux Desktop起点 worker] --> Auth[同じ起動環境でCLI認証照会]
+  Auth -->|未認証又は照会不明| Failed[failed 後継なし 元の会話を継続]
+  Auth -->|loggedIn true| Launch[既後継起動と受領経路]
+```
+
+Linuxのremote必須起動が明示拒否され、後継IDも受領も無い時はremoteなしで再起動せずhandoff_remote_control_unavailableを保存して元の会話を継続する。結果不明時の再送禁止とMacの既再試行契約を保持する。

@@ -1253,6 +1253,17 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
   // 止めた時点の依頼・ここまでにしたこと・その時のモデルを写し、止めたターンを DB へ取り込む。
   // 後継の最初の指示が、これを現在地として受け取る。前の引き継ぎの受領が残っていれば消す。
   rmSync(acceptancePath(sessionId, dir), { force: true });
+  if (platform === 'linux' && record.remote_control?.wanted) {
+    const auth = spawn('claude', ['auth', 'status', '--json'], {
+      cwd: record.project_path, env: successorEnv(env), encoding: 'utf8', timeout: 10_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let status;
+    try { status = JSON.parse(auth.stdout); }
+    catch { return fail('handoff_authentication_check_failed'); }
+    if (status?.loggedIn === false) return fail('handoff_authentication_required');
+    if (auth.error || auth.status !== 0 || status?.loggedIn !== true) return fail('handoff_authentication_check_failed');
+  }
   await waitForStoppedToolUse(record, { timeoutMs: transcriptTimeoutMs, pollMs });
   const inFlight = record.transcript_path ? snapshotInFlight(record, dir) : null;
   // DBへの確定は後継の最初の入力で行う。起動失敗では旧い会話の通常Stopに任せる。
@@ -1367,6 +1378,7 @@ export async function runClaudeAutoHandoffWorker(sessionId, {
       update({ remote_control: { ...record.remote_control, state: 'requested' } });
     } else if (!launched.error && launched.status !== 0 && !backgroundedId(launched) &&
         !readAcceptance(sessionId, record.handoff_id, dir)) {
+      if (platform === 'linux') return fail('handoff_remote_control_unavailable');
       // リモートコントロールを付けると立てられない（未ログイン、古い Claude Code など）。後継は立っていないので、
       // 付けずに立て直す。引き継ぎは止めない。
       process.stderr.write(`[auto-handoff] claude --bg --remote-control exit=${launched.status} ` +
