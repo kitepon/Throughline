@@ -255,7 +255,9 @@ test('launch consumes its exact prompt and removes artifacts before exec, includ
     const uuid = fail ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     const artifacts = writeLaunchArtifacts({ cwd: tmp, grokBin: bin, sessionUuid: uuid, prompt: CONTEXT, tmp });
     const result = spawnSync('sh', [artifacts.launchFile], { encoding: 'utf8' });
-    assert.equal(result.status, fail ? 127 : 0, result.stderr);
+    // macOS /bin/sh reports exec failure as 1; Linux dash reports 127.
+    assert.equal(result.status, fail ? (process.platform === 'darwin' ? 1 : 127) : 0, result.stderr);
+    if (fail) assert.match(result.stderr, /No such file or directory|not found/);
     if (!fail) assert.equal(result.stdout, CONTEXT);
     assert.equal(existsSync(dirname(artifacts.launchFile)), false);
   }
