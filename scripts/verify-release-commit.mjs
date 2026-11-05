@@ -53,6 +53,14 @@ export function verifyReleaseCommit({
     `working treeに未commitの変更があります。publish対象commitとpayloadが一致しません:\n${dirty.stdout}`
   );
 
+  const message = git("show", "-s", "--format=%B", "HEAD");
+  assert.ok(message.ok, "公開HEADのcommit messageを確認できません");
+  assert.doesNotMatch(
+    message.stdout,
+    /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|(?:^|\n)skip-checks:\s*true(?:\s|$)/iu,
+    "公開HEADにworkflow停止指示があります。tag pushのpublishが開始されません。"
+  );
+
   return `release commit ${head.stdout.slice(0, 12)} is landed on ${defaultRef}.`;
 }
 

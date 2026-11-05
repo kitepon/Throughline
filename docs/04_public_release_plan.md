@@ -78,7 +78,7 @@ release候補は次の全条件を満たしたときだけ公開する。
    schema・host契約も実装と一致し、`npm run verify:docs` が全Markdownと梱包内リンクを検査する。
 2. 変更に直結するfocused testがgreenで、その後に `npm test` を最終確認として1回通す。
 3. `npm run verify:release-commit` が、clean working treeかつHEADが`origin`既定ブランチの
-   祖先であることを確認する。既定ブランチへ着地していないcommitからpublishしない。
+   祖先であることを確認する。公開HEADのcommit messageにGitHubのpush起動を停止する指示が無いことも検査する。既定ブランチへ着地していないcommitからpublishしない。
 4. `npm pack --dry-run`でtarball内容、秘密混入、必要なREADME/docsの収録を確認する。
 5. 公開は既定ブランチへ着地したrelease commitへ`v<version>` tagをpushし、`.github/workflows/publish.yml`がnpm Trusted Publishingで行う。手元から`npm publish`しない。公開後にregistryのversionとshasum、tag、GitHub Releaseを確認する。
 6. registry由来の隔離installで `throughline --version`、`throughline install`、

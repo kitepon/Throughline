@@ -49,3 +49,12 @@ test("release gate permits ignored generated output", async (t) => {
   await writeFile(path.join(work, "ignored.tmp"), "generated\n", "utf8");
   assert.match(verifyReleaseCommit({ projectDirectory: work }), /landed on origin\/main/);
 });
+
+test("release gate rejects commit instructions that prevent tag publication", async (t) => {
+  const work = await createReleaseFixture(t);
+  for (const directive of ["[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]", "skip-checks:true", "skip-checks: true"]) {
+    git(work, "commit", "--allow-empty", "-m", `fixture\n\n${directive}`);
+    git(work, "push", "origin", "main");
+    assert.throws(() => verifyReleaseCommit({ projectDirectory: work }), /workflow停止指示があります/);
+  }
+});

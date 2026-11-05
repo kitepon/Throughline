@@ -10,9 +10,10 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
-## [0.16.55] - 2026-11-06
+## [0.16.56] - 2026-11-06
 
 ### Fixed
+- Reject release commits that suppress the tag-triggered publish workflow before creating a release. Version 0.16.55 remained unpublished.
 - Reclaim generated diagnostics and completed Windows update backups through normal product operations. Diagnostic logs retain two bounded generations, and terminal runtime copies use process leases to preserve live native modules.
 - Run the existing expired-state and acknowledged-resolution retention policies from normal writes and reports; preserve memory, pending input, recovery failures and unknown state.
 - Remove Grok launch prompts/scripts and unpublished temporary files after use or failure, and reclaim abandoned managed test directories on later runs.
@@ -2914,7 +2915,7 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.55...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.16.56...HEAD
 [0.16.54]: https://github.com/kitepon/Throughline/compare/v0.16.53...v0.16.54
 [0.16.53]: https://github.com/kitepon/Throughline/compare/v0.16.52...v0.16.53
 [0.16.52]: https://github.com/kitepon/Throughline/compare/v0.16.51...v0.16.52
@@ -3042,3 +3043,5 @@ two attempts, instrument first instead of patching again.
 [0.1.0]: https://github.com/kitepon/Throughline/compare/v0.1.0
 
 [0.16.55]: https://github.com/kitepon/Throughline/compare/v0.16.54...v0.16.55
+
+[0.16.56]: https://github.com/kitepon/Throughline/compare/v0.16.54...v0.16.56

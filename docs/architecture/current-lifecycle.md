@@ -157,7 +157,7 @@ flowchart TD
 | `scripts/product-ci-plan.mjs:classifyPaths/selectTestFiles/relativeDependencies/createPlan/verifyResults` | 固定base/HEAD/ancestorを照合、変更pathから環境と逆依存のtestを選ぶ。依存不明/対象test無し/混在変更は広い既検査へ | 文字列依存抽出であり意味調査の読了証拠ではない。Markdownのみをdocs扱いしJSON/SVGを自動除外しない。今回の文書検査を将来のCI合格へ補完しない |
 | `scripts/run-product-ci-tests.mjs`とtop-level | 計画のall又はselectedを検証し、既test-envでNode testを起動する | 無効scope/空selectedを拒否。製品のCI所有を外部へ移さない。今回testは起動していない |
 | `.github/workflows/test.yml`と`product-full-ci.yml` | 製品所有workflowへ接続、固定SHAの外部action、比較base、3環境matrix/依存/文書又は選択試験、最後に計画と結果を照合 | factory Host/runner自体は外部所有。GitHub CIを今回起動していない |
-| `.github/workflows/publish.yml`と`scripts/verify-release-commit.mjs:verifyReleaseCommit` | tag版一致→依存→npm publish、prepublishでdefault branch祖先/clean payloadと試験を確認。packageのbin/files/scriptsが公開入口 | 公開の既承認を解除しない。release gateは既仕組みを維持、新しい承認条件は追加しない |
+| `.github/workflows/publish.yml`と`scripts/verify-release-commit.mjs:verifyReleaseCommit` | tag版一致→依存→npm publish、prepublishでdefault branch祖先/clean payloadと試験を確認し、公開HEADにGitHub workflow停止指示があれば拒否する。packageのbin/files/scriptsが公開入口 | 公開の既承認を解除しない。release gateは既仕組みを維持、新しい承認条件は追加しない |
 | `codex/skills/throughline/agents/openai.yaml`と`.gitignore` | 配布skillの表示/implicit invocation、端末settings/task/secret marker等の追跡除外 | skill本文とslash commandの指示/consumer契約は次工程。ignoreは秘密/状態の不存在を証明しない |
 
 残15sourceと、migration/core factory/CLI factory/terminal-size/self-update/runtime store/runtime reportの7testは前段で本文確認した。今回さらにinstall/doctor/token-monitor/VSCode taskの4testと配布skill/slash commandを全文確認した。いずれのruntime testも未実行。CLI runtime/context等のtest、fixture/config/export、外部consumerの閉包は未完。全機械sourceの本文確認をもってこれらの完了にしない。
@@ -350,3 +350,11 @@ S1の[hook-commands](../../src/hosts/hook-commands.mjs)が所有する13 named e
 | runtime aggregate | 有効な通常report→既compactRuntimeErrorsのack済み/resolved/30日条件→公開snapshot/送信 | open/未受領/期限内を保持。無効なcollection/reportingで回収を開始しない。cursor/発生履歴/後発受付を変更しない |
 | Codex worker診断 | 通常worker/goal-settle起動→製品dir内のUUID.log/htmlで30日超だけ回収→既workerログ起動 | handoff DB・snapshot・配送inbox/設定・不明形式のfileは保持。制御stateをログとして消さない |
 | Windows terminal runtime | 内容hashで再利用→新管理marker/現pid lease→旧管理対象の生存lease確認→利用者の無い旧hashだけ回収 | legacy無marker版は保持。生存/権限不明pidのruntimeは保持し、終了後の次回準備でpid不在を確認してlease解除。新形式の準備中dirは24h超・生成pid不在だけ次回回収。native実体を使用中に部分削除しない |
+
+### 公開HEADのworkflow起動確認
+
+| 機能/実装 | 入力→判断→終端 | 保全 |
+| --- | --- | --- |
+| `verify-release-commit:verifyReleaseCommit` | 既定branch祖先/clean payloadの検査に加え、公開HEADのcommit messageを読む→GitHubのpush起動を止める五つの固定指示/skip-checks:trueを拒否→指示が無いHEADだけ既tag公開へ | GitHub/Host設定を変更せず、未起動を公開成功にしない。公開前の正規gateで検出し、不要なtag/配布物の再生成を防ぐ。過去tagは書換えない |
+
+0.16.55はtagのみでnpm未公開。次0.16.56は同じ製品回収契約と、この公開経路の事前拒否を含む。診断versionは既package.json正本に従い、新しい保存形式を追加しない。
