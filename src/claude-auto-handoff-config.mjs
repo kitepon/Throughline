@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -28,8 +28,10 @@ export function writeClaudeAutoHandoffConfig({ enabled, projects = [] }, path = 
     projects: projects.map(normalizeProjectPathForCompare) };
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(config)}\n`, { mode: 0o600, flag: 'wx' });
-  renameSync(temporary, path);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(config)}\n`, { mode: 0o600, flag: 'wx' });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
   return config;
 }
 

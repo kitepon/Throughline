@@ -35,7 +35,7 @@ flowchart TD
 | 同:createCodexHooks/installCodexHooks/ensureCodexHooksFeature/uninstallCodexHooks | 自製hookだけを置換/除去し他hookを保持、hooks featureを有効化し旧codex_hooks行を除く。Stop300秒、prompt/tool30秒、PreCompact30秒 | config/settingsは直接書込。uninstallはfeature全体を無効化しない。全fixtureの確認前に登録順を変えない |
 | 同:installClaudeAutoHandoffHooks/removeClaudeAutoHandoffHooks/claudeAutoHandoffHooksRegistered/installCodexAutoHandoffHook | auto enable/disableから使うexport。Claudeは使用端末だけhook、既形は並び維持。Codexはauto PreCompact登録とfeatureを設定 | [自動継続](current-continuation.md)へ接続。登録・信用・enabled保存の確定位置は別。一般installと自動有効化を同一作用へまとめない |
 | 同:createGrokHooksFile/installGrokHooks/uninstallGrokHooks/createCursorHookEntries/installCursorHooks/uninstallCursorHooks | Grokは製品専用fileを生成/削除。Cursorは共存fileから製品entryだけ置換/除去 | Grok専用fileとCursor共存fileの保持契約は異なる。Claude uninstallは製品commandを含むgroup単位で除去する現実装で、Codex/Cursorのentry単位と同じとは記述しない。混在fixtureは未照合 |
-| [vscode-task](../../src/vscode-task.mjs):ensureMonitorTaskFile/detectJsoncFeatures/findMonitorTaskIndex/isMonitorTaskBroken/buildMonitorTask/atomicWrite | VSCode検知・opt-out・cwd/bin確認後、taskを新規/merge又は壊れた絶対pathだけrepair。user label/presentationを保持、JSONCには案内だけ | temp→renameはtask1fileの置換。temp失敗後の掃除はこのhelperに無い。案内markerとtaskは一括確定ではない。通知を抑止しても既markerを記録する枝を保持 |
+| [vscode-task](../../src/vscode-task.mjs):ensureMonitorTaskFile/detectJsoncFeatures/findMonitorTaskIndex/isMonitorTaskBroken/buildMonitorTask/atomicWrite | VSCode検知・opt-out・cwd/bin確認後、taskを新規/merge又は壊れた絶対pathだけrepair。user label/presentationを保持、JSONCには案内だけ | temp→renameはtask1fileの置換。write/rename失敗時もfinallyで今回のtempを削除する。案内markerとtaskは一括確定ではない。通知を抑止しても既markerを記録する枝を保持 |
 
 hook側SessionStart/prompt-submitからのtask provisionも同じhelperへ接続する。実際のmonitor起動はVSCodeのfolderOpen/利用者操作が所有し、設定を書いた返却だけでは起動を確認できない。shell/commandの既OS部品を新しく作り直さない。
 
@@ -192,7 +192,7 @@ flowchart TD
 | --- | --- | --- |
 | [transcript-usage](../../src/transcript-usage.mjs):inferContextWindowSize/readLatestUsage/clearUsageCache、内部hasContextWindowHint | Stop/monitor/doctorから利用。Claude assistantの最新API input+cache値とoutput参考値、model/実測又はhint由来windowを返す。path毎cacheはprocess memory | size+mtime一致時再利用、1M判定はprocess内でsticky、clearはtest用。無path/不存在null、stat/read失敗はcallerへ、JSON不正行は飛ばす。同期readerにcancel無し、live入力を製品が所有するわけではない |
 | [token-estimator](../../src/token-estimator.mjs):estimateTokens | rollout/usage/trim/smoke/手動CLI→nullは0、それ以外はceil(length/4)の推定 | API実測/モデルtokenizerとは別。注入文字予算やruntime stateを保存しない。将来tokenizer導入の古いコメントを新dependency追加の指示と解釈しない |
-| [l1-backend-recovery](../../src/l1-backend-recovery.mjs):l1BackendRecoveryPath/noteL1BackendFailure/noteL1BackendSuccess、内部read | Codex Stop→private回復file。最初/最後の失敗時刻とreportedだけを持ち、24時間復帰未確認を固定runtime診断へ。成功でfile削除し報告済みか返す | raw理由は別hook log。読書失敗stderrでhook結果は変えない。temp→renameはあるがrename失敗時temp掃除のfinallyは無い。複数caller同時更新のCAS/lockや公開cancelは供給しない。既best-effort契約を無断でhard errorへ変えない |
+| [l1-backend-recovery](../../src/l1-backend-recovery.mjs):l1BackendRecoveryPath/noteL1BackendFailure/noteL1BackendSuccess、内部read | Codex Stop→private回復file。最初/最後の失敗時刻とreportedだけを持ち、24時間復帰未確認を固定runtime診断へ。成功でfile削除し報告済みか返す | raw理由は別hook log。読書失敗stderrでhook結果は変えない。temp→renameのfinallyで今回の未公開tempを削除する。複数caller同時更新のCAS/lockや公開cancelは供給しない。既best-effort契約を無断でhard errorへ変えない |
 
 README.jaも全文照合し、英語READMEとの表現差を保持契約の採否前に区別した。特に「未受領記録が無ければ通信しない」は現行reportの版変化時空報告を説明していない。dependency/Thinking/detailと同様に説明修正候補へ残し、通信有効化や追加probeは実施しない。
 
@@ -329,3 +329,24 @@ skip3はWindows cmd shimのargv/stdin、Windows PATH npm起動、Windows real Co
 
 
 S1の[hook-commands](../../src/hosts/hook-commands.mjs)が所有する13 named exportのうち、既表の総称だったCodex命令は `buildCodexStopHookCommand/buildCodexUserPromptSubmitHookCommand/buildCodexPostToolUseHookCommand/buildCodexPreCompactHookCommand/isThroughlineCodexHookCommand/isThroughlineCodexStopCommand/isThroughlineCodexPostToolUseCommand`、Cursor managed判定は `isThroughlineCursorHookCommand` である。残る5名は `resolveCodexHookNodePath/parseCodexHookCommand/isEquivalentCodexHookCommand/buildGrokHookCommand/buildCursorHookCommand` で、全13名の旧install named exportを保持する。命令生成とmanaged判定は設定を変更せず、install/doctor/factoryと旧import面からこの所有者へ辿る。moduleだけのimportで実行しない。
+
+## 診断ログと更新生成物の保持・回収
+
+機能図とデータフローの正本は次の構造表である。呼出元の本文/失敗契約、記憶DB・未配送入力は変更しない。
+
+| 機能・実装 | 入力→状態→正常/異常終了 | 回収と保全 |
+| --- | --- | --- |
+| `bounded-log:appendBoundedLog` / 各既診断writer | JSONL行→同directoryのSQLite transactionでwriter排他→currentへappend→close | 各current最大4MiBと直前世代`.1`最大4MiB。超過時に完全な行の末尾をarchiveして置換。killはSQLite lockを解放し、次回appendで回収。I/O失敗は既callerのstderr/throw契約を保持。会話・runtime aggregate・未配送fileは削除しない |
+| `windows-package-update:updateWindowsPackage` | 既lock→旧同target完了journalの掃除→npm stage→before journal→promote/byte検証又はrollback→stage/lock終了 | 今回の成功/rollback成功journalは通常finallyで削除。旧journalは正しいschema/target/UUIDと`promoted`/`rolled_back`だけ削除。rollback失敗はlock/journal保持。実行中/不明/異targetは保持 |
+| 設定とtask/L1 recoveryの既atomic writer | unique temp→write→rename→finallyで自分のtempだけ削除 | rename/write失敗でも旧設定/旧回復状態を保持し、その呼出しで作った未公開tempだけ回収。SIGKILL後の残物は自動成功扱いしない |
+
+有限ログは端末内診断の直近保持であり、会話記憶/必要復旧元の保持契約を短縮しない。旧logの最初の回転も末尾だけを読むので、既存巨大fileを全量メモリへ読まない。複数writerは同じSQLite排他へ接続する。
+
+### 通常入口へ接続する既保持契約
+
+| 機能 | 入力→回収→保全 |
+| --- | --- |
+| monitor state書込 | 通常Stopのstate書込→未公開tempをfinally除去→1時間以上cleanupをしていない時だけ既readAllSessionStatesの24h回収→時刻marker | monitorが起動されない端末でも回収。memory DB/新しいstateを保持し、cleanup失敗はstderrへ出して次回試行 |
+| runtime aggregate | 有効な通常report→既compactRuntimeErrorsのack済み/resolved/30日条件→公開snapshot/送信 | open/未受領/期限内を保持。無効なcollection/reportingで回収を開始しない。cursor/発生履歴/後発受付を変更しない |
+| Codex worker診断 | 通常worker/goal-settle起動→製品dir内のUUID.log/htmlで30日超だけ回収→既workerログ起動 | handoff DB・snapshot・配送inbox/設定・不明形式のfileは保持。制御stateをログとして消さない |
+| Windows terminal runtime | 内容hashで再利用→新管理marker/現pid lease→旧管理対象の生存lease確認→利用者の無い旧hashだけ回収 | legacy無marker版は保持。生存/権限不明pidのruntimeは保持し、終了後の次回準備でpid不在を確認してlease解除。新形式の準備中dirは24h超・生成pid不在だけ次回回収。native実体を使用中に部分削除しない |

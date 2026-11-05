@@ -8,7 +8,8 @@
  * 書き込み失敗は stderr に出す（黙って握りつぶさない）。
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
+import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -80,7 +81,7 @@ export function logHookFailure(code, error, { home, now = Date.now(), stderr = p
   const path = hookFailureLogPath(home === undefined ? {} : { home });
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+    appendBoundedLog(path, JSON.stringify(entry) + '\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     stderr.write(`[hook-failure-log] ${msg}\n`);

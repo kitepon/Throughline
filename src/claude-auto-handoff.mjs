@@ -21,7 +21,8 @@
  * 状態は ~/.throughline/claude-auto-handoff/ のファイルに持つ（schema は変えない）。
  */
 
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -98,8 +99,10 @@ function recordPath(sessionId, dir) {
 function writeJsonPrivate(path, value) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600, flag: 'wx' });
-  renameSync(temporary, path);
+  try {
+    writeFileSync(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600, flag: 'wx' });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
 }
 
 function readJson(path) {
@@ -980,7 +983,7 @@ function stopOutput(record, dir) {
 function recordClaudeRedirect(entry, dir) {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    appendFileSync(join(dir, 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+    appendBoundedLog(join(dir, 'redirects.jsonl'), JSON.stringify(entry) + '\n');
   } catch { /* 記録を書けなくても、入力は止める */ }
 }
 

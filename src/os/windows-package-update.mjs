@@ -87,6 +87,21 @@ export function promoteWindowsPackage(source, target, journal, { replace = atomi
   }
 }
 
+function removeCompletedJournals(recoveryRoot, target) {
+  if (!existsSync(recoveryRoot)) return;
+  if (!lstatSync(recoveryRoot).isDirectory()) throw new Error('update_recovery_directory_required');
+  for (const entry of readdirSync(recoveryRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(entry.name)) continue;
+    const journal = join(recoveryRoot, entry.name), path = join(journal, 'journal.json');
+    if (!existsSync(path) || !lstatSync(path).isFile()) continue;
+    let state;
+    try { state = JSON.parse(readFileSync(path, 'utf8')); }
+    catch (error) { if (error instanceof SyntaxError) continue; throw error; }
+    if (state.schema === 'throughline.package_update_journal.v1' && state.target === target &&
+        ['promoted', 'rolled_back'].includes(state.phase)) rmSync(journal, { recursive: true });
+  }
+}
+
 /** npm still resolves, downloads, verifies and installs dependencies, in a private prefix. */
 export function updateWindowsPackage({ target, version, beforeVersion, npm, recoveryRoot, stderr }) {
   const lock = join(dirname(target), '.throughline-update-lock');
@@ -98,6 +113,7 @@ export function updateWindowsPackage({ target, version, beforeVersion, npm, reco
     if (beforeVersion && JSON.parse(readFileSync(join(target, 'package.json'))).version !== beforeVersion) {
       throw new Error('installed_version_changed');
     }
+    removeCompletedJournals(recoveryRoot, target);
     scratch = mkdtempSync(join(tmpdir(), 'throughline-update-'));
     writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, target, journal }));
     const result = npm(['install', '--global', '--prefix', scratch, `throughline@${version}`, '--no-audit', '--no-fund']);
@@ -120,7 +136,11 @@ export function updateWindowsPackage({ target, version, beforeVersion, npm, reco
     stderr.write(`[throughline self-update] ${error.message}; recovery=${journal}\n`);
     throw error;
   } finally {
-    if (scratch) rmSync(scratch, { recursive: true, force: true });
-    if (!rollbackFailed) rmSync(lock, { recursive: true });
+    try {
+      if (scratch) rmSync(scratch, { recursive: true, force: true });
+      if (!rollbackFailed) rmSync(journal, { recursive: true, force: true });
+    } finally {
+      if (!rollbackFailed) rmSync(lock, { recursive: true });
+    }
   }
 }

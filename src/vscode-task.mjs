@@ -13,7 +13,7 @@
  *  - JSONC フィーチャ (コメント・末尾カンマ) を検出 → 触らず手動案内 1 回のみ
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, isAbsolute } from 'node:path';
 
@@ -195,8 +195,10 @@ export function resolveThroughlineBin() {
 
 function atomicWrite(targetPath, contents) {
   const tmp = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, contents);
-  renameSync(tmp, targetPath);
+  try {
+    writeFileSync(tmp, contents);
+    renameSync(tmp, targetPath);
+  } finally { rmSync(tmp, { force: true }); }
 }
 
 /**

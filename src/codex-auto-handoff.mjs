@@ -1,4 +1,5 @@
-import { mkdirSync, openSync, closeSync, writeFileSync, appendFileSync, realpathSync, statSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, writeFileSync, realpathSync, statSync, readdirSync, rmSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
@@ -26,6 +27,19 @@ import { logHookFailure } from './hook-failure-log.mjs';
 
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
 const stateRoot = () => join(homedir(), '.throughline', 'codex-auto-handoff');
+
+function removeExpiredWorkerDiagnostics() {
+  const dir = stateRoot();
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.(log|html)(?:\.1)?$/.test(entry.name)) continue;
+    const path = join(dir, entry.name);
+    try {
+      if (Date.now() - statSync(path).mtimeMs > 30 * 24 * 60 * 60 * 1000) rmSync(path);
+    } catch (error) {
+      if (error.code !== 'ENOENT') process.stderr.write(`[auto-handoff] diagnostic cleanup failed: ${error.message}\n`);
+    }
+  }
+}
 export const autoHandoffDeliveryProfile = Object.freeze({
   id: 'throughline-auto-handoff', display_name: 'Throughline自動継続',
   setup_command: 'throughline auto-handoff enable', codex_steer_command: 'throughline auto-handoff enable',
@@ -65,6 +79,8 @@ export async function waitForHandoff(check, { timeoutMs = 120_000, intervalMs = 
 
 export async function launchAutoHandoffWorker(id, { resume = false } = {}) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
+  removeExpiredWorkerDiagnostics();
+  appendBoundedLog(join(stateRoot(), `${id}.log`), '');
   const log = openSync(join(stateRoot(), `${id}.log`), 'a', 0o600);
   try {
     const child = spawnPortable(process.execPath, [CLI_PATH, 'auto-handoff', resume ? 'resume' : 'worker', '--operation', id, '--json'],
@@ -86,9 +102,11 @@ const GOAL_SETTLE_INTERVAL_MS = 30_000;
 export async function launchAutoHandoffGoalSettle(threadId, operation, { now = Date.now(), spawn = spawnPortable } = {}) {
   const dir = join(stateRoot(), 'goal-settle');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  removeExpiredWorkerDiagnostics();
   const marker = join(dir, threadId);
   try { if (now - statSync(marker).mtimeMs < GOAL_SETTLE_INTERVAL_MS) return false; } catch { /* まだ1回も起こしていない */ }
   writeFileSync(marker, '', { mode: 0o600 });
+  appendBoundedLog(join(stateRoot(), `${operation.handoff_id}.log`), '');
   const log = openSync(join(stateRoot(), `${operation.handoff_id}.log`), 'a', 0o600);
   try {
     const child = spawn(process.execPath, [CLI_PATH, 'auto-handoff', 'settle-goal', '--operation', operation.handoff_id,
@@ -155,25 +173,25 @@ export function hookIdentityShape(payload = {}) {
 /** ターンの外の自動圧縮を止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordInternalCompactionStop(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
-  appendFileSync(join(stateRoot(), 'internal-compactions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+  appendBoundedLog(join(stateRoot(), 'internal-compactions.jsonl'), JSON.stringify(entry) + '\n');
 }
 
 /** 記録（rollout）を持たない会話の自動圧縮を通した記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordUnrecordedCompactionPass(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
-  appendFileSync(join(stateRoot(), 'unrecorded-compactions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+  appendBoundedLog(join(stateRoot(), 'unrecorded-compactions.jsonl'), JSON.stringify(entry) + '\n');
 }
 
 /** 引き継ぎ済みの旧タスクを止めた記録。引き継ぎの行は増えないので、起きた事をここに残す。会話の本文は書かない。 */
 function recordAutoHandoffRedirect(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
-  appendFileSync(join(stateRoot(), 'redirects.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+  appendBoundedLog(join(stateRoot(), 'redirects.jsonl'), JSON.stringify(entry) + '\n');
 }
 
 /** 引き継ぎ済みの旧タスクに残っていたゴールを片付けた記録。会話の本文も、ゴールの目標の文も書かない。 */
 function recordGoalSettle(entry) {
   mkdirSync(stateRoot(), { recursive: true, mode: 0o700 });
-  appendFileSync(join(stateRoot(), 'goal-settles.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
+  appendBoundedLog(join(stateRoot(), 'goal-settles.jsonl'), JSON.stringify(entry) + '\n');
 }
 
 // workerを起動してから、workerが自分のprocessを記録へ名乗るまでの間。この間の引き継ぎは、進んでいる物として扱う。

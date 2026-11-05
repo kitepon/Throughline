@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 
 import { readHandoffContext, readSessionProjectPath } from './handoff-context.mjs';
 import { shQuote } from '../os/shell.mjs';
@@ -53,8 +53,14 @@ export function buildLaunchScript({ cwd, grokBin, sessionUuid, promptFile }) {
   return [
     '#!/bin/sh',
     'set -e',
+    `artifact_dir=${shQuote(dirname(promptFile))}`,
+    'cleanup() { rm -f -- "$artifact_dir/prompt.txt" "$artifact_dir/launch.sh"; rmdir -- "$artifact_dir"; }',
+    'trap cleanup 0',
+    `prompt=$(cat ${shQuote(promptFile)})`,
+    'cleanup',
+    'trap - 0',
     `cd ${shQuote(cwd)}`,
-    `exec ${shQuote(grokBin)} --session-id ${shQuote(sessionUuid)} "$(cat ${shQuote(promptFile)})"`,
+    `exec ${shQuote(grokBin)} --session-id ${shQuote(sessionUuid)} "$prompt"`,
     '',
   ].join('\n');
 }
@@ -89,17 +95,33 @@ export function writeLaunchArtifacts({
   prompt,
   tmp = tmpdir(),
 }) {
+  // A Terminal request may be accepted without ever running its script.
+  for (const entry of readdirSync(tmp, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^tl-grok-continue-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(entry.name)) continue;
+    try {
+      const old = join(tmp, entry.name), stat = lstatSync(old);
+      if (Date.now() - stat.mtimeMs <= 24 * 60 * 60 * 1000 ||
+          (process.getuid && stat.uid !== process.getuid())) continue;
+      const names = readdirSync(old).sort();
+      if (names.join(',') !== 'launch.sh,prompt.txt' || names.some(name => !lstatSync(join(old, name)).isFile())) continue;
+      const script = readFileSync(join(old, 'launch.sh'), 'utf8');
+      if (script.startsWith('#!/bin/sh\nset -e\n') && script.includes(`--session-id '${entry.name.slice(17)}'`)) {
+        rmSync(old, { recursive: true });
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(sessionUuid)) throw new Error('invalid_session_uuid');
   const dir = join(tmp, `tl-grok-continue-${sessionUuid}`);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { mode: 0o700 });
   const promptFile = join(dir, 'prompt.txt');
   const launchFile = join(dir, 'launch.sh');
-  writeFileSync(promptFile, prompt);
-  writeFileSync(launchFile, buildLaunchScript({
-    cwd,
-    grokBin,
-    sessionUuid,
-    promptFile,
-  }), { mode: 0o755 });
+  try {
+    writeFileSync(promptFile, prompt, { mode: 0o600, flag: 'wx' });
+    writeFileSync(launchFile, buildLaunchScript({ cwd, grokBin, sessionUuid, promptFile }), { mode: 0o700, flag: 'wx' });
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
   return { promptFile, launchFile };
 }
 
@@ -178,7 +200,18 @@ export function run(argv = [], {
     sessionUuid: plan.sessionUuid,
     prompt: plan.prompt,
   });
-  spawnLaunch({ launchFile, grokArgv: plan.grokArgv, cwd: plan.cwd });
+  try {
+    const child = spawnLaunch({ launchFile, grokArgv: plan.grokArgv, cwd: plan.cwd });
+    child?.once?.('error', (error) => {
+      rmSync(dirname(launchFile), { recursive: true, force: true });
+      stderr.write(`Throughline Grok launch failed: ${error.message}\n`);
+      process.exitCode = 1;
+    });
+  } catch (error) {
+    rmSync(dirname(launchFile), { recursive: true, force: true });
+    stderr.write(`Throughline Grok launch failed: ${error.message}\n`);
+    return 1;
+  }
   stdout.write(`${plan.throughlineSessionId}\n`);
   return 0;
 }

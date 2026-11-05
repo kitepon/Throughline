@@ -15,7 +15,8 @@
  * 道具の呼び出しのたびに走る hook からも読むので、ここは node の標準 module だけを読み込む。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -72,7 +73,7 @@ export function ensureClaudeForwardInbox(sessionId, dir = defaultDir()) {
 export function logClaudeForward(entry, dir = defaultDir()) {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    appendFileSync(join(dir, 'forward.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n', { mode: 0o600 });
+    appendBoundedLog(join(dir, 'forward.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n');
   } catch { /* 記録を書けなくても、運ぶ */ }
 }
 
@@ -94,10 +95,12 @@ function writeClaudeForward({ successorSessionId, sourceSessionId, handoffId, ki
     const name = `${String(now).padStart(13, '0')}-${randomUUID().slice(0, 8)}.json`;
     const path = join(folder, claimed ? `${name}.${process.pid}` : name);
     const temporary = join(folder, `${name}.tmp`);
-    writeFileSync(temporary, JSON.stringify({ schema: 'throughline.claude-forward.v1', at: now,
-      source_session_id: sourceSessionId ?? null, handoff_id: handoffId ?? null,
-      kind: KINDS.includes(kind) ? kind : 'prompt', text }) + '\n', { mode: 0o600, flag: 'wx' });
-    renameSync(temporary, path);
+    try {
+      writeFileSync(temporary, JSON.stringify({ schema: 'throughline.claude-forward.v1', at: now,
+        source_session_id: sourceSessionId ?? null, handoff_id: handoffId ?? null,
+        kind: KINDS.includes(kind) ? kind : 'prompt', text }) + '\n', { mode: 0o600, flag: 'wx' });
+      renameSync(temporary, path);
+    } finally { rmSync(temporary, { force: true }); }
     return { inbox, name, path };
   } catch { return null; }
 }

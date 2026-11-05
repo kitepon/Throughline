@@ -51,7 +51,7 @@ recordは製品所有の `claude-auto-handoff` 私有file。acceptedは後継hoo
 | 同:completeClaudeTurnWithoutHandoff/readClaudeAutoHandoff/listClaudeAutoHandoffs/publicClaudeAutoHandoff/resolveClaudeAutoHandoffSuccessor | requestedだけ取下げ、私有record→公開fieldへ投影、現在の後継/chain/pendingを返す。途中本文/設定は公開statusへ出さない | 24h掃除でも後継が残るrecordを保持。循環/最大200段を止める。read系のうちcleanupを行う入口と純粋な照会を区別 |
 | 同:snapshotInFlight/readInFlightSteps/readRunningBackgroundTasks/captureStoppedTurn | 元依頼・最終本文・実行済み/止めた道具・未完background作業を私有snapshot化し、途中turnの取得参照を残す | 件数/文字数を制限し、捕捉失敗はlog＋turn=null。途中turnを完了扱いしない。source内の古い説明と実際の捕捉時機を混同しない |
 | 同:requestClaudeDesktopOpen/runClaudeDesktopOpen/readFinishedTurnMark | 明示env有効時だけ後継Stop→別process。idle又はwaitingで終了markが2回安定→stop→Desktop resume | 既定OFF、後続handoff中ならsuperseded。idle未確認なら止めず次Stopへ。openの終了値/告知と画面反映は別確認 |
-| [Claude config](../../src/claude-auto-handoff-config.mjs):readClaudeAutoHandoffConfig/writeClaudeAutoHandoffConfig/claudeAutoHandoffEnabledFor | 未存在はdisabled、schemaと絶対projectを検証、private temp→renameで書換 | Codex configとは別schema/file。両configの似た処理は観測のみで新helperへ統合していない。temp書込/rename失敗の後始末も保持調査対象 |
+| [Claude config](../../src/claude-auto-handoff-config.mjs):readClaudeAutoHandoffConfig/writeClaudeAutoHandoffConfig/claudeAutoHandoffEnabledFor | 未存在はdisabled、schemaと絶対projectを検証、private temp→renameで書換 | Codex configとは別schema/file。両configの似た処理は観測のみで新helperへ統合していない。temp書込/rename失敗時もfinallyで今回のtempを削除する |
 
 ## Claude: 旧会話入力の配送と結果不明
 
@@ -221,3 +221,16 @@ Unix remote必須の受領後は、同じ後継のtranscript末尾を最大1MiB�
 remoteControlWantedは明示off/onを先に守り、次に既readClaudeTerminalRemoteControlで同じnative session IDの実登録を確認する。entrypoint=cliでも元のbridgeSessionIdがあれば後継remote_control.wanted=trueを保存する。他sessionの登録やbridge無しを元の表示接続へ補完しない。Desktop起点判定と既handoff chain継承は保持する。手動/tl→/clearのbaton/同画面の経路は変更しない。背景workerを止めてDesktopへ移す既定OFFも勝手に変えない。
 
 0.16.53では認証/受領後の実モデル・登録確認と不可視fallback防止をmacOSにも適用する。実RC登録のあるCLI起点も同じ必須接続契約に入る。
+
+## Grok起動artifactの回収
+
+| 機能 | 入力→処理→保存/終端 | 失敗・保持 |
+| --- | --- | --- |
+| `grok-continue:writeLaunchArtifacts/buildLaunchScript/run` | 既公開context→privateな一意dirへprompt/script→Terminal受付→shellがpromptを変数へ読む→prompt/script/空dirを削除→同じGrok argvでexec | write/受付失敗で今回dirを回収。次回生成は24h超かつ製品の形式/所有/通常fileだけの残物を回収。未知file・symlink・新しいartifactは残す。DB/transcript/後継sessionは削除しない |
+
+各auto/forward診断JSONLも[有限ログ契約](current-lifecycle.md#診断ログと更新生成物の保持回収)の共通writerへ接続する。workerのappend fdログは既24h回収/重複起動防止recordとの寿命を維持する。
+
+| 失敗した生成と試験scratchの回収 | 入力→処理→保持/回収 |
+| --- | --- |
+| Claude record/forward既temp writer | 未公開temp→write/rename→finallyで今回tempだけ削除。既確定record/未配送inputは保持、既throw/null返却は維持 |
+| `test-temp-dir:testTempDir` | prefix+生成pid+random名→試験process exitで削除。次回同prefix生成時は24h超・所有者一致・生成pid不在の新形式dirだけ回収。旧形式/現用/未知は保持 |

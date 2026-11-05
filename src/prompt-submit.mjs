@@ -30,12 +30,13 @@
  * 現行契約: docs/02_clear_auto_handoff_plan.md
  */
 
+import { appendBoundedLog } from './bounded-log.mjs';
 import { getDb } from './db.mjs';
 import { writeBaton } from './baton.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
 import { logDecision } from './decision-log.mjs';
 import { ensureMonitorTaskFile } from './vscode-task.mjs';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -55,7 +56,7 @@ function logBaton(entry) {
   const path = join(homedir(), '.throughline', 'logs', 'baton-write.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+    appendBoundedLog(path, JSON.stringify(entry) + '\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[prompt-submit:log] ${msg}\n`);
@@ -66,7 +67,7 @@ function logPromptSpike(entry) {
   const path = join(homedir(), '.throughline', 'logs', 'prompt-spike.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+    appendBoundedLog(path, JSON.stringify(entry) + '\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[prompt-submit:spike-log] ${msg}\n`);

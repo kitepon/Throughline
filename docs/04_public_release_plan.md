@@ -49,7 +49,7 @@ Windows nativeの更新はPowerShell 7から公式`npm.cmd`を呼び、私有pre
 回復journalは製品状態の`recovery/package-updates`、排他lockはglobal node_modulesの
 `.throughline-update-lock`に保持する。異常終了でlockが残る場合は自動で奪わず失敗する。
 lockのowner.jsonとjournalを照合し、実行中の更新が無いこと・記録と正規packageの一致を
-保守で確認してから回復する。使用中の**異なる**native部品が上書きできない場合も、
+保守で確認してから回復する。成功またはrollback成功のbefore journalは通常更新内で回収し、次回更新は同targetの既完了journalも回収する。失敗/不明/異targetは保持する。使用中の**異なる**native部品が上書きできない場合も、
 会話を停止せず明示失敗して変更を戻す。Windows terminalの新規起動はnpm外の
 内容hash別runtimeを使用する（[ADR 0071](adr/0071-windows-update-with-live-terminals.md)）。
 `npm.ps1`や

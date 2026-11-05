@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync, symlinkSync } from 'node:fs';
 import { join, win32, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { packageFiles, packagePathsOverlap, promoteWindowsPackage, updateWindowsPackage } from './windows-package-update.mjs';
@@ -97,6 +97,7 @@ test('staged npm promotion verifies the pinned package, preserves live files and
       if (invalid) assert.throws(operation, /staged_package_version_mismatch/);
       else assert.equal(operation().verified, 3);
       assert.equal(existsSync(prefix), false);
+      assert.deepEqual(existsSync(f.journal) ? readdirSync(f.journal) : [], [], 'completed update keeps no before copies');
       assert.equal(JSON.parse(readFileSync(join(f.target, 'package.json'))).version, invalid ? '1.2.3' : '1.2.4');
     } finally { rmSync(f.work, { recursive: true, force: true }); }
   }
@@ -114,4 +115,24 @@ test('update path guard allows separate volumes and rejects either direction of 
   ]) assert.equal(packagePathsOverlap(source, target, win32), overlap);
   assert.equal(packagePathsOverlap('/tmp/stage', '/product/live', posix), false);
   assert.equal(packagePathsOverlap('/product/live/..nested', '/product/live', posix), true);
+});
+
+
+test('ordinary update reclaims only completed journals for this target', () => {
+  const f = fixture();
+  try {
+    const cases = [
+      ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'promoted', f.target, false],
+      ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'rolled_back', f.target, false],
+      ['cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'promoting', f.target, true],
+      ['dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'promoted', f.source, true],
+      ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'unknown', f.target, true],
+    ];
+    for (const [id, phase, target] of cases) f.write(f.journal, `${id}/journal.json`, JSON.stringify({
+      schema: 'throughline.package_update_journal.v1', target, phase,
+    }));
+    assert.throws(() => updateWindowsPackage({ target: f.target, recoveryRoot: f.journal,
+      stderr: { write() {} }, npm: () => ({ status: 1 }) }), /staged_package_install_failed/);
+    for (const [id, , , keep] of cases) assert.equal(existsSync(join(f.journal, id)), keep);
+  } finally { rmSync(f.work, { recursive: true, force: true }); }
 });

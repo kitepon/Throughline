@@ -1566,3 +1566,25 @@ the first generation to pick up the auto-start task.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Generated files and retention
+
+Diagnostic JSONL/log files keep the current file and one previous `.1` file, each
+up to 4 MiB. Ordinary log writes rotate them under a process-safe local lock;
+old diagnostic lines expire without changing conversation memory, pending input,
+or runtime error aggregates.
+
+Windows self-update removes completed promotion/rollback backups during normal
+updates. Recovery failures retain their journal and update lock for repair; an
+unknown or in-progress journal is never reclaimed automatically. Grok continuation
+removes its private prompt/script after reading the prompt and before starting
+Grok. A later continuation also reclaims abandoned launch artifacts older than
+24 hours, while preserving unfamiliar files.
+
+Normal Stop state writes run the existing 24-hour expiry check at most once per
+hour, so an unopened monitor does not leave retired states behind. Enabled
+runtime reporting applies the existing 30-day policy only to acknowledged,
+resolved records. Open or unacknowledged errors remain available. Windows
+terminal runtime copies created by this version record their owner processes;
+ordinary preparation removes older managed copies only after their owners exit.
+Older unmanaged copies remain available for deliberate maintenance.

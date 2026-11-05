@@ -11,7 +11,8 @@
  *   - projectPath は path.resolve → / → 末尾 / 除去 → Windows lowercase で正規化
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CLAUDE_HOST, KNOWN_STATE_HOSTS } from './hosts/identity.mjs';
@@ -78,7 +79,16 @@ export function writeSessionState({
     updatedAt: Date.now(),
   };
   if (usage) payload.usage = usage;
-  writeFileSync(file, JSON.stringify(payload));
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try { writeFileSync(temporary, JSON.stringify(payload)); renameSync(temporary, file); }
+  finally { rmSync(temporary, { force: true }); }
+  const marker = join(STATE_DIR, '.last-cleanup');
+  try {
+    if (!existsSync(marker) || Date.now() - statSync(marker).mtimeMs >= 60 * 60 * 1000) {
+      readAllSessionStates();
+      writeFileSync(marker, '');
+    }
+  } catch (error) { process.stderr.write(`[state-file] cleanup failed: ${error.message}\n`); }
 }
 
 // 活動タイムアウト（表示フィルタ / 削除）

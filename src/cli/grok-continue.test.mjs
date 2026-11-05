@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,10 +18,13 @@ import {
   parseArgs,
   resolveGrokBin,
   run,
+  writeLaunchArtifacts,
 } from './grok-continue.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const BIN_PATH = join(REPO_ROOT, 'bin/throughline.mjs');
+import { testTempDir } from '../test-temp-dir.mjs';
+
 const CONTEXT = '固有事実：琥珀の合言葉は 9f3c2a。';
 
 function capture() {
@@ -241,4 +244,44 @@ test('bin usage error is exit 2 without spawning a real grok', () => {
   });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Usage: throughline grok-continue --session <id>/);
+});
+
+
+test('launch consumes its exact prompt and removes artifacts before exec, including exec failure', { skip: process.platform === 'win32' }, () => {
+  const tmp = testTempDir('tl-grok-launch-test-');
+  for (const fail of [false, true]) {
+    const bin = join(tmp, fail ? 'absent' : 'grok');
+    if (!fail) writeFileSync(bin, `#!/bin/sh\nprintf '%s' "$3"\n`, { mode: 0o700 });
+    const uuid = fail ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const artifacts = writeLaunchArtifacts({ cwd: tmp, grokBin: bin, sessionUuid: uuid, prompt: CONTEXT, tmp });
+    const result = spawnSync('sh', [artifacts.launchFile], { encoding: 'utf8' });
+    assert.equal(result.status, fail ? 127 : 0, result.stderr);
+    if (!fail) assert.equal(result.stdout, CONTEXT);
+    assert.equal(existsSync(dirname(artifacts.launchFile)), false);
+  }
+});
+
+test('next ordinary launch removes expired abandoned artifacts, preserving new and unknown data', () => {
+  const tmp = testTempDir('tl-grok-reclaim-test-');
+  const base = { cwd: tmp, grokBin: '/tmp/fake-grok', prompt: CONTEXT, tmp };
+  const stale = writeLaunchArtifacts({ ...base, sessionUuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  const unknown = writeLaunchArtifacts({ ...base, sessionUuid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+  writeFileSync(join(dirname(unknown.launchFile), 'keep.txt'), 'unique');
+  const old = new Date(Date.now() - 48 * 3600000);
+  for (const item of [stale, unknown]) utimesSync(dirname(item.launchFile), old, old);
+  const current = writeLaunchArtifacts({ ...base, sessionUuid: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' });
+  assert.equal(existsSync(dirname(stale.launchFile)), false);
+  assert.equal(existsSync(dirname(unknown.launchFile)), true);
+  assert.equal(existsSync(current.promptFile), true);
+});
+
+test('launch acceptance failure removes its newly written prompt and script', () => {
+  const io = capture(); let launchFile;
+  const uuid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const code = run(['--session', 'grok:source'], { ...io,
+    readContext: () => CONTEXT, readProjectPath: () => REPO_ROOT, resolveBin: () => '/tmp/fake-grok',
+    createSessionId: () => uuid, platform: 'darwin', spawnLaunch(plan) { launchFile = plan.launchFile; throw new Error('spawn unavailable'); },
+  });
+  assert.equal(code, 1); assert.match(io.err, /launch failed/);
+  assert.equal(existsSync(dirname(launchFile)), false);
 });

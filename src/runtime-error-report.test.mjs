@@ -9,6 +9,7 @@ import { testTempDir } from './test-temp-dir.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
+  acknowledgeRuntimeErrors,
   defaultRuntimeErrorConfigPath,
   observeRuntimeError,
   readRuntimeErrorSnapshot,
@@ -596,4 +597,36 @@ test('runtime error report: a hook entry starts a detached send for pending reco
   } finally {
     await receiver.close();
   }
+});
+
+
+test('ordinary reporting reclaims only expired acknowledged resolutions, including nothing-pending runs', async () => {
+  const { root, env } = createEnvironment();
+  setRuntimeErrorCollectionEnabled(true, { env });
+  const later = NOW + 40 * 24 * 3600000;
+  const add = (code, at) => observeRuntimeError({ code, now: new Date(at).toISOString() }, { env });
+  const resolve = (record, at) => resolveRuntimeError(record.fingerprint, { env, now: new Date(at).toISOString() });
+  const old = add('HOOK_CODEX_FAILED', NOW); resolve(old, NOW);
+  const recent = add('HOOK_SESSION_START_FAILED', later - 3600000); resolve(recent, later - 3600000);
+  acknowledgeRuntimeErrors(readRuntimeErrorSnapshot({ env }).cursor.next, { env });
+  const pending = add('HOOK_PROMPT_SUBMIT_FAILED', NOW); resolve(pending, NOW);
+  const open = add('HOOK_PROCESS_TURN_FAILED', NOW);
+  const credentialFile = writeCredential(root, 'https://example.invalid/runtime-errors');
+  setRuntimeErrorReportingEnabled(true, { env, credentialFile });
+  const sent = [];
+  const fetch = async (url, options) => {
+    const report = JSON.parse(options.body); sent.push(report);
+    return new Response(JSON.stringify(accept({ report }).body), { status: 200 });
+  };
+  assert.equal((await reportRuntimeErrors({ env, fetch, now: later })).status, 'sent');
+  let snapshot = readRuntimeErrorSnapshot({ env });
+  assert.equal(snapshot.resolutions.some(x => x.fingerprint === old.fingerprint), false);
+  assert.equal(snapshot.resolutions.some(x => x.fingerprint === recent.fingerprint), true);
+  assert.equal(snapshot.resolutions.some(x => x.fingerprint === pending.fingerprint), true, 'unacknowledged resolution was retained until it was sent');
+  assert.equal(sent[0].resolutions.some(x => x.fingerprint === pending.fingerprint), true);
+  assert.equal((await reportRuntimeErrors({ env, fetch, now: later + 1 })).status, 'nothing_pending');
+  snapshot = readRuntimeErrorSnapshot({ env });
+  assert.equal(snapshot.resolutions.some(x => x.fingerprint === pending.fingerprint), false);
+  assert.equal(snapshot.runtime_errors.some(x => x.fingerprint === open.fingerprint), true);
+  assert.equal(snapshot.resolutions.some(x => x.fingerprint === recent.fingerprint), true);
 });

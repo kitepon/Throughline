@@ -45,9 +45,11 @@ export function noteL1BackendFailure({ home, now = Date.now() } = {}) {
     const unrecovered = now - firstFailureAt >= L1_BACKEND_UNRECOVERED_MS;
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const temporary = `${path}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify({ schema: L1_BACKEND_RECOVERY_SCHEMA, first_failure_at: firstFailureAt,
-      last_failure_at: now, reported: Boolean(previous?.reported) || unrecovered })}\n`, { mode: 0o600 });
-    renameSync(temporary, path);
+    try {
+      writeFileSync(temporary, `${JSON.stringify({ schema: L1_BACKEND_RECOVERY_SCHEMA, first_failure_at: firstFailureAt,
+        last_failure_at: now, reported: Boolean(previous?.reported) || unrecovered })}\n`, { mode: 0o600 });
+      renameSync(temporary, path);
+    } finally { rmSync(temporary, { force: true }); }
     return { unrecovered, firstFailureAt };
   } catch (error) {
     process.stderr.write(`[l1-backend-recovery] ${error.message}\n`);

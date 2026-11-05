@@ -17,7 +17,8 @@
  *   - INSERT は 1 トランザクション（fsync 1 回、turn-processor の details と同型）。
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { hostAdapterForSessionId } from './hosts/index.mjs';
@@ -38,7 +39,7 @@ export function logBackfill(entry) {
   const path = join(homedir(), '.throughline', 'logs', 'backfill.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+    appendBoundedLog(path, JSON.stringify(entry) + '\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[backfill-log] ${msg}\n`);

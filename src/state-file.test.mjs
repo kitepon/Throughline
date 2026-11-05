@@ -173,7 +173,7 @@ test('writeSessionState: Codex state は host と rolloutPath を保持しファ
       },
     });
 
-    assert.deepEqual(readdirSync(stateDir), ['codex%3A019dfaba-thread.json']);
+    assert.deepEqual(readdirSync(stateDir).filter(name => name.endsWith('.json')), ['codex%3A019dfaba-thread.json']);
     const results = mod.readAllSessionStates();
     assert.equal(results.length, 1);
     assert.equal(results[0].sessionId, 'codex:019dfaba-thread');
@@ -230,5 +230,20 @@ test('readAllSessionStates: 旧バージョンが書いた usage 無しの state
     assert.equal(results[0].rolloutPath, null);
     assert.equal(results[0].usage, undefined);
     // usage 無しで読めること自体が互換性の証明
+  });
+});
+
+
+test('normal Stop state writes reclaim old states without a monitor and preserve recent states', async () => {
+  await withIsolatedStateDir(async ({ stateDir, mod }) => {
+    const old = join(stateDir, 'retired.json'), recent = join(stateDir, 'recent.json');
+    writeFileSync(old, JSON.stringify({ sessionId: 'retired', updatedAt: Date.now() - 25 * 3600000 }));
+    writeFileSync(recent, JSON.stringify({ sessionId: 'recent', updatedAt: Date.now() }));
+    mod.writeSessionState({ sessionId: 'current', projectPath: stateDir });
+    assert.equal(existsSync(old), false);
+    assert.equal(existsSync(recent), true);
+    assert.equal(existsSync(join(stateDir, 'current.json')), true);
+    assert.equal(existsSync(join(stateDir, '.last-cleanup')), true);
+    assert.deepEqual(readdirSync(stateDir).filter(name => name.endsWith('.tmp')), []);
   });
 });

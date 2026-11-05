@@ -8,7 +8,8 @@
  * 事故調査の生命線。書き込み失敗は stderr に出す（黙って握りつぶさない）。
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendBoundedLog } from './bounded-log.mjs';
+import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -16,7 +17,7 @@ export function logDecision(entry) {
   const path = join(homedir(), '.throughline', 'logs', 'inheritance-decision.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf8');
+    appendBoundedLog(path, JSON.stringify(entry) + '\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';
     process.stderr.write(`[decision-log] ${msg}\n`);

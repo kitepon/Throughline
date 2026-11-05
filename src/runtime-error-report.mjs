@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import {
   acknowledgeRuntimeErrors,
+  compactRuntimeErrors,
   defaultRuntimeErrorStorePath,
   isRuntimeErrorCollectionEnabled,
   readRuntimeErrorPrivateState,
@@ -149,6 +150,7 @@ export async function reportRuntimeErrors(options = {}) {
 }
 
 async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credentialFile, lastReportedVersion }) {
+  compactRuntimeErrors({ ...storeOptions, now: new Date(nowMs).toISOString() });
   const acknowledged = readRuntimeErrorSnapshot({ ...storeOptions, limit: 1 }).cursor.acknowledged_through;
   const snapshot = readRuntimeErrorSnapshot({ ...storeOptions, afterCursor: acknowledged });
   // 未受領の記録が無くても、受け口へ最後に届いた版と今の版が違う時は、記録が空のreportを1回送る
