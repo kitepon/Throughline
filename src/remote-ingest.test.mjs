@@ -34,7 +34,7 @@ function snapshot(home) {
       source: db.prepare('SELECT source, offset FROM remote_transcripts').all().map(row => ({
         source: Buffer.from(row.source).toString('utf8'), offset: row.offset,
       })),
-      bodies: db.prepare('SELECT role, text, turn_number FROM bodies ORDER BY id').all().map(row => ({ ...row })),
+      bodies: db.prepare('SELECT role, text, turn_number, created_at FROM bodies ORDER BY id').all().map(row => ({ ...row })),
       updated: db.prepare('SELECT updated_at FROM sessions').all().map(row => row.updated_at),
     };
   } finally { db.close(); }
@@ -85,6 +85,20 @@ test('failed projection rolls back source, cursor and both body writes; retry re
   db.close();
   assert.deepEqual(ingestRemoteTranscript(request, { home }).ackedCursor, request.cursor);
   assert.equal(snapshot(home).bodies.length, 4);
+});
+
+test('appending a transcript without timestamps preserves the first capture time of older pairs', t => {
+  const home = fixture(t);
+  const untimed = entries => entries.map(value => {
+    const entry = JSON.parse(value);
+    delete entry.timestamp;
+    return JSON.stringify(entry) + '\n';
+  });
+  const first = untimed(pair('first', 'first answer'));
+  const second = untimed(pair('second', 'second answer'));
+  ingestRemoteTranscript(input(first), { home, now: 10 });
+  ingestRemoteTranscript(input(second, Buffer.byteLength([...first, ...second].join(''))), { home, now: 20 });
+  assert.deepEqual(snapshot(home).bodies.map(body => body.created_at), [10, 10, 20, 20]);
 });
 
 test('late final text and byte pages update one group across launches; Bot/session isolation and recent handoff', t => {

@@ -101,14 +101,14 @@ export function ingestRemoteTranscript(input, { home = homedir(), now = Date.now
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id, origin_session_id, turn_number, role) DO UPDATE SET
           text = excluded.text, token_count = excluded.token_count,
-          created_at = excluded.created_at, turn_start = excluded.turn_start`);
+          created_at = COALESCE(?, bodies.created_at), turn_start = excluded.turn_start`);
       for (const group of groups) {
         // The user line is stable when a byte page or a late flush extends its answer.
         const assistantAt = group.representative.timestamp ?? now;
         insert.run(sessionId, sessionId, group.user.turn_number, 'user', group.user.content,
-          Math.round(group.user.content.length / 4), group.user.timestamp ?? assistantAt, group.user.start);
+          Math.round(group.user.content.length / 4), group.user.timestamp ?? assistantAt, group.user.start, group.user.timestamp);
         insert.run(sessionId, sessionId, group.user.turn_number, 'assistant', group.representative.content,
-          Math.round(group.representative.content.length / 4), assistantAt, null);
+          Math.round(group.representative.content.length / 4), assistantAt, null, group.representative.timestamp);
       }
       db.prepare(`INSERT INTO remote_transcripts (claude_session_id, session_name, launch_id, source, offset)
         VALUES (?, ?, ?, ?, ?) ON CONFLICT(claude_session_id) DO UPDATE SET

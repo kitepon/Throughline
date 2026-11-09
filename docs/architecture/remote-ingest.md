@@ -53,7 +53,7 @@ stay in [entrypoints](current-entrypoints.md) and [projections](current-projecti
 | Native transcript -> public stdin | Byte-exact original lines, bound Bot + Claude session | Native source remains; execution stores only ACK cursor |
 | Validated input -> per-Bot private SQLite | `~/.throughline/remote-transcripts/<sha256(botId)>.sqlite`; `remote_transcripts` owns raw BLOB, offset and seat/launch provenance | Source/L2/cursor share one SQLite transaction; only committed state is ACKed |
 | Stored raw + new suffix -> existing in-memory parser | Product-owned raw JSONL; parser assigns stable user line number to each group | No temporary plaintext snapshot; raw JSONL retained only in SQLite |
-| Parsed pairs -> same per-Bot SQLite | Existing sessions/bodies schema; origin = hash(Bot, Claude session), project = Bot-isolated virtual project | Upsert user + assistant under the user line number; late final text updates prior partial page; no second pair |
+| Parsed pairs -> same per-Bot SQLite | Existing sessions/bodies schema; origin = hash(Bot, Claude session), project = Bot-isolated virtual project | Upsert user + assistant under the user line number; late final text updates prior partial page; missing source timestamps preserve the first capture time; no second pair |
 | Read-only SQLite -> existing recent renderer | Only this Bot's sessions | No cursor advance, no local-seat DB write, no model/backend invocation |
 | Commit -> execution | Latest durable cursor for this Claude session | Lost ACK replays identical bytes; older replay returns current ACK without changing ordering |
 
@@ -79,6 +79,8 @@ This addition covers raw transcript durability and L2 short-term handoff. Raw
 tool/thinking/system lines remain preserved. It does not run L1 summarization,
 project remote L3 into `details`, or add a completed Observer feed. Existing
 local hooks, L1/L3, Observer receipts and local handoff remain unchanged.
+The existing renderer's `recall`/`detail` hints require access to this server-side
+store; a terminal-side pull transport is outside this short-term memory API.
 Focused verification covers replay/overlap/conflict/gap, Unicode/CRLF offsets,
 restart and failed transaction recovery, late/page-split final text, empty reads,
 Bot/session isolation, budget/silent recent rendering and unchanged local handoff.
