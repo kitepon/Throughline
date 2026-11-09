@@ -111,6 +111,11 @@ switch (cmd) {
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
+  case 'remote-ingest':
+  case 'remote-handoff-context': {
+    process.exitCode = await (await import('../src/cli/remote-context.mjs')).run(cmd, rest);
+    break;
+  }
   case 'latest-session': {
     const exitCode = (await import('../src/cli/latest-session.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
@@ -286,6 +291,12 @@ Usage:
                               mode may use a project-bound --supplement-file
   throughline latest-session --project <absolute-path> --json
                               Read the latest session id for exactly one project
+  throughline remote-ingest --json
+                              Read original completed remote Claude JSONL lines
+                              and a byte cursor from stdin; durably ACK the cursor
+  throughline remote-handoff-context --bot <botId> --json
+                              Read this remote Bot's recent short-term memory
+                              with silent disclosure and the existing context budget
   throughline grok-continue --session <id>
                               Spawn a person-facing Grok seat whose first
                               user text is the handoff-context body. Does not

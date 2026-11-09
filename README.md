@@ -1035,6 +1035,38 @@ macOS/Linux the credential file must be owned by you with no group/other
 permissions and must not be a symlink. See
 [ADR 0025](docs/adr/0025-runtime-error-reporting.md).
 
+### Remote Claude seats
+
+Remote launchers can forward completed Claude transcript deltas without copying
+the transcript into execution or writing the local-seat memory database:
+
+```bash
+throughline remote-ingest --json < completed-delta.json
+throughline remote-handoff-context --bot bot-example --json
+```
+
+The input contains `botId`, `sessionName`, native 32-hex `launchId`,
+`claudeSessionId`, `entries` and `cursor: {claudeSessionId, offset}`. Each entry is
+one original complete JSONL line including its original LF/CRLF; offset is the
+exclusive original UTF-8 byte offset. The bound native provider must send only
+lines through a Claude Stop-confirmed completion, including after reconnect.
+Execution waits for native completion before reading an interrupted turn.
+
+Ingestion returns `throughline.remote_ingest.v1` with `status: "ready"` and
+`ackedCursor`. Source, L2 conversation and ACK cursor commit together in a
+private per-Bot SQLite store under `~/.throughline/remote-transcripts/`.
+Identical replay/overlap is idempotent across process restarts and launches.
+Gaps return `E_REMOTE_GAP` and `expectedCursor` on stderr; re-read from that
+cursor. Conflicting bytes return `E_REMOTE_CONFLICT` without changing memory.
+The handoff command returns the existing `throughline.handoff_context.v1`
+ready/empty JSON using recent sessions, silent disclosure and the same
+9,500-character budget. Different Bots have separate stored conversations.
+
+Raw tool/thinking/system lines are retained; this path does not run L1
+summarization, project remote L3 details, or publish Observer completion receipts.
+Local hooks and local handoff are unchanged. See the [function and data-flow
+contract](docs/architecture/remote-ingest.md) for boundary and recovery details.
+
 ### Read-only handoff context for local launchers
 
 Use this boundary when a local launcher needs Throughline memory without

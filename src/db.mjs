@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 const DB_DIR = join(homedir(), '.throughline');
 export const DB_PATH = join(DB_DIR, 'throughline.db');
@@ -480,10 +480,15 @@ export class DatabaseMigrationError extends Error {
  */
 export function getDb() {
   if (_db) return _db;
+  _db = openDb();
+  return _db;
+}
 
-  mkdirSync(DB_DIR, { recursive: true });
+/** Open a caller-owned product DB; remote intake never opens the local singleton. */
+export function openDb(path = DB_PATH) {
+  mkdirSync(dirname(path), { recursive: true });
 
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSync(path);
   try {
     db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
     settleFirstRead(db);
@@ -491,8 +496,7 @@ export function getDb() {
     db.exec(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES}`);
     db.exec('PRAGMA foreign_keys = ON');
     initSchema(db);
-    _db = db;
-    return _db;
+    return db;
   } catch (error) {
     db.close();
     throw error;

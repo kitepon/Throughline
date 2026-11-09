@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-09
+
+### Added
+
+- Add `remote-ingest --json` for completed Claude transcript deltas, with byte-exact
+  replay checks and atomic per-Bot raw transcript, conversation and cursor storage.
+- Add `remote-handoff-context --bot <id> --json` using the existing recent-session
+  short-term memory renderer without changing local hooks or shared memory.
+
 ## [0.16.56] - 2026-11-06
 
 ### Fixed
