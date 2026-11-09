@@ -10,6 +10,13 @@
 
 ## プロジェクト概要
 
+Remote Claude C7 intake is supplied by `remote-ingest --json` and
+`remote-handoff-context --bot <id> --json`. The canonical function/data-flow and
+wire contract is [remote intake](docs/architecture/remote-ingest.md). Each Bot's
+raw transcript, L2 and cursor share a separate SQLite transaction; the shared
+local-seat DB/schema and hooks are unchanged. Native Stop establishes the input
+completion boundary. Remote L1/L3/Observer projection is outside this addition.
+
 **Throughline** は Claude Code の hooks プラグインで、会話ターンを 3 層 (L1/L2/L3) に分解して SQLite に保存し、`/clear` 後も記憶を復元します。加えてマルチセッション対応のトークンモニター CLI も同梱しています。
 
 Throughline は単独で install、設定、状態保存とschema migration、診断、復旧、更新、

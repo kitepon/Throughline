@@ -1,5 +1,9 @@
 # 文脈復元・observer・外部文脈の現行source対応
 
+Remote Claude handoff reads the per-Bot intake DB through the existing recent
+renderer. See [remote intake](remote-ingest.md) for the public command, completed
+source contract, independent state ownership and ACK transaction.
+
 基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終照合結果は[全体索引末尾のS5](README.md#s5最終整合2026-11-03適用済みastra-xhigh)へ固定した。3OS全件/gateと指導担当の全体成果受入は完了。通常保守への引継ぎは全体索引末尾を参照。
 
 ## 記憶の読取と表現の境界

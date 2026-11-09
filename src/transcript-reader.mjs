@@ -154,7 +154,11 @@ export function readTranscript(transcriptPath) {
 
   // existsSync で早期 return 済み。ここでの read 失敗は権限エラー等の本物の異常なので throw させる (§0 ルール)
   const raw = readFileSync(transcriptPath, 'utf8');
+  return parseTranscript(raw);
+}
 
+/** Parse original JSONL in memory; file and remote intake share the same rules. */
+export function parseTranscript(raw) {
   const turns = [];
   // turn_number は transcript 内の本文行の通し番号。圧縮の要約行と host が書いた meta の行は返さないが、番号は進める。
   // 番号を詰めると、その行を数えていた頃に保存した bodies の turn_number と食い違う。
@@ -287,7 +291,10 @@ export function isJunkAssistantText(text) {
  * }>}
  */
 export function getLogicalTurnGroups(transcriptPath) {
-  const turns = readTranscript(transcriptPath);
+  return groupTranscriptTurns(readTranscript(transcriptPath));
+}
+
+export function groupTranscriptTurns(turns) {
   const raw = [];
   let current = null;
   for (const t of turns) {

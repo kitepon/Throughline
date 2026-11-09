@@ -18,6 +18,11 @@
 
 ## 現行の全体接続
 
+Remote Claude seats add a separate product-owned intake store and reuse the
+existing recent-session renderer. The function/data-flow contract, persistence
+boundary and CLI connections are canonical in [remote intake](remote-ingest.md).
+Remote records do not change the shared local-seat DB schema or host hooks.
+
 ```mermaid
 flowchart TB
   External["4hostのhook / 利用者 / 外部consumer"] --> CLI["bin: 引数dispatch / host payload入口"]
