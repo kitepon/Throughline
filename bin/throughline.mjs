@@ -291,9 +291,10 @@ Usage:
                               mode may use a project-bound --supplement-file
   throughline latest-session --project <absolute-path> --json
                               Read the latest session id for exactly one project
-  throughline remote-ingest --json
+  throughline remote-ingest [--fork] --json
                               Read original completed remote Claude JSONL lines
                               and a byte cursor from stdin; durably ACK the cursor
+                              (--fork: read-only fork seat, kept out of handoff)
   throughline remote-handoff-context --bot <botId> --json
                               Read this remote Bot's recent short-term memory
                               with silent disclosure and the existing context budget

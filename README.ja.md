@@ -470,6 +470,7 @@ v0.10.4以前には `self-update` が存在しない。該当版からの初回�
 | `throughline handoff-preview --session <id>` | Codex 向け `throughline_handoff` JSON projection を表示 |
 | `throughline handoff-context (--session <id> \| --project <path>) --json` | SessionStartと同じ引き継ぎ文脈を取得。project指定時は会話本文を持つ最新sessionを選び、`--disclosure silent`に対応し、本文がなければ`empty`を返す。`--sessions recent`を付けると、同じprojectの直近の複数sessionから同じ9,500字枠で文脈を作る。session指定時はproject束縛済み補足を同じ9,500字枠へ合成できる |
 | `throughline remote-ingest --json` | Receive completed remote Claude JSONL deltas from stdin and atomically ACK the stored byte cursor. See the [wire contract](docs/architecture/remote-ingest.md) |
+| `throughline remote-ingest --fork --json` | 読み取り専用の分身 (fork) の席の差分を受け取る。本文に `sessionKind: "fork"`・`parentSessionId`・任意の `forkId` が要る。fork は自動の短期記憶に入らない (0.18.0 から) |
 | `throughline remote-handoff-context --bot <id> --json` | Return this remote Bot's recent short-term memory using the existing silent 9,500-character renderer. Local memory is unchanged |
 | `throughline latest-session --project <absolute-path> --json` | 指定した1プロジェクトだけを対象に直近セッションIDを読み取る。既存DBをread-onlyで開き、記録がなければ`empty`を返す |
 | `throughline grok-continue --session <id>` | handoff-context を初手 user 文にした対話 Grok 席を立てる。cwd は源の `project_path`。ready でなければ spawn しない。`--rules` なし。macOS Terminal のみ |

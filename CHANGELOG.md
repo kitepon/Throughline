@@ -10,6 +10,8 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-11
+
 ### Added
 
 - Schema v13 labels read-only fork sessions (`session_kind`, `fork_id`,
@@ -2939,7 +2941,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/kitepon/Throughline/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/kitepon/Throughline/compare/v0.16.56...v0.17.0
 [0.16.54]: https://github.com/kitepon/Throughline/compare/v0.16.53...v0.16.54
 [0.16.53]: https://github.com/kitepon/Throughline/compare/v0.16.52...v0.16.53
