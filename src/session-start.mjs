@@ -40,7 +40,7 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { CLAUDE_HOST, hostAdapterForSessionId, hostOfSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
-import { mainSessionFilter } from './session-kind.mjs';
+import { mainSessionFilter, markForkSessionFromEnv } from './session-kind.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
 
@@ -131,6 +131,8 @@ export async function run() {
     `INSERT OR IGNORE INTO sessions (session_id, project_path, status, created_at, updated_at)
      VALUES (?, ?, 'active', ?, ?)`,
   ).run(session_id, projectPath, now, now);
+  // 1b. read-only fork の印 (Aiterm の環境)。fork は前任も引き継ぎの予約も持たない。
+  const forkLabel = markForkSessionFromEnv(db, session_id, projectPath, process.env, now);
 
   // 2. auto path intent: source='clear' なら前任をこの時点で解決して凍結する。
   //    初回プロンプトまでの間に他ウィンドウが動いても「/clear が意味した前任」がずれない。
@@ -139,6 +141,8 @@ export async function run() {
   let intentNote = null;
   if (source === 'clear' && autoDisabled) {
     intentNote = 'auto_handoff_disabled';
+  } else if (forkLabel === 'marked') {
+    intentNote = 'fork_session';
   } else if (source === 'clear') {
     const predRow = findLatestClaudePredecessor(db, projectPath, session_id);
     if (predRow?.session_id) {
@@ -149,7 +153,7 @@ export async function run() {
   }
 
   // 3. pending intent 登録。merge / 注入はしない (最初の UserPromptSubmit で実行)。
-  registerPendingHandoff(db, {
+  if (forkLabel !== 'marked') registerPendingHandoff(db, {
     sessionId: session_id,
     projectPath,
     source: source ?? null,
@@ -167,7 +171,8 @@ export async function run() {
     auto_handoff_disabled: autoDisabled,
     auto_predecessor_id: autoPredecessorId,
     intent_note: intentNote,
-    pending_registered: true,
+    pending_registered: forkLabel !== 'marked',
+    fork_label: forkLabel,
   });
 
   // Cursor は beforeSubmitPrompt が additional_context を持たない。

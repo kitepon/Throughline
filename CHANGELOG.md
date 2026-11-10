@@ -16,7 +16,13 @@ shipped to npm but were not individually tagged on GitHub.
   `fork_parent_session_id`). Automatic latest/recent/predecessor selection,
   remote handoff, merge and first-prompt handoff use main sessions only; explicit
   `handoff-context --session` and `recall` keep fork records and show the label.
-  Capture-side labelling waits for the launcher marker contract.
+  Capture labels a fork from the Aiterm 0.70.6 seat env (`THROUGHLINE_SESSION_KIND=fork`,
+  `THROUGHLINE_PARENT_SESSION_ID`, optional `THROUGHLINE_FORK_ID`) at SessionStart,
+  UserPromptSubmit and Stop; Codex capture also requires the rollout's
+  `forked_from_id`; remote intake accepts optional `sessionKind`/`parentSessionId`/
+  `forkId`. A fork registers no pending handoff, writes no `/tl`/`/clear` baton and
+  starts no Claude auto handoff. A session that already holds main records is never
+  relabelled.
 
 ## [0.17.0] - 2026-11-09
 

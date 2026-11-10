@@ -3,6 +3,7 @@ import { readCodexHandoffState } from './hosts/codex-handoff-state.mjs';
 import { sameProjectPath } from './project-path.mjs';
 import { isAbsolute } from 'node:path';
 import { defaultCodexHome, findCodexThreadCandidate } from './codex-thread-index.mjs';
+import { markForkSession } from './session-kind.mjs';
 import {
   CODEX_SESSION_PREFIX,
   buildCodexThroughlineSessionId,
@@ -25,6 +26,7 @@ export function captureCodexRolloutToDb(
     codexHome = defaultCodexHome(),
     projectPath = process.cwd(),
     now = Date.now(),
+    fork = null,
   } = {},
 ) {
   if (!db) throw new Error('db is required');
@@ -71,6 +73,7 @@ export function captureCodexRolloutToDb(
   });
 
   let detailSync = null;
+  let forkLabel = null;
   db.exec('BEGIN IMMEDIATE');
   try {
     db.prepare(
@@ -81,6 +84,9 @@ export function captureCodexRolloutToDb(
          status = 'active',
          updated_at = excluded.updated_at`,
     ).run(sessionId, candidate.cwd ?? projectPath, now, now);
+    // fork の席の環境と、Codex が fork の rollout に書く forked_from_id の両方がそろう時だけ印を付ける。
+    // 環境だけだと別の thread を取り違え得る。forked_from_id だけだと利用者の普通の fork まで外れる。
+    forkLabel = !fork ? null : candidate.forkedFromId ? markForkSession(db, sessionId, fork) : 'not_fork_rollout';
 
     // 全発言の本文が一致するターンの要約は保持する。rollbackや本文変更で古くなった要約だけを除く。
     const before = db.prepare('SELECT turn_number, role, text FROM bodies WHERE session_id = ? ORDER BY id').all(sessionId);
@@ -129,6 +135,7 @@ export function captureCodexRolloutToDb(
     rolloutPath: candidate.rolloutPath,
     capturedTurns: parsed.activeTurnCount,
     capturedRows: rows.length,
+    forkLabel,
     capturedDetails: detailRows.length,
     keptDetails: detailSync.kept,
     writtenDetails: detailSync.inserted,

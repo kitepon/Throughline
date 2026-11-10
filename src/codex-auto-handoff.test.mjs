@@ -73,7 +73,7 @@ function snapshot(db, operation, count, at = 1, control = null) {
 }
 
 test('製品migrationと元turnの一意性、workerのprocess誕生時刻を検証する', async () => withDb(db => {
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 12);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 13);
   const a = request(db, 'A');
   const duplicate = request(db, 'A');
   assert.equal(a.inserted, true); assert.equal(duplicate.inserted, false);
@@ -83,11 +83,11 @@ test('製品migrationと元turnの一意性、workerのprocess誕生時刻を検
   assert.equal(claimAutoHandoff(db, a.operation.handoff_id, { pid: 1, started_identity: 'reused' }, [{ pid: 1, started_identity: 'reused' }]), true);
 }));
 
-test('v11の既存記憶を保持したまま正規migrationでv12へ移行する', async () => withDb((db, home, mod) => {
+test('v11の既存記憶を保持したまま正規migrationで現行版(v13)へ移行する', async () => withDb((db, home, mod) => {
   db.prepare('INSERT INTO sessions (session_id,project_path,created_at,updated_at) VALUES (?, ?, 1, 1)').run('existing', '/project');
   db.exec('DROP TABLE codex_handoff_summaries; DROP TABLE codex_handoffs; PRAGMA user_version = 11;');
   assert.equal(mod.migrateDefaultDb().status, 'migrated');
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 12);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 13);
   assert.equal(db.prepare('SELECT session_id FROM sessions').get().session_id, 'existing');
 }));
 

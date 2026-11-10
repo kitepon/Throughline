@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { openDb } from './db.mjs';
 import { readRecentProjectHandoffContext } from './cli/handoff-context.mjs';
 import { groupTranscriptTurns, parseTranscript } from './transcript-reader.mjs';
+import { markForkSession } from './session-kind.mjs';
 import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
 
 export const REMOTE_INGEST_SCHEMA = 'throughline.remote_ingest.v1';
@@ -53,8 +54,12 @@ function rangeError(code, claudeSessionId, offset) {
 /** Only the bound native provider may supply completed-prefix lines (C7). */
 export function ingestRemoteTranscript(input, { home = homedir(), now = Date.now() } = {}) {
   if (!input || typeof input !== 'object') throw new TypeError('E_REMOTE_INPUT');
-  const { botId, sessionName, launchId, claudeSessionId, entries, cursor } = input;
+  const { botId, sessionName, launchId, claudeSessionId, entries, cursor, sessionKind, parentSessionId, forkId } = input;
   [botId, sessionName, claudeSessionId].forEach(identifier);
+  // 任意。実行側が Aiterm の fork 起動 (THROUGHLINE_SESSION_KIND など) を確かめた時だけ渡す。
+  if (sessionKind !== undefined && sessionKind !== 'fork') throw new TypeError('E_REMOTE_INPUT');
+  [parentSessionId, forkId].forEach((value) => value === undefined || identifier(value));
+  const fork = sessionKind === 'fork' ? { parentSessionId: parentSessionId ?? null, forkId: forkId ?? null } : null;
   if (typeof launchId !== 'string' || !/^[a-f0-9]{32}$/i.test(launchId) ||
       cursor?.claudeSessionId !== claudeSessionId || !Number.isSafeInteger(cursor?.offset) ||
       cursor.offset < 0 || !Array.isArray(entries)) throw new TypeError('E_REMOTE_INPUT');
@@ -96,6 +101,7 @@ export function ingestRemoteTranscript(input, { home = homedir(), now = Date.now
       db.prepare(`INSERT INTO sessions (session_id, project_path, created_at, updated_at)
         VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET updated_at = excluded.updated_at`)
         .run(sessionId, paths.projectPath, now, now);
+      if (fork) markForkSession(db, sessionId, fork);
       const insert = db.prepare(`INSERT INTO bodies
         (session_id, origin_session_id, turn_number, role, text, token_count, created_at, turn_start)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)

@@ -1,5 +1,6 @@
 import { recordRuntimeErrorBestEffort, resolveRecoveredRuntimeErrorBestEffort } from '../runtime-error-store.mjs';
 import { logHookFailure } from '../hook-failure-log.mjs';
+import { forkIdentityFromEnv } from '../session-kind.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -160,6 +161,7 @@ async function captureCodexHookSession({
     threadId: identity.codexThreadId,
     codexHome,
     projectPath,
+    fork: forkIdentityFromEnv(env),
   });
 
   if (captured.status !== 'captured') {

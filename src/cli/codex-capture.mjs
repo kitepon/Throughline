@@ -1,6 +1,7 @@
 import { getDb } from '../db.mjs';
 import { captureCodexRolloutToDb } from '../codex-capture.mjs';
 import { resolveCodexThreadIdentity } from '../codex-thread-identity.mjs';
+import { forkIdentityFromEnv } from '../session-kind.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -58,6 +59,7 @@ export async function run(argv) {
       threadId: identity.codexThreadId,
       codexHome: parsed.codexHome ?? undefined,
       projectPath: parsed.projectPath,
+      fork: forkIdentityFromEnv(process.env),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown';

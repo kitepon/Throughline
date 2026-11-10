@@ -34,6 +34,7 @@ import { appendBoundedLog } from './bounded-log.mjs';
 import { getDb } from './db.mjs';
 import { writeBaton } from './baton.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
+import { forkIdentityFromEnv, markForkSessionFromEnv } from './session-kind.mjs';
 import { logDecision } from './decision-log.mjs';
 import { ensureMonitorTaskFile } from './vscode-task.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -207,6 +208,7 @@ export async function run() {
     const db = getDb();
     const projectPath = cwd ?? process.cwd();
     const now = Date.now();
+    markForkSessionFromEnv(db, session_id, projectPath, process.env, now);
     const handoff = executeFirstPromptHandoff(db, {
       sessionId: session_id,
       projectPath,
@@ -273,7 +275,8 @@ export async function run() {
     await maybeRunPromptSpike({ payload, sessionId: session_id, projectPath: cwd ?? process.cwd() });
   }
 
-  if (!tlMatch && !clearMatch) {
+  // project に1つのバトンを fork が上書きすると、main の引き継ぎ先が fork になる。
+  if ((!tlMatch && !clearMatch) || forkIdentityFromEnv(process.env)) {
     process.exit(0);
     return;
   }

@@ -226,6 +226,13 @@ test('PreCompact: Aiterm の席の会話は引き継がない。圧縮を止め�
   }
 }));
 
+test('PreCompact: read-only fork は後継を立てない。圧縮を止めず、記録も残さない', () => withDir(dir => {
+  const { result, db } = request(dir, { env: { ...SEAT_DESCENDANT, THROUGHLINE_SESSION_KIND: 'fork', THROUGHLINE_PARENT_SESSION_ID: 'seat-main' } });
+  assert.deepEqual([result.status, result.block, result.reason], ['skipped', false, 'fork_session']);
+  assert.equal(db.prepare('SELECT COUNT(*) AS c FROM handoff_batons').get().c, 0);
+  assert.deepEqual(listClaudeAutoHandoffs({ dir }), []);
+}));
+
 test('PreCompact: 席の会話に残っていた、後継を立てる前の記録は取り下げる。後継を立てた後の記録は保つ', () => withDir(dir => {
   // 席を外す前の版（か、会話 ID を出さない版の Aiterm の時）に予約した記録
   assert.equal(request(dir).result.status, 'requested');

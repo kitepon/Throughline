@@ -1465,3 +1465,44 @@ test('a leading BOM does not hide malformed hook JSON', () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('Claude hooks label a fork from the Aiterm env and keep the main baton and pending state', () => {
+  const home = makeTempHome();
+  const project = makeTempProject();
+  const transcriptPath = join(project, 'fork.jsonl');
+  const forkEnv = {
+    THROUGHLINE_SESSION_KIND: 'fork',
+    THROUGHLINE_PARENT_SESSION_ID: 'seat-main',
+    THROUGHLINE_FORK_ID: 'fork-7',
+  };
+  const hook = (file, payload, env = {}) => {
+    const result = runNode([join(REPO_ROOT, 'src', file)], { home, cwd: project, input: JSON.stringify({ cwd: project, ...payload }), env });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  try {
+    hook('prompt-submit.mjs', { session_id: 'main-session', prompt: '/tl' });
+    hook('session-start.mjs', { session_id: 'fork-session', source: 'resume' }, forkEnv);
+    hook('prompt-submit.mjs', { session_id: 'fork-session', prompt: '/tl' }, forkEnv);
+    writeFileSync(transcriptPath, [
+      { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'fork question' }] } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'fork answer' }] } },
+    ].map((e) => JSON.stringify(e)).join('\n'));
+    // SessionStart を通らなかった fork も、Stop が本文より先に印を付ける。
+    hook('turn-processor.mjs', { session_id: 'stop-only-fork', transcript_path: transcriptPath, last_assistant_message: 'fork answer' }, forkEnv);
+
+    const db = openDb(home);
+    const kinds = db.prepare('SELECT session_id, session_kind, fork_id, fork_parent_session_id FROM sessions ORDER BY session_id').all()
+      .map((row) => ({ ...row }));
+    assert.deepEqual(kinds, [
+      { session_id: 'fork-session', session_kind: 'fork', fork_id: 'fork-7', fork_parent_session_id: 'seat-main' },
+      { session_id: 'stop-only-fork', session_kind: 'fork', fork_id: 'fork-7', fork_parent_session_id: 'seat-main' },
+    ]);
+    assert.equal(db.prepare("SELECT COUNT(*) AS c FROM pending_handoffs WHERE session_id = 'fork-session'").get().c, 0);
+    assert.equal(db.prepare('SELECT session_id FROM handoff_batons').get().session_id, 'main-session');
+    assert.equal(db.prepare("SELECT COUNT(*) AS c FROM bodies WHERE session_id = 'stop-only-fork'").get().c, 2);
+    db.close();
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});

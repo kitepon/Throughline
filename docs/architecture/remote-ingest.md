@@ -14,7 +14,10 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
   launchId: string, // native 32 hex launch identity
   claudeSessionId: string,
   entries: string[],
-  cursor: { claudeSessionId: string, offset: number }
+  cursor: { claudeSessionId: string, offset: number },
+  sessionKind?: 'fork',     // only when execution launched this seat as a fork
+  parentSessionId?: string, // Aiterm THROUGHLINE_PARENT_SESSION_ID
+  forkId?: string           // Aiterm THROUGHLINE_FORK_ID, when the caller sent one
 }
 ```
 
@@ -62,7 +65,8 @@ changes. Different Claude sessions for one Bot coexist. Different Bots have
 different DBs even if their native Claude session IDs collide. New remote stores
 reuse core schema 13 plus a private intake table; the shared local DB is untouched.
 Remote handoff selects main sessions only ([fork isolation](fork-session-isolation.md));
-remote fork labelling needs the pending launcher marker in authenticated input.
+a fork is labelled only from the optional authenticated `sessionKind: 'fork'` input,
+which execution sets from its own Aiterm fork launch (no producer sends it yet).
 
 ## Errors, exits and scope
 
