@@ -45,6 +45,7 @@ import { runWithPty } from './os/pty-run.mjs';
 import { spawnPortable, spawnPortableSync } from './os/portable-spawn-sync.mjs';
 import { readClaudeTerminalRemoteControl, startClaudeTerminal, startWindowsClaudeWorker } from './os/claude-terminal.mjs';
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
+import { forkIdentityFromEnv } from './session-kind.mjs';
 import { acquireClaudeWakeClaim, claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, holdClaudeForward, logClaudeForward, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
 
 export const CLAUDE_AUTO_HANDOFF_SCHEMA = 'throughline.claude-auto-handoff.v2';
@@ -441,6 +442,10 @@ export function requestClaudeAutoHandoff({
   }
   if (seat) {
     return { status: 'skipped', block: false, reason: 'aiterm_seat', sessionId, projectPath };
+  }
+  // read-only fork は後継を立てない。圧縮を通し、main の引き継ぎに触らない。
+  if (forkIdentityFromEnv(env)) {
+    return { status: 'skipped', block: false, reason: 'fork_session', sessionId, projectPath };
   }
 
   // 後継は、最初の指示が運ぶ引き継ぎ ID からこの記録を引いて、この会話を前任として合流させる（ADR 0053）。

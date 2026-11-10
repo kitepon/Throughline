@@ -13,7 +13,7 @@ export const DB_BUSY_TIMEOUT_MS = 5_000;
 // WAL が checkpoint で巻き戻った後、次の書き込みでファイルをこの大きさまで切り詰める (ADR 0042)。
 // 既定 (-1) は切り詰めないので、一度膨らんだ WAL は中身が空でも元の大きさのまま残る。
 export const WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
-export const CURRENT_VERSION = 12;
+export const CURRENT_VERSION = 13;
 
 let _db = null;
 
@@ -401,6 +401,14 @@ function applySchemaMigrations(db, version) {
         PRIMARY KEY(origin_session_id, turn_number, source_hash)
       );
     `);
+  }
+
+  // v12 → v13: read-only fork の印。NULL は main (旧行も main のまま)。docs/architecture/fork-session-isolation.md
+  if (version < 13) {
+    const sessionCols = db.prepare('PRAGMA table_info(sessions)').all();
+    for (const col of ['session_kind', 'fork_id', 'fork_parent_session_id']) {
+      if (!sessionCols.some((c) => c.name === col)) db.exec(`ALTER TABLE sessions ADD COLUMN ${col} TEXT`);
+    }
   }
 
   if (version < CURRENT_VERSION) {

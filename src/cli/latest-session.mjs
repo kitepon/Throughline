@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { openReadOnlyDb } from '../db.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 import { sameProjectPath } from '../project-path.mjs';
 
 export const LATEST_SESSION_SCHEMA = 'throughline.latest_session.v1';
@@ -30,6 +31,7 @@ export function findLatestSession(projectPath, {
     const rows = db.prepare(
       `SELECT session_id, project_path, updated_at
        FROM sessions
+       WHERE 1 = 1 ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     ).all();
     return rows.find((row) => sameProjectPath(row.project_path, projectPath)) ?? null;

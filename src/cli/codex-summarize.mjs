@@ -7,6 +7,7 @@ import {
 } from '../turn-processor.mjs';
 import { summarizeToL1 } from '../haiku-summarizer.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 
 function parseArgs(args) {
   const out = {
@@ -57,7 +58,7 @@ function findLatestCodexSessionId(db, projectPath) {
     .prepare(
       `SELECT session_id, project_path
        FROM sessions
-       WHERE session_id LIKE 'codex:%'
+       WHERE session_id LIKE 'codex:%' ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     )
     .all();

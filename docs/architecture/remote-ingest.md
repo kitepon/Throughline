@@ -5,7 +5,8 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
 
 ## Public contract
 
-`throughline remote-ingest --json` consumes one JSON object on stdin:
+`throughline remote-ingest --json` (main) or `throughline remote-ingest --fork --json`
+(read-only fork) consumes one JSON object on stdin:
 
 ```ts
 {
@@ -14,9 +15,17 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
   launchId: string, // native 32 hex launch identity
   claudeSessionId: string,
   entries: string[],
-  cursor: { claudeSessionId: string, offset: number }
+  cursor: { claudeSessionId: string, offset: number },
+  sessionKind?: 'fork',     // required with --fork, forbidden without it
+  parentSessionId?: string, // required with --fork: Aiterm fork_of.vendor_session_id (= THROUGHLINE_PARENT_SESSION_ID)
+  forkId?: string           // optional with --fork: THROUGHLINE_FORK_ID; forbidden without it
 }
 ```
+
+The flag and the body fields must agree, else `E_REMOTE_INPUT`. Throughline 0.17.0
+and older reject any argv other than `['--json']` before reading stdin, so a fork
+sent to an old version stores nothing instead of being stored as main; execution
+needs no version check (agreed with Kiro, C7).
 
 Success is `{schema: 'throughline.remote_ingest.v1', status: 'ready', ackedCursor}`.
 `throughline remote-handoff-context --bot <botId> --json` returns the existing
@@ -40,7 +49,7 @@ turn: later bytes update its projection without duplicating the pair.
 | Remote native Stop/reconnect | Terminals/Aiterm transcript read, execution binding validation | Original completed-prefix lines + byte cursor |
 | Execution ingest | `bin/throughline.mjs` -> `cli/remote-context.mjs` -> `ingestRemoteTranscript` in `remote-ingest.mjs` | Validate range; compare overlap; atomically store source + L2 + cursor; ACK |
 | Execution launch preparation | `remote-handoff-context` -> `readRemoteHandoffContext` -> existing `readRecentProjectHandoffContext` | Existing 9,500-character short-term memory text, isolated to this Bot |
-| Private remote DB connection | `db.openDb(path)` | Existing schema 12/migrations/locking, caller closes connection; shared `getDb()` keeps its singleton contract |
+| Private remote DB connection | `db.openDb(path)` | Existing schema 13/migrations/locking, caller closes connection; shared `getDb()` keeps its singleton contract |
 | Conversation projection | Existing parser/grouping logic exposed as `parseTranscript` / `groupTranscriptTurns` | User/last non-junk assistant pairs; existing file readers delegate to the same logic; append updates preserve one stable group identity |
 
 The overall architecture links here; existing Stop and local handoff connections
@@ -60,7 +69,10 @@ stay in [entrypoints](current-entrypoints.md) and [projections](current-projecti
 Stable source identity is `(botId, claudeSessionId)`, across sessionName/launchId
 changes. Different Claude sessions for one Bot coexist. Different Bots have
 different DBs even if their native Claude session IDs collide. New remote stores
-reuse core schema 12 plus a private intake table; the shared local DB is untouched.
+reuse core schema 13 plus a private intake table; the shared local DB is untouched.
+Remote handoff selects main sessions only ([fork isolation](fork-session-isolation.md));
+a fork is labelled only from `--fork` plus the authenticated `sessionKind: 'fork'` input,
+which execution sets from its own Aiterm fork launch.
 
 ## Errors, exits and scope
 

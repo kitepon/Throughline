@@ -10,6 +10,23 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-11
+
+### Added
+
+- Schema v13 labels read-only fork sessions (`session_kind`, `fork_id`,
+  `fork_parent_session_id`). Automatic latest/recent/predecessor selection,
+  remote handoff, merge and first-prompt handoff use main sessions only; explicit
+  `handoff-context --session` and `recall` keep fork records and show the label.
+  Capture labels a fork from the Aiterm 0.70.6 seat env (`THROUGHLINE_SESSION_KIND=fork`,
+  `THROUGHLINE_PARENT_SESSION_ID` = parent's native session ID, `THROUGHLINE_FORK_ID`) at SessionStart,
+  UserPromptSubmit and Stop; Codex capture also requires the rollout's
+  `forked_from_id`; remote intake labels a fork only via `remote-ingest --fork --json`
+  with body `sessionKind: 'fork'` and `parentSessionId` (optional `forkId`); flag and
+  body must agree, and older versions refuse the flag instead of storing a fork as main. A fork registers no pending handoff, writes no `/tl`/`/clear` baton and
+  starts no Claude auto handoff. A session that already holds main records is never
+  relabelled.
+
 ## [0.17.0] - 2026-11-09
 
 ### Added
@@ -2924,7 +2941,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/kitepon/Throughline/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/kitepon/Throughline/compare/v0.16.56...v0.17.0
 [0.16.54]: https://github.com/kitepon/Throughline/compare/v0.16.53...v0.16.54
 [0.16.53]: https://github.com/kitepon/Throughline/compare/v0.16.52...v0.16.53

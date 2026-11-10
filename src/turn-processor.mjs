@@ -40,6 +40,7 @@ import {
 } from './transcript-reader.mjs';
 import { backfillBodies, logBackfill } from './turn-backfill.mjs';
 import { resolveMergeTarget } from './session-merger.mjs';
+import { markForkSessionFromEnv } from './session-kind.mjs';
 import { writeSessionState } from './state-file.mjs';
 import { summarizeToL1 } from './haiku-summarizer.mjs';
 import { ensureMonitorTaskFile } from './vscode-task.mjs';
@@ -294,6 +295,8 @@ async function processStop() {
   }
 
   const db = getDb();
+  // 本文より先に fork の印を付ける (SessionStart が走らなかった fork も、ここで印が付く)。
+  markForkSessionFromEnv(db, session_id, cwd ?? process.cwd(), process.env);
   // merge target 解決: 入力 session が既に合流済みなら target = 合流先
   const { target, origin } = resolveMergeTarget(db, session_id);
 

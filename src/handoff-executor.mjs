@@ -18,6 +18,7 @@ import { backfillBodies, deriveTranscriptPath, logBackfill } from './turn-backfi
 import { buildBudgetedResumeContext, buildAutoContinuationContext } from './resume-context.mjs';
 import { acceptClaudeAutoContinuation, findClaudeAutoContinuationSource } from './claude-auto-handoff.mjs';
 import { readAllSessionStates } from './state-file.mjs';
+import { isForkSession } from './session-kind.mjs';
 
 /**
  * @param {import('node:sqlite').DatabaseSync} db
@@ -34,7 +35,8 @@ import { readAllSessionStates } from './state-file.mjs';
  * }}
  */
 export function executeFirstPromptHandoff(db, { sessionId, projectPath, now = Date.now(), prompt = null }) {
-  const pending = consumePendingHandoff(db, { sessionId });
+  // fork は main の pending/baton/自動継続を消費しない (main の後継のために残す)。
+  const pending = isForkSession(db, sessionId) ? null : consumePendingHandoff(db, { sessionId });
   if (!pending) {
     return {
       attempted: false,

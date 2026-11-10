@@ -10,7 +10,8 @@
 
 ## プロジェクト概要
 
-Remote Claude C7 intake is supplied by `remote-ingest --json` and
+Remote Claude C7 intake is supplied by `remote-ingest --json` (fork seats:
+`remote-ingest --fork --json`) and
 `remote-handoff-context --bot <id> --json`. The canonical function/data-flow and
 wire contract is [remote intake](docs/architecture/remote-ingest.md). Each Bot's
 raw transcript, L2 and cursor share a separate SQLite transaction; the shared

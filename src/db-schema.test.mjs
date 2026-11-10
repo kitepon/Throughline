@@ -38,10 +38,10 @@ function indexNames(db) {
     .map((row) => row.name);
 }
 
-test('schema v12は既存の記憶と自動継続の状態を保持する', async () => {
+test('schema v13は既存の記憶と自動継続の状態を保持する', async () => {
   await withIsolatedDb((db) => {
     const version = db.prepare('PRAGMA user_version').get();
-    assert.equal(version.user_version, 12);
+    assert.equal(version.user_version, 13);
 
     assert.deepEqual(columnNames(db, 'sessions'), [
       'session_id',
@@ -50,6 +50,9 @@ test('schema v12は既存の記憶と自動継続の状態を保持する', asyn
       'created_at',
       'updated_at',
       'merged_into',
+      'session_kind',
+      'fork_id',
+      'fork_parent_session_id',
     ]);
     assert.deepEqual(columnNames(db, 'skeletons'), [
       'id',

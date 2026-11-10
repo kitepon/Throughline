@@ -2,6 +2,7 @@ import { getDb } from '../db.mjs';
 import { buildHandoffRecord } from '../handoff-record.mjs';
 import { toThroughlineHandoffBlock } from '../codex-handoff.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 
 function parseArgs(args) {
   const out = {
@@ -38,6 +39,7 @@ function findLatestSessionId(db, projectPath) {
     .prepare(
       `SELECT session_id, project_path
        FROM sessions
+       WHERE 1 = 1 ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     )
     .all();

@@ -165,5 +165,14 @@ test('public commands survive process restart and expose compatible handoff/erro
   assert.equal(bad.status, 1);
   assert.equal(JSON.parse(bad.stderr).code, 'E_REMOTE_INPUT');
   assert.doesNotMatch(bad.stderr + bad.stdout, /secret-raw-transcript/);
+  // fork は `--fork --json` と本文の fork 欄の対でだけ受ける。片方だけは E_REMOTE_INPUT。
+  const forkBinding = { ...binding, claudeSessionId: 'claude-fork' };
+  const forkRequest = { ...input(pair('fork 依頼', 'fork 回答'), undefined, forkBinding), sessionKind: 'fork', parentSessionId: 'seat-main', forkId: 'f-1' };
+  assert.equal(JSON.parse(run(['remote-ingest', '--json'], forkRequest).stderr).code, 'E_REMOTE_INPUT');
+  const { sessionKind: _k, parentSessionId: _p, forkId: _f, ...unlabelled } = forkRequest;
+  assert.equal(JSON.parse(run(['remote-ingest', '--fork', '--json'], unlabelled).stderr).code, 'E_REMOTE_INPUT');
+  const forked = run(['remote-ingest', '--fork', '--json'], forkRequest);
+  assert.equal(forked.status, 0, forked.stderr);
+  assert.doesNotMatch(JSON.parse(run(['remote-handoff-context', '--bot', 'bot-a', '--json']).stdout).context, /fork 回答/);
   assert.equal(existsSync(join(home, '.throughline', 'throughline.db')), false);
 });

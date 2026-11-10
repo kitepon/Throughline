@@ -80,6 +80,7 @@ export function findCodexThreadCandidate({
         cwd,
         source: meta?.source ?? null,
         cliVersion: meta?.cli_version ?? null,
+        forkedFromId: typeof meta?.forked_from_id === 'string' && meta.forked_from_id ? meta.forked_from_id : null,
         matchesProject,
         mtimeMs: rollout.mtimeMs,
       };

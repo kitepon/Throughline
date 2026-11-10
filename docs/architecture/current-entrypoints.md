@@ -5,6 +5,12 @@ store. Its function/data-flow contract is [remote intake](remote-ingest.md).
 It reuses core DB initialization through `openDb(path)` without changing the
 shared `getDb()` singleton or local Stop capture contract.
 
+Schema v13 adds the fork label to `sessions`; first-prompt handoff and merge skip
+fork sessions. SessionStart, UserPromptSubmit, Stop, Codex capture and remote intake
+label forks from the launcher marker; a fork registers no pending handoff, writes no
+baton and starts no Claude auto handoff. See
+[fork session isolation](fork-session-isolation.md).
+
 基準base `39ff812d46c0e84e8fc1418096c509551cf3928b`、S1実装後の現行対応。[全体索引と現在の工程](README.md)から本詳細を経て実file/関数へ辿る。上段のsource調査時点の未読/未実行と、末尾のS1/S2/S3追補・保持根拠を区別する。[描画manifest](render-manifest.json)の原稿/描画物対応は固定し、意味が変わらない図を反復描画しない。適用済みAstraの最終照合結果は[全体索引末尾のS5](README.md#s5最終整合2026-11-03適用済みastra-xhigh)へ固定した。3OS全件/gateと指導担当の全体成果受入は完了。通常保守への引継ぎは全体索引末尾を参照。
 
 ```mermaid

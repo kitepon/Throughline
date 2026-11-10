@@ -6,6 +6,7 @@ import {
   toCodexDeveloperMessageItem,
 } from '../codex-handoff.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 
 const FORMATS = new Set(['text', 'handoff', 'item-json']);
 
@@ -80,7 +81,7 @@ function findLatestCodexSessionId(db, projectPath) {
     .prepare(
       `SELECT session_id, project_path
        FROM sessions
-       WHERE session_id LIKE 'codex:%'
+       WHERE session_id LIKE 'codex:%' ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     )
     .all();

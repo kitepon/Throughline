@@ -1042,6 +1042,7 @@ the transcript into execution or writing the local-seat memory database:
 
 ```bash
 throughline remote-ingest --json < completed-delta.json
+throughline remote-ingest --fork --json < completed-fork-delta.json
 throughline remote-handoff-context --bot bot-example --json
 ```
 
@@ -1051,6 +1052,10 @@ one original complete JSONL line including its original LF/CRLF; offset is the
 exclusive original UTF-8 byte offset. The bound native provider must send only
 lines through a Claude Stop-confirmed completion, including after reconnect.
 Execution waits for native completion before reading an interrupted turn.
+A read-only fork seat uses `--fork --json` and adds `sessionKind: "fork"`,
+`parentSessionId` and optional `forkId`; the flag and body must agree. Fork
+conversations stay readable explicitly but never enter remote handoff memory.
+Versions before 0.18.0 reject `--fork` before reading stdin.
 
 Ingestion returns `throughline.remote_ingest.v1` with `status: "ready"` and
 `ackedCursor`. Source, L2 conversation and ACK cursor commit together in a
