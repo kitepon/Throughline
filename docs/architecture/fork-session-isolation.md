@@ -19,7 +19,7 @@ ordinary main behaviour.
 | --- | --- |
 | `session_kind` | `NULL` (main) or `'fork'` |
 | `fork_id` | Launcher-issued fork identity, opaque |
-| `fork_parent_session_id` | Main Aiterm seat ID supplied by the launcher (`THROUGHLINE_PARENT_SESSION_ID`), opaque |
+| `fork_parent_session_id` | Parent's native (vendor) session ID supplied by the launcher (`THROUGHLINE_PARENT_SESSION_ID` = Aiterm `fork_of.vendor_session_id`), opaque |
 
 The label is written only from the launcher-authoritative marker. It is never
 inferred from timing, copied prompts or native parent metadata alone. Once
@@ -31,8 +31,9 @@ Every entrypoint labels before it writes bodies, so a new fork row has none.
 ## Launcher marker (Aiterm 0.70.6, Elegg)
 
 A seat started with `agent_launch.fork_from` has, in its process environment,
-`THROUGHLINE_SESSION_KIND=fork`, `THROUGHLINE_PARENT_SESSION_ID=<main Aiterm seat id>`
-and `THROUGHLINE_FORK_ID=<caller fork_id>` (absent when none was sent). A normal
+`THROUGHLINE_SESSION_KIND=fork`, `THROUGHLINE_PARENT_SESSION_ID=<fork_of.vendor_session_id>`
+(the main's native session ID) and `THROUGHLINE_FORK_ID=<caller fork_id, else the fork
+seat ID>` (Aiterm 0.70.6 `dist/core.js`). A normal
 seat has none; a resumed fork keeps them. `session-kind.forkIdentityFromEnv` is the
 only reader. Claude forks run `--resume <main> --fork-session`, so hooks see the
 fork's new session ID. A Codex fork rollout carries native `forked_from_id` in
@@ -67,7 +68,7 @@ rendering contract.
 | --- | --- | --- |
 | Aiterm launcher (Elegg) -> local hook process env | `THROUGHLINE_SESSION_KIND`, `THROUGHLINE_PARENT_SESSION_ID`, `THROUGHLINE_FORK_ID?` | Present from the first hook; resumed forks keep it |
 | Codex rollout `session_meta` -> Codex capture | `forked_from_id` | Binds the env marker to the fork rollout; never sufficient alone |
-| BellTeam execution (C7, Kiro) -> remote intake | `--fork` + `sessionKind`, `parentSessionId` (= `fork_of.session_id`), `forkId?` | Execution's authenticated launch knowledge; old Throughline refuses, never stores as main |
+| BellTeam execution (C7, Kiro) -> remote intake | `--fork` + `sessionKind`, `parentSessionId` (= `fork_of.vendor_session_id`), `forkId?` | Execution's authenticated launch knowledge; old Throughline refuses, never stores as main |
 | Capture -> product DB `sessions` | `session_kind='fork'`, `fork_id`, `fork_parent_session_id` | Survives restart/replay; never cleared by later captures |
 | Product DB -> automatic main memory (predecessor, latest, recent, remote handoff) | main session rows only | Fork rows filtered in SQL before any body/summary is loaded |
 | Product DB -> merge / first-prompt handoff | main session rows only | Fork on either side skips; main baton/pending stay for the main successor |

@@ -17,7 +17,7 @@ shipped to npm but were not individually tagged on GitHub.
   remote handoff, merge and first-prompt handoff use main sessions only; explicit
   `handoff-context --session` and `recall` keep fork records and show the label.
   Capture labels a fork from the Aiterm 0.70.6 seat env (`THROUGHLINE_SESSION_KIND=fork`,
-  `THROUGHLINE_PARENT_SESSION_ID`, optional `THROUGHLINE_FORK_ID`) at SessionStart,
+  `THROUGHLINE_PARENT_SESSION_ID` = parent's native session ID, `THROUGHLINE_FORK_ID`) at SessionStart,
   UserPromptSubmit and Stop; Codex capture also requires the rollout's
   `forked_from_id`; remote intake labels a fork only via `remote-ingest --fork --json`
   with body `sessionKind: 'fork'` and `parentSessionId` (optional `forkId`); flag and

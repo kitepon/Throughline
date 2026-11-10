@@ -17,7 +17,7 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
   entries: string[],
   cursor: { claudeSessionId: string, offset: number },
   sessionKind?: 'fork',     // required with --fork, forbidden without it
-  parentSessionId?: string, // required with --fork: Aiterm fork_of.session_id (= THROUGHLINE_PARENT_SESSION_ID)
+  parentSessionId?: string, // required with --fork: Aiterm fork_of.vendor_session_id (= THROUGHLINE_PARENT_SESSION_ID)
   forkId?: string           // optional with --fork: THROUGHLINE_FORK_ID; forbidden without it
 }
 ```
