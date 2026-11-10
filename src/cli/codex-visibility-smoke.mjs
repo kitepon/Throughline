@@ -3,6 +3,7 @@ import { CODEX_SESSION_PREFIX, codexSessionIdToThreadId, isCodexSessionId } from
 
 import { getDb } from '../db.mjs';
 import { buildHandoffRecord } from '../handoff-record.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 import { renderCodexActiveWorkContext } from '../codex-handoff.mjs';
 import { runCodexModelVisibilitySmoke } from '../codex-app-server.mjs';
 
@@ -98,7 +99,7 @@ function findLatestCodexSessionId(db, projectPath) {
       `SELECT session_id
        FROM sessions
        WHERE lower(project_path) = lower(?)
-         AND session_id LIKE 'codex:%'
+         AND session_id LIKE 'codex:%' ${mainSessionFilter(db)}
        ORDER BY updated_at DESC
        LIMIT 1`,
     )

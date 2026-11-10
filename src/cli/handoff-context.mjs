@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { normalizeProjectPathForCompare, sameProjectPath } from '../project-path.mjs';
 import { openReadOnlyDb } from '../db.mjs';
+import { mainSessionFilter, readSessionKind } from '../session-kind.mjs';
 import {
   buildBudgetedResumeContext,
   buildRecentSessionsContext,
@@ -144,6 +145,7 @@ export function readLatestProjectHandoffContext(projectPath, {
     const sessions = db.prepare(
       `SELECT session_id, project_path
        FROM sessions
+       WHERE 1 = 1 ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     ).all();
     for (const session of sessions) {
@@ -179,6 +181,7 @@ export function readRecentProjectHandoffContext(projectPath, {
     const sessions = db.prepare(
       `SELECT session_id, project_path
        FROM sessions
+       WHERE 1 = 1 ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     ).all();
     for (const session of sessions) {
@@ -223,6 +226,7 @@ export function run(argv = [], {
   readContext = readHandoffContext,
   readProjectContext = readLatestProjectHandoffContext,
   readRecentProjectContext = readRecentProjectHandoffContext,
+  readKind = readExplicitSessionKind,
 } = {}) {
   let sessionId;
   let projectPath;
@@ -248,6 +252,7 @@ export function run(argv = [], {
       result = {
         sessionId,
         context: readContext(sessionId, { supplementFile, handoffDisclosure }),
+        sessionKind: readKind(sessionId),
       };
     }
   } catch {
@@ -275,6 +280,20 @@ export function run(argv = [], {
     sessionId: result.sessionId,
     context: result.context,
     ...(recent ? { sessions: result.sessions } : {}),
+    ...(result.sessionKind ? { sessionKind: 'fork', forkId: result.sessionKind.forkId, parentSessionId: result.sessionKind.parentSessionId } : {}),
   })}\n`);
   return 0;
+}
+
+/** 明示 --session 読取の fork 印。main と DB 不在は null (出力を変えない)。 */
+export function readExplicitSessionKind(sessionId, {
+  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+} = {}) {
+  if (!existsSync(dbPath)) return null;
+  const db = openReadOnlyDb(dbPath);
+  try {
+    return readSessionKind(db, sessionId);
+  } finally {
+    db.close();
+  }
 }

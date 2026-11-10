@@ -6,6 +6,7 @@ import { buildCodexHandoffModelSmokePrompt } from '../codex-handoff-model-smoke.
 import { runCodexNewThreadHandoff } from '../codex-app-server.mjs';
 import { estimateTokens } from '../token-estimator.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 import { shQuote } from '../os/shell.mjs';
 import { openUrlWithOsHandler } from '../os/open-url.mjs';
 import { runTerminalDoScript } from '../os/macos-terminal.mjs';
@@ -111,7 +112,7 @@ function findLatestCodexSessionId(db, projectPath) {
     .prepare(
       `SELECT session_id, project_path
        FROM sessions
-       WHERE session_id LIKE 'codex:%'
+       WHERE session_id LIKE 'codex:%' ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     )
     .all();

@@ -40,7 +40,7 @@ turn: later bytes update its projection without duplicating the pair.
 | Remote native Stop/reconnect | Terminals/Aiterm transcript read, execution binding validation | Original completed-prefix lines + byte cursor |
 | Execution ingest | `bin/throughline.mjs` -> `cli/remote-context.mjs` -> `ingestRemoteTranscript` in `remote-ingest.mjs` | Validate range; compare overlap; atomically store source + L2 + cursor; ACK |
 | Execution launch preparation | `remote-handoff-context` -> `readRemoteHandoffContext` -> existing `readRecentProjectHandoffContext` | Existing 9,500-character short-term memory text, isolated to this Bot |
-| Private remote DB connection | `db.openDb(path)` | Existing schema 12/migrations/locking, caller closes connection; shared `getDb()` keeps its singleton contract |
+| Private remote DB connection | `db.openDb(path)` | Existing schema 13/migrations/locking, caller closes connection; shared `getDb()` keeps its singleton contract |
 | Conversation projection | Existing parser/grouping logic exposed as `parseTranscript` / `groupTranscriptTurns` | User/last non-junk assistant pairs; existing file readers delegate to the same logic; append updates preserve one stable group identity |
 
 The overall architecture links here; existing Stop and local handoff connections
@@ -60,7 +60,9 @@ stay in [entrypoints](current-entrypoints.md) and [projections](current-projecti
 Stable source identity is `(botId, claudeSessionId)`, across sessionName/launchId
 changes. Different Claude sessions for one Bot coexist. Different Bots have
 different DBs even if their native Claude session IDs collide. New remote stores
-reuse core schema 12 plus a private intake table; the shared local DB is untouched.
+reuse core schema 13 plus a private intake table; the shared local DB is untouched.
+Remote handoff selects main sessions only ([fork isolation](fork-session-isolation.md));
+remote fork labelling needs the pending launcher marker in authenticated input.
 
 ## Errors, exits and scope
 

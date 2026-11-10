@@ -40,6 +40,7 @@ import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { CLAUDE_HOST, hostAdapterForSessionId, hostOfSessionId, NON_CLAUDE_SESSION_PREFIXES, parseHookPayload } from './hosts/index.mjs';
 import { executeFirstPromptHandoff } from './handoff-executor.mjs';
+import { mainSessionFilter } from './session-kind.mjs';
 
 const ENV_DISABLE_AUTO_HANDOFF = 'THROUGHLINE_DISABLE_AUTO_HANDOFF';
 
@@ -74,6 +75,7 @@ function findLatestClaudePredecessor(db, projectPath, currentSessionId) {
          AND merged_into IS NULL
          AND session_id != ?
          ${nonClaudeExclusion}
+         ${mainSessionFilter(db)}
        ORDER BY updated_at DESC
        LIMIT 5`,
     )

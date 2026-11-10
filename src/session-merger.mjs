@@ -14,6 +14,7 @@
  */
 
 import { sameProjectPath } from './project-path.mjs';
+import { isForkSession } from './session-kind.mjs';
 
 const MAX_CHAIN_DEPTH = 10;
 
@@ -65,7 +66,7 @@ export function resolveMergeTarget(db, sessionId) {
  *   merged: boolean,
  *   predecessorId?: string,
  *   rowCounts?: { sk: number, dt: number, bd: number },
- *   skipReason?: 'self_handoff' | 'predecessor_not_found' | 'already_merged' | 'project_mismatch' | 'predecessor_not_older',
+ *   skipReason?: 'self_handoff' | 'predecessor_not_found' | 'already_merged' | 'fork_session' | 'project_mismatch' | 'predecessor_not_older',
  * }}
  */
 export function mergeSpecificPredecessor(db, { newSessionId, predecessorId, now = Date.now() }) {
@@ -86,6 +87,11 @@ export function mergeSpecificPredecessor(db, { newSessionId, predecessorId, now 
     if (pred.merged_into) {
       db.exec('COMMIT');
       return { merged: false, skipReason: 'already_merged' };
+    }
+    // read-only fork は main の記録を取らず、main へも合流しない。
+    if (isForkSession(db, predecessorId) || isForkSession(db, newSessionId)) {
+      db.exec('COMMIT');
+      return { merged: false, skipReason: 'fork_session' };
     }
 
     const self = db

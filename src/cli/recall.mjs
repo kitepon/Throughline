@@ -24,6 +24,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { settleFirstRead } from '../db.mjs';
+import { readSessionKind } from '../session-kind.mjs';
 import { formatTime } from '../handoff-record.mjs';
 import { groupL3ByTurn, buildPartsSummary } from '../l3-summary.mjs';
 
@@ -270,6 +271,8 @@ export function run(argv) {
   try {
     settleFirstRead(db);
     const result = runRecall(db, opts);
+    const fork = readSessionKind(db, opts.sessionId);
+    if (fork) process.stdout.write(`（この会話は read-only fork: forkId=${fork.forkId ?? '不明'}、親=${fork.parentSessionId ?? '不明'}。本席の自動記憶には入りません）\n`);
     process.stdout.write(`${result.text}\n`);
     return 0;
   } catch (err) {

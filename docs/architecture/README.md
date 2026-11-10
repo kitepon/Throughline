@@ -23,6 +23,10 @@ existing recent-session renderer. The function/data-flow contract, persistence
 boundary and CLI connections are canonical in [remote intake](remote-ingest.md).
 Remote records do not change the shared local-seat DB schema or host hooks.
 
+Read-only fork sessions are labelled in `sessions` (schema v13) and filtered out of
+every automatic main-memory selector, merge and first-prompt handoff; explicit reads
+stay available with the label. Canonical: [fork session isolation](fork-session-isolation.md).
+
 ```mermaid
 flowchart TB
   External["4hostのhook / 利用者 / 外部consumer"] --> CLI["bin: 引数dispatch / host payload入口"]

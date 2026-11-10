@@ -2,6 +2,7 @@ import { getDb } from '../db.mjs';
 import { buildHandoffRecord } from '../handoff-record.mjs';
 import { buildCodexHandoffSmoke } from '../codex-handoff-smoke.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { mainSessionFilter } from '../session-kind.mjs';
 
 async function readStdin() {
   let raw = '';
@@ -80,7 +81,7 @@ function findLatestCodexSessionId(db, projectPath) {
     .prepare(
       `SELECT session_id, project_path
        FROM sessions
-       WHERE session_id LIKE 'codex:%'
+       WHERE session_id LIKE 'codex:%' ${mainSessionFilter(db)}
        ORDER BY updated_at DESC`,
     )
     .all();

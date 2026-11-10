@@ -10,6 +10,14 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+### Added
+
+- Schema v13 labels read-only fork sessions (`session_kind`, `fork_id`,
+  `fork_parent_session_id`). Automatic latest/recent/predecessor selection,
+  remote handoff, merge and first-prompt handoff use main sessions only; explicit
+  `handoff-context --session` and `recall` keep fork records and show the label.
+  Capture-side labelling waits for the launcher marker contract.
+
 ## [0.17.0] - 2026-11-09
 
 ### Added
