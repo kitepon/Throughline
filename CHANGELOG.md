@@ -19,8 +19,9 @@ shipped to npm but were not individually tagged on GitHub.
   Capture labels a fork from the Aiterm 0.70.6 seat env (`THROUGHLINE_SESSION_KIND=fork`,
   `THROUGHLINE_PARENT_SESSION_ID`, optional `THROUGHLINE_FORK_ID`) at SessionStart,
   UserPromptSubmit and Stop; Codex capture also requires the rollout's
-  `forked_from_id`; remote intake accepts optional `sessionKind`/`parentSessionId`/
-  `forkId`. A fork registers no pending handoff, writes no `/tl`/`/clear` baton and
+  `forked_from_id`; remote intake labels a fork only via `remote-ingest --fork --json`
+  with body `sessionKind: 'fork'` and `parentSessionId` (optional `forkId`); flag and
+  body must agree, and older versions refuse the flag instead of storing a fork as main. A fork registers no pending handoff, writes no `/tl`/`/clear` baton and
   starts no Claude auto handoff. A session that already holds main records is never
   relabelled.
 

@@ -5,7 +5,8 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
 
 ## Public contract
 
-`throughline remote-ingest --json` consumes one JSON object on stdin:
+`throughline remote-ingest --json` (main) or `throughline remote-ingest --fork --json`
+(read-only fork) consumes one JSON object on stdin:
 
 ```ts
 {
@@ -15,11 +16,16 @@ Aiterm `agent_done` / Claude Stop, remote-terminal contract at `b35eb48`.
   claudeSessionId: string,
   entries: string[],
   cursor: { claudeSessionId: string, offset: number },
-  sessionKind?: 'fork',     // only when execution launched this seat as a fork
-  parentSessionId?: string, // Aiterm THROUGHLINE_PARENT_SESSION_ID
-  forkId?: string           // Aiterm THROUGHLINE_FORK_ID, when the caller sent one
+  sessionKind?: 'fork',     // required with --fork, forbidden without it
+  parentSessionId?: string, // required with --fork: Aiterm fork_of.session_id (= THROUGHLINE_PARENT_SESSION_ID)
+  forkId?: string           // optional with --fork: THROUGHLINE_FORK_ID; forbidden without it
 }
 ```
+
+The flag and the body fields must agree, else `E_REMOTE_INPUT`. Throughline 0.17.0
+and older reject any argv other than `['--json']` before reading stdin, so a fork
+sent to an old version stores nothing instead of being stored as main; execution
+needs no version check (agreed with Kiro, C7).
 
 Success is `{schema: 'throughline.remote_ingest.v1', status: 'ready', ackedCursor}`.
 `throughline remote-handoff-context --bot <botId> --json` returns the existing
@@ -65,8 +71,8 @@ changes. Different Claude sessions for one Bot coexist. Different Bots have
 different DBs even if their native Claude session IDs collide. New remote stores
 reuse core schema 13 plus a private intake table; the shared local DB is untouched.
 Remote handoff selects main sessions only ([fork isolation](fork-session-isolation.md));
-a fork is labelled only from the optional authenticated `sessionKind: 'fork'` input,
-which execution sets from its own Aiterm fork launch (no producer sends it yet).
+a fork is labelled only from `--fork` plus the authenticated `sessionKind: 'fork'` input,
+which execution sets from its own Aiterm fork launch.
 
 ## Errors, exits and scope
 

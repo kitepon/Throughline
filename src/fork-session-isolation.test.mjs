@@ -224,7 +224,7 @@ test('remote intake persists the fork label and keeps it out of remote handoff m
     const send = (claudeSessionId, text, at, extra = {}) => {
       const entries = [line('user', `${text} question`, at), line('assistant', `${text} answer`, at + 1)];
       return ingestRemoteTranscript({ botId: 'bot-r', sessionName: 'bot-r', launchId: 'b'.repeat(32), claudeSessionId, entries,
-        cursor: { claudeSessionId, offset: Buffer.byteLength(entries.join('')) }, ...extra }, { home, now: at });
+        cursor: { claudeSessionId, offset: Buffer.byteLength(entries.join('')) }, ...extra }, { home, now: at, fork: extra.sessionKind === 'fork' });
     };
     send('claude-main', 'MAIN-BODY', 1_700_000_000_000);
     send('claude-fork', 'FORK-BODY', 1_700_000_010_000, { sessionKind: 'fork', parentSessionId: 'seat-main', forkId: 'f-1' });
@@ -232,6 +232,13 @@ test('remote intake persists the fork label and keeps it out of remote handoff m
     assert.match(memory.context, /MAIN-BODY/u);
     assert.doesNotMatch(memory.context, /FORK-BODY/u);
     assert.throws(() => send('claude-x', 'X', 1_700_000_020_000, { sessionKind: 'main' }), TypeError);
+    // `--fork` と本文の fork 欄は、片方だけでは受けない (古い版の fork を main にしないための対)。
+    const entries = [line('user', 'Y question', 1), line('assistant', 'Y answer', 2)];
+    const body = { botId: 'bot-r', sessionName: 'bot-r', launchId: 'b'.repeat(32), claudeSessionId: 'claude-y', entries,
+      cursor: { claudeSessionId: 'claude-y', offset: Buffer.byteLength(entries.join('')) } };
+    assert.throws(() => ingestRemoteTranscript({ ...body, sessionKind: 'fork', parentSessionId: 'seat-main' }, { home }), TypeError);
+    assert.throws(() => ingestRemoteTranscript(body, { home, fork: true }), TypeError);
+    assert.throws(() => ingestRemoteTranscript({ ...body, sessionKind: 'fork' }, { home, fork: true }), TypeError);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

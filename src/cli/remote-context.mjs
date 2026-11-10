@@ -6,14 +6,16 @@ export async function run(command, argv, { stdin = process.stdin, stdout = proce
   const schema = ingest ? REMOTE_INGEST_SCHEMA : HANDOFF_CONTEXT_SCHEMA;
   try {
     if (ingest) {
-      if (argv.length !== 1 || argv[0] !== '--json') throw new TypeError('E_REMOTE_INPUT');
+      // fork は `--fork --json` だけで受ける。0.17.0 以前はこの引数を本文を読む前に断るので、fork を main として残さない。
+      const fork = argv.length === 2 && argv[0] === '--fork' && argv[1] === '--json';
+      if (!fork && (argv.length !== 1 || argv[0] !== '--json')) throw new TypeError('E_REMOTE_INPUT');
       let body = '';
       stdin.setEncoding('utf8');
       for await (const chunk of stdin) body += chunk;
       let input;
       try { input = JSON.parse(body); }
       catch { throw new TypeError('E_REMOTE_INPUT'); }
-      const result = ingestRemoteTranscript(input);
+      const result = ingestRemoteTranscript(input, { fork });
       stdout.write(`${JSON.stringify({ schema, status: 'ready', ...result })}\n`);
     } else {
       if (argv.length !== 3 || argv[0] !== '--bot' || argv[2] !== '--json') throw new TypeError('E_REMOTE_INPUT');

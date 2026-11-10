@@ -46,7 +46,7 @@ fork's new session ID. A Codex fork rollout carries native `forked_from_id` in
 | `prompt-submit` | `markForkSessionFromEnv` before `executeFirstPromptHandoff`; `forkIdentityFromEnv` before baton | Labels a fork whose SessionStart did not run; a fork writes no `/tl`/`/clear` baton (the project's one baton stays main) |
 | `turn-processor` Stop | `markForkSessionFromEnv` before merge-target and bodies | Label survives restart/replay; a fork that skipped SessionStart is still labelled before its first body |
 | `codex-hook` / `codex-capture` CLI -> `captureCodexRolloutToDb({fork})` | env marker **and** rollout `forked_from_id` (`codex-thread-index` candidate) | `forkLabel: 'marked'`; env without `forked_from_id` = `not_fork_rollout` (thread mismatch, left main); `forked_from_id` without env = user's own Codex fork, left main |
-| `remote-ingest.ingestRemoteTranscript` | optional `sessionKind: 'fork'`, `parentSessionId`, `forkId` | Labels the remote session row before bodies; any other `sessionKind` is `E_REMOTE_INPUT` |
+| `remote-ingest --fork --json` -> `ingestRemoteTranscript(input, {fork})` | flag + body `sessionKind: 'fork'`, `parentSessionId`, optional `forkId` | Labels the remote session row before bodies; flag/body disagreement is `E_REMOTE_INPUT`; 0.17.0 and older refuse the flag before stdin |
 | `claude-auto-handoff.requestClaudeAutoHandoff` (PreCompact) | `forkIdentityFromEnv` | `skipped`/`fork_session`, compaction passes, no record or successor. Codex auto handoff already runs only for Codex Desktop threads |
 | Automatic selectors | `session-kind.mainSessionFilter(db)` | SQL fragment `AND session_kind IS NULL`, or empty on a DB without the column (read-only opens do not migrate) |
 | `session-start.findLatestClaudePredecessor` | main filter | A fork never becomes the `/clear` predecessor |
@@ -67,7 +67,7 @@ rendering contract.
 | --- | --- | --- |
 | Aiterm launcher (Elegg) -> local hook process env | `THROUGHLINE_SESSION_KIND`, `THROUGHLINE_PARENT_SESSION_ID`, `THROUGHLINE_FORK_ID?` | Present from the first hook; resumed forks keep it |
 | Codex rollout `session_meta` -> Codex capture | `forked_from_id` | Binds the env marker to the fork rollout; never sufficient alone |
-| BellTeam execution (C7) -> remote intake | `sessionKind`, `parentSessionId`, `forkId?` | Execution's authenticated launch knowledge; not yet sent by the producer |
+| BellTeam execution (C7, Kiro) -> remote intake | `--fork` + `sessionKind`, `parentSessionId` (= `fork_of.session_id`), `forkId?` | Execution's authenticated launch knowledge; old Throughline refuses, never stores as main |
 | Capture -> product DB `sessions` | `session_kind='fork'`, `fork_id`, `fork_parent_session_id` | Survives restart/replay; never cleared by later captures |
 | Product DB -> automatic main memory (predecessor, latest, recent, remote handoff) | main session rows only | Fork rows filtered in SQL before any body/summary is loaded |
 | Product DB -> merge / first-prompt handoff | main session rows only | Fork on either side skips; main baton/pending stay for the main successor |

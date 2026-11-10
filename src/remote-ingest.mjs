@@ -52,14 +52,15 @@ function rangeError(code, claudeSessionId, offset) {
 }
 
 /** Only the bound native provider may supply completed-prefix lines (C7). */
-export function ingestRemoteTranscript(input, { home = homedir(), now = Date.now() } = {}) {
+export function ingestRemoteTranscript(input, { home = homedir(), now = Date.now(), fork: forkArg = false } = {}) {
   if (!input || typeof input !== 'object') throw new TypeError('E_REMOTE_INPUT');
   const { botId, sessionName, launchId, claudeSessionId, entries, cursor, sessionKind, parentSessionId, forkId } = input;
   [botId, sessionName, claudeSessionId].forEach(identifier);
-  // 任意。実行側が Aiterm の fork 起動 (THROUGHLINE_SESSION_KIND など) を確かめた時だけ渡す。
-  if (sessionKind !== undefined && sessionKind !== 'fork') throw new TypeError('E_REMOTE_INPUT');
+  // fork は CLI の `--fork` と本文の sessionKind:'fork' + parentSessionId がそろう時だけ。片方だけは断る。
+  if (forkArg ? sessionKind !== 'fork' || parentSessionId === undefined
+    : sessionKind !== undefined || parentSessionId !== undefined || forkId !== undefined) throw new TypeError('E_REMOTE_INPUT');
   [parentSessionId, forkId].forEach((value) => value === undefined || identifier(value));
-  const fork = sessionKind === 'fork' ? { parentSessionId: parentSessionId ?? null, forkId: forkId ?? null } : null;
+  const fork = forkArg ? { parentSessionId, forkId: forkId ?? null } : null;
   if (typeof launchId !== 'string' || !/^[a-f0-9]{32}$/i.test(launchId) ||
       cursor?.claudeSessionId !== claudeSessionId || !Number.isSafeInteger(cursor?.offset) ||
       cursor.offset < 0 || !Array.isArray(entries)) throw new TypeError('E_REMOTE_INPUT');
