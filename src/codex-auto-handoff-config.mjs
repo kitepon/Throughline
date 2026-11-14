@@ -1,11 +1,11 @@
 import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { normalizeProjectPathForCompare, sameProjectPath } from './project-path.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 export const AUTO_HANDOFF_CONFIG_SCHEMA = 'throughline.codex-auto-handoff.v1';
-export const autoHandoffConfigPath = () => join(homedir(), '.throughline', 'codex-auto-handoff.json');
+export const autoHandoffConfigPath = () => join(dataRoot(), 'codex-auto-handoff.json');
 
 export function readAutoHandoffConfig(path = autoHandoffConfigPath()) {
   let text;

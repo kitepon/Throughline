@@ -20,16 +20,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { settleFirstRead } from '../db.mjs';
 import { readSessionKind } from '../session-kind.mjs';
 import { formatTime } from '../handoff-record.mjs';
 import { groupL3ByTurn, buildPartsSummary } from '../l3-summary.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 export function defaultRecallDbPath() {
-  return join(homedir(), '.throughline', 'throughline.db');
+  return join(dataRoot(), 'throughline.db');
 }
 
 const USAGE =

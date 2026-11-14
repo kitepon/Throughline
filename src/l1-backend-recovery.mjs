@@ -14,12 +14,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { dataRoot } from './storage-roots.mjs';
 
 export const L1_BACKEND_RECOVERY_SCHEMA = 'throughline.l1_backend_recovery.v1';
 export const L1_BACKEND_UNRECOVERED_MS = 24 * 60 * 60 * 1000;
 
 export function l1BackendRecoveryPath({ home = homedir() } = {}) {
-  return join(home, '.throughline', 'l1-backend-recovery.json');
+  return join(dataRoot({ home }), 'l1-backend-recovery.json');
 }
 
 function read(path) {

@@ -10,6 +10,19 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-14
+
+### Added
+
+- Storage location and export are a public contract (ADR 0073). `THROUGHLINE_HOME`, when set,
+  is the one root for everything Throughline persists on every OS (data at the top,
+  `app-state/` for completed-turn receipts and runtime errors, `app-config/` for reporting
+  settings); unset keeps the existing defaults. `throughline storage locate --json` prints
+  `throughline.storage_locations.v1`. `throughline storage export --to <empty-directory> --json`
+  writes a consistent copy laid out as a `THROUGHLINE_HOME` (SQLite through `VACUUM INTO`, other
+  files through one open, lock and in-flight files left out) and prints
+  `throughline.storage_export.v1`. Hosts no longer need Throughline's file names or write manner.
+
 ## [0.18.0] - 2026-11-11
 
 ### Added
@@ -2942,6 +2955,7 @@ two attempts, instrument first instead of patching again.
 ---
 
 [Unreleased]: https://github.com/kitepon/Throughline/compare/v0.18.0...HEAD
+[0.19.0]: https://github.com/kitepon/Throughline/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/kitepon/Throughline/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/kitepon/Throughline/compare/v0.16.56...v0.17.0
 [0.16.54]: https://github.com/kitepon/Throughline/compare/v0.16.53...v0.16.54

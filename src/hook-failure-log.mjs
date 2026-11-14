@@ -13,6 +13,7 @@ import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { dataRoot } from './storage-roots.mjs';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version;
@@ -22,7 +23,7 @@ export const HOOK_FAILURE_STACK_FRAMES = 6;
 export const HOOK_FAILURE_STACK_FRAME_LIMIT = 300;
 
 export function hookFailureLogPath({ home = homedir() } = {}) {
-  return join(home, '.throughline', 'logs', 'hook-failures.log');
+  return join(dataRoot({ home }), 'logs', 'hook-failures.log');
 }
 
 function stackFrames(error) {

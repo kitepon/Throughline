@@ -15,7 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { hashAuditorBody } from './body-digest.mjs';
 import { normalizeProjectPathForCompare } from './project-path.mjs';
 import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
-import { windowsLocalAppData, xdgStateHome } from './os/app-dirs.mjs';
+import { appStateRoot } from './storage-roots.mjs';
 
 export const COMPLETED_TURN_RECEIPT_STORE_SCHEMA = 'throughline.completed_turn_receipts.v1';
 export const COMPLETED_TURN_RECEIPT_SCHEMA_VERSION = '1.0';
@@ -28,10 +28,7 @@ export const COMPLETED_TURN_RECEIPT_LOCK_TIMEOUT_MS = 60_000;
 
 export function defaultCompletedTurnReceiptStorePath(projectSha256, env = process.env) {
   if (!isSha256(projectSha256)) throw new TypeError('projectSha256 must be a SHA-256 digest');
-  if (isWindows(env)) {
-    return join(windowsLocalAppData(env), 'throughline', 'completed-turn-receipts', `${projectSha256}.json`);
-  }
-  return join(xdgStateHome(env), 'throughline', 'completed-turn-receipts', `${projectSha256}.json`);
+  return join(appStateRoot(env), 'completed-turn-receipts', `${projectSha256}.json`);
 }
 
 /**

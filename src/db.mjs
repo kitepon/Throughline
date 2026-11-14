@@ -4,10 +4,10 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'fs';
-import { homedir } from 'os';
 import { dirname, join } from 'path';
+import { dataRoot } from './storage-roots.mjs';
 
-const DB_DIR = join(homedir(), '.throughline');
+const DB_DIR = dataRoot();
 export const DB_PATH = join(DB_DIR, 'throughline.db');
 export const DB_BUSY_TIMEOUT_MS = 5_000;
 // WAL が checkpoint で巻き戻った後、次の書き込みでファイルをこの大きさまで切り詰める (ADR 0042)。

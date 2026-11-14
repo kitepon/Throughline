@@ -55,8 +55,8 @@ archiveと現行正本へ案内するためだけに残す。
 ## 製品の所有境界
 
 Throughline は単独で install、設定、状態保存、schema と migration、診断、復旧、更新、
-release 判定まで完結する。状態の正本は `~/.throughline/` と製品コードであり、他製品は
-公開CLI・JSON契約を介して連携する。dotagents は工場全体の配線と統合契約を管理するが、
+release 判定まで完結する。状態の正本は `~/.throughline/`（`THROUGHLINE_HOME` を指定した時はそこ）と製品コードであり、他製品は
+公開CLI・JSON契約を介して連携する。置き場所の指定・問い合わせ・書き出しは [ADR 0073](adr/0073-storage-location-and-export-contract.md) の口だけを使う。dotagents は工場全体の配線と統合契約を管理するが、
 Throughline の状態を直接書き換えず、製品の単独運用やrelease判断を制御しない。
 
 ## 文書の寿命

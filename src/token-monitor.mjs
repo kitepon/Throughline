@@ -22,13 +22,13 @@
 import { basename, dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { statSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { getStateDir, readAllSessionStates, snapshotStateMtimes, normalizeProjectPath, STALE_HIDE_MS } from './state-file.mjs';
 import { buildCodexMonitorUsage } from './codex-usage.mjs';
 import { listCodexThreadCandidates } from './codex-thread-index.mjs';
 import { readLatestUsage } from './transcript-usage.mjs';
 import { startSizeQuery } from './terminal-size.mjs';
 import { CODEX_HOST, CODEX_SESSION_PREFIX, codexSessionIdToThreadId } from './hosts/identity.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 const REFRESH_MS = 1000;
 // データ変化が無くても N ms ごとに再描画して「(24m ago)」表示を進める。
@@ -674,7 +674,7 @@ function runDiagnostic() {
 
   // ログファイルに保存 (task terminal のようにスクロール不能な環境向け)
   try {
-    const logPath = join(homedir(), '.throughline', 'last-diag.txt');
+    const logPath = join(dataRoot(), 'last-diag.txt');
     mkdirSync(dirname(logPath), { recursive: true });
     writeFileSync(logPath, lines.join(''));
     emit(`\n[ログ保存] ${logPath}\n`);

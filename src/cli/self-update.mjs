@@ -1,11 +1,11 @@
 import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { updateWindowsPackage } from '../os/windows-package-update.mjs';
 import { dirname, join, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { spawnPortableSync } from '../os/portable-spawn-sync.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../../package.json').version;
@@ -353,7 +353,7 @@ export function run(argv = [], {
     try {
       windowsUpdater({ target: win32.dirname(win32.dirname(root)), version, beforeVersion: packageVersion,
         npm: argv => npmResult(runner, argv, env, platform), stderr,
-        recoveryRoot: join(homedir(), '.throughline', 'recovery', 'package-updates') });
+        recoveryRoot: join(dataRoot(), 'recovery', 'package-updates') });
     } catch (error) {
       stderr.write(`[throughline self-update] ${error.message}\n`);
       return emitFailure({ ...args, stdout, stderr, stage: 'package_update_failed', version: packageVersion });

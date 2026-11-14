@@ -104,6 +104,10 @@ own through the documented CLI and does not require a factory controller.
 [dotagents](https://github.com/kitepon/dotagents) may wire Throughline into the
 kitepon.dev development factory, but it integrates the product rather than
 owning its state or controlling its lifecycle.
+Hosts choose where state lives with `THROUGHLINE_HOME`, ask where it is with
+`throughline storage locate --json`, and back it up with `throughline storage export`;
+they never read or write inside it by their own knowledge of the layout
+([ADR 0073](docs/adr/0073-storage-location-and-export-contract.md)).
 MarkItDown is a separately managed third-party CLI.
 
 ## In 30 seconds
@@ -942,6 +946,8 @@ once with `npm install --global throughline@latest`, then run
 | `throughline doctor --trim --host claude\|codex` | Diagnose trim host boundaries, manual procedure, and Codex host primitive blockage |
 | `throughline doctor --codex`                   | Diagnose Codex primary entry state, captured DB sessions, context-refresh memory contract, new-thread handoff readiness, safe continuation status, and host primitive audit |
 | `throughline factory-diagnostics --json`       | Versioned read-only native factory readiness JSON for database schema/migration, connector hooks, and representative capture/restore/handoff; does not emit bodies, secrets, absolute paths, or raw state |
+| `throughline storage locate --json`            | Print `throughline.storage_locations.v1`: the data, app-state and app-config roots, from `THROUGHLINE_HOME` or the defaults. Reads and creates nothing ([ADR 0073](docs/adr/0073-storage-location-and-export-contract.md)) |
+| `throughline storage export --to <dir> --json` | Write a consistent copy of all storage into a missing or empty `<dir>`, laid out as a `THROUGHLINE_HOME`, and print `throughline.storage_export.v1` |
 | `throughline migrate --json`                   | Migrate only an existing Throughline database to the current schema and emit a versioned bounded result; a missing database is not created, while future schemas and migration failures exit non-zero |
 | `throughline runtime-errors enable --json`     | Enable product-owned local runtime error collection in Throughline's own config; default is disabled |
 | `throughline runtime-errors disable --json`    | Disable product-owned local runtime error collection |

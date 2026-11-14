@@ -8,6 +8,7 @@ import { readRecentProjectHandoffContext } from './cli/handoff-context.mjs';
 import { groupTranscriptTurns, parseTranscript } from './transcript-reader.mjs';
 import { markForkSession } from './session-kind.mjs';
 import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 export const REMOTE_INGEST_SCHEMA = 'throughline.remote_ingest.v1';
 
@@ -23,7 +24,7 @@ function identifier(value) {
 }
 
 function locations(botId, home) {
-  const directory = join(home, '.throughline', 'remote-transcripts');
+  const directory = join(dataRoot({ home }), 'remote-transcripts');
   const key = digest(identifier(botId));
   return { directory, dbPath: join(directory, `${key}.sqlite`), projectPath: join(directory, key) };
 }

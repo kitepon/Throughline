@@ -17,9 +17,9 @@
 
 import { appendBoundedLog } from './bounded-log.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { dataRoot } from './storage-roots.mjs';
 
 /** 運んだ文の頭に置く印。記憶を読む側（transcript-reader）が、この印で運んだ文を見分ける。 */
 export const CLAUDE_FORWARD_MARK = '【Throughline 転送】';
@@ -52,7 +52,7 @@ const EMPTY_INBOX_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const ITEM_NAME = /^\d{13,}-[0-9a-f]{8}\.json$/;
 
-const defaultDir = () => join(homedir(), '.throughline', 'claude-auto-handoff');
+const defaultDir = () => join(dataRoot(), 'claude-auto-handoff');
 
 /** 後継の会話の置き場。会話 ID が置き場の名前に使えない形なら null。 */
 export function claudeForwardInboxDir(sessionId, dir = defaultDir()) {

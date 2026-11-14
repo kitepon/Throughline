@@ -18,10 +18,10 @@
  */
 
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { dataRoot } from './storage-roots.mjs';
 
 // claude-forward.mjs と同じ置き場と形。速い道を保つために、ここでは import しない。
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -36,7 +36,7 @@ const POLL_MS = 1000;
  */
 export async function waitForClaudeForwards({
   sessionId,
-  dir = join(homedir(), '.throughline', 'claude-auto-handoff'),
+  dir = join(dataRoot(), 'claude-auto-handoff'),
   maxWaitMs = (CLAUDE_FORWARD_WAIT_TIMEOUT_SECONDS - 300) * 1000,
   pollMs = POLL_MS,
   isOrphaned = () => process.platform !== 'win32' && process.ppid === 1,
@@ -93,7 +93,7 @@ export async function run() {
 
   const payload = JSON.parse(raw.replace(/^﻿/, ''));
   const sessionId = payload?.session_id;
-  const dir = join(homedir(), '.throughline', 'claude-auto-handoff');
+  const dir = join(dataRoot(), 'claude-auto-handoff');
   if (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId) || payload.agent_id ||
       !existsSync(join(dir, 'inbox', sessionId))) {
     process.exit(0);

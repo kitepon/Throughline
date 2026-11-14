@@ -39,22 +39,22 @@ import { logDecision } from './decision-log.mjs';
 import { ensureMonitorTaskFile } from './vscode-task.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { recordRuntimeErrorBestEffort } from './runtime-error-store.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
 import { hostAdapterForSessionId, parseHookPayload } from './hosts/index.mjs';
 import { CLAUDE_HOST } from './hosts/identity.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 // 記録のファイル名に使える session id だけを見る（claude-auto-handoff.mjs と同じ形）。
 const CLAUDE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 // Phase 0-5 spike marker (SessionStart の spike-inject.flag とは別)
-const PROMPT_SPIKE_MARKER_PATH = join(homedir(), '.throughline', 'spike-prompt.flag');
-const PROMPT_SPIKE_STATE_DIR = join(homedir(), '.throughline', 'spike-prompt-state');
+const PROMPT_SPIKE_MARKER_PATH = join(dataRoot(), 'spike-prompt.flag');
+const PROMPT_SPIKE_STATE_DIR = join(dataRoot(), 'spike-prompt-state');
 
 function logBaton(entry) {
-  const path = join(homedir(), '.throughline', 'logs', 'baton-write.log');
+  const path = join(dataRoot(), 'logs', 'baton-write.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
     appendBoundedLog(path, JSON.stringify(entry) + '\n');
@@ -65,7 +65,7 @@ function logBaton(entry) {
 }
 
 function logPromptSpike(entry) {
-  const path = join(homedir(), '.throughline', 'logs', 'prompt-spike.log');
+  const path = join(dataRoot(), 'logs', 'prompt-spike.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
     appendBoundedLog(path, JSON.stringify(entry) + '\n');
@@ -166,7 +166,7 @@ export async function run() {
   // 引き継ぎ済みの Claude の会話へ届いた入力は、モデルを動かさずに止めて、後継の場所を返す (ADR 0062)。
   // 記録のファイルが無い会話（ほとんどの会話）では、何も読み込まずに先へ進む。
   if (hostAdapter.host === CLAUDE_HOST && typeof session_id === 'string' && CLAUDE_SESSION_ID_PATTERN.test(session_id) &&
-      existsSync(join(homedir(), '.throughline', 'claude-auto-handoff', `${session_id}.json`))) {
+      existsSync(join(dataRoot(), 'claude-auto-handoff', `${session_id}.json`))) {
     const { redirectClaudeHandedOffPrompt } = await import('./claude-auto-handoff.mjs');
     const now = Date.now();
     const redirect = redirectClaudeHandedOffPrompt({ payload, now });
@@ -249,7 +249,7 @@ export async function run() {
   // 置き場のフォルダが無い会話（ほとんどの会話）では、何も読み込まずに先へ進む。記憶を注入した入力には足さない
   // （足すと、文脈の長さの上限で両方が切り詰められる。置き場の分は、番の終わりの hook か次の入力で届く）。
   if (!injected && hostAdapter.host === CLAUDE_HOST && typeof session_id === 'string' && CLAUDE_SESSION_ID_PATTERN.test(session_id) &&
-      existsSync(join(homedir(), '.throughline', 'claude-auto-handoff', 'inbox', session_id))) {
+      existsSync(join(dataRoot(), 'claude-auto-handoff', 'inbox', session_id))) {
     const { takeClaudeForwardsAsContext } = await import('./claude-forward.mjs');
     const taken = takeClaudeForwardsAsContext({ sessionId: session_id, via: 'prompt-submit' });
     if (taken) {

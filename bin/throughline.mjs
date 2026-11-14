@@ -161,6 +161,11 @@ switch (cmd) {
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
+  case 'storage': {
+    const exitCode = (await import('../src/cli/storage.mjs')).run(rest);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    break;
+  }
   case 'migrate': {
     const exitCode = (await import('../src/cli/migrate.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
@@ -324,6 +329,10 @@ Usage:
   throughline factory-diagnostics --json
                               Read-only native factory readiness JSON. Never emits
                               session/prompt bodies, secrets, absolute paths, or raw state
+  throughline storage locate --json
+                              Print where Throughline stores data (THROUGHLINE_HOME or defaults)
+  throughline storage export --to <empty-directory> --json
+                              Write a consistent copy of all storage, laid out as a THROUGHLINE_HOME
   throughline migrate --json  Migrate the existing Throughline database only.
                               Does not create a missing database and emits a versioned JSON result
   throughline self-update [--json]

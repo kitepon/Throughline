@@ -13,12 +13,12 @@
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CLAUDE_HOST, KNOWN_STATE_HOSTS } from './hosts/identity.mjs';
 import { foldPathCaseForPlatform } from './os/paths.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
-const STATE_DIR = join(homedir(), '.throughline', 'state');
+const STATE_DIR = join(dataRoot(), 'state');
 
 /** 状態ファイル保管ディレクトリを返す */
 export function getStateDir() {

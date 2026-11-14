@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { normalizeProjectPathForCompare, sameProjectPath } from '../project-path.mjs';
@@ -10,6 +9,7 @@ import {
   buildRecentSessionsContext,
   INJECTION_BUDGET_CHARS,
 } from '../resume-context.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 export const HANDOFF_CONTEXT_SCHEMA = 'throughline.handoff_context.v1';
 export const HANDOFF_SUPPLEMENT_SCHEMA = 'throughline.handoff_supplement.v1';
@@ -93,7 +93,7 @@ export function renderHandoffSupplement(value, projectPath) {
 }
 
 export function readHandoffContext(sessionId, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
   supplementFile = null,
   handoffDisclosure = 'visible',
 } = {}) {
@@ -135,7 +135,7 @@ export function readHandoffContext(sessionId, {
 }
 
 export function readLatestProjectHandoffContext(projectPath, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
   handoffDisclosure = 'visible',
 } = {}) {
   if (!existsSync(dbPath)) return null;
@@ -168,7 +168,7 @@ export function readLatestProjectHandoffContext(projectPath, {
  * 現在の会話は readLatestProjectHandoffContext と同じ session を選ぶ。
  */
 export function readRecentProjectHandoffContext(projectPath, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
   handoffDisclosure = 'visible',
 } = {}) {
   if (!existsSync(dbPath)) return null;
@@ -202,7 +202,7 @@ export function readRecentProjectHandoffContext(projectPath, {
 }
 
 export function readSessionProjectPath(sessionId, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
 } = {}) {
   if (!existsSync(dbPath)) return null;
 
@@ -287,7 +287,7 @@ export function run(argv = [], {
 
 /** 明示 --session 読取の fork 印。main と DB 不在は null (出力を変えない)。 */
 export function readExplicitSessionKind(sessionId, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
 } = {}) {
   if (!existsSync(dbPath)) return null;
   const db = openReadOnlyDb(dbPath);

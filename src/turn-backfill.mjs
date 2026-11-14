@@ -19,7 +19,6 @@
 
 import { appendBoundedLog } from './bounded-log.mjs';
 import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { hostAdapterForSessionId } from './hosts/index.mjs';
 import {
@@ -30,13 +29,14 @@ import {
   readRawEntries,
   sliceInFlightTurnEntries,
 } from './transcript-reader.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 /**
  * バックフィル回収実績を ~/.throughline/logs/backfill.log に 1 行 JSON で記録する。
  * @param {object} entry
  */
 export function logBackfill(entry) {
-  const path = join(homedir(), '.throughline', 'logs', 'backfill.log');
+  const path = join(dataRoot(), 'logs', 'backfill.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
     appendBoundedLog(path, JSON.stringify(entry) + '\n');

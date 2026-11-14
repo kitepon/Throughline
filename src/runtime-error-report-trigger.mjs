@@ -9,8 +9,7 @@ import childProcess from 'node:child_process';
 import { lstatSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isWindows } from './os/windows-acl.mjs';
-import { windowsLocalAppData, xdgConfigHome, xdgStateHome } from './os/app-dirs.mjs';
+import { appConfigRoot, appStateRoot } from './storage-roots.mjs';
 
 export const RUNTIME_ERROR_REPORT_CONFIG_SCHEMA = 'throughline.runtime_error_report_config.v1';
 export const RUNTIME_ERROR_REPORT_STATE_SCHEMA = 'throughline.runtime_error_report_state.v1';
@@ -18,13 +17,11 @@ export const RUNTIME_ERROR_REPORT_STATE_SCHEMA = 'throughline.runtime_error_repo
 const BIN = fileURLToPath(new URL('../bin/throughline.mjs', import.meta.url));
 
 export function defaultRuntimeErrorReportConfigPath(env = process.env) {
-  const base = isWindows(env) ? windowsLocalAppData(env) : xdgConfigHome(env);
-  return join(base, 'throughline', 'runtime-errors.report.config.json');
+  return join(appConfigRoot(env), 'runtime-errors.report.config.json');
 }
 
 export function defaultRuntimeErrorReportStatePath(env = process.env) {
-  const base = isWindows(env) ? windowsLocalAppData(env) : xdgStateHome(env);
-  return join(base, 'throughline', 'runtime-errors.report.state.json');
+  return join(appStateRoot(env), 'runtime-errors.report.state.json');
 }
 
 export function isCanonicalRuntimeErrorReportConfig(value) {

@@ -23,7 +23,6 @@
 
 import { appendBoundedLog } from './bounded-log.mjs';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +46,7 @@ import { readClaudeTerminalRemoteControl, startClaudeTerminal, startWindowsClaud
 import { composeAutoHandoffTitle } from './auto-handoff-title.mjs';
 import { forkIdentityFromEnv } from './session-kind.mjs';
 import { acquireClaudeWakeClaim, claudeForwardKind, claudeForwardWaiterAlive, enqueueClaudeForward, ensureClaudeForwardInbox, holdClaudeForward, logClaudeForward, readClaudeForwardStatus, removeStaleClaudeForwards } from './claude-forward.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 export const CLAUDE_AUTO_HANDOFF_SCHEMA = 'throughline.claude-auto-handoff.v2';
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
@@ -77,7 +77,7 @@ const ACCEPTABLE_STATES = new Set(['launching', 'launched', 'sent', 'unknown']);
 /** 後継が立っている状態。 */
 const SUCCESSOR_STATES = new Set(['launched', 'sent', 'unknown']);
 
-export const claudeAutoHandoffDir = () => join(homedir(), '.throughline', 'claude-auto-handoff');
+export const claudeAutoHandoffDir = () => join(dataRoot(), 'claude-auto-handoff');
 // 0.15.2 までが受け口の控えを置いた場所。期限の掃除だけを続ける。
 const targetsDir = (dir) => join(dir, 'targets');
 // 後継の最初の指示が残す受領。記録（worker が書き換える）とは別のファイルにして、書き込みが重ならないようにする。

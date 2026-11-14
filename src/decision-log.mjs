@@ -11,10 +11,10 @@
 import { appendBoundedLog } from './bounded-log.mjs';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
+import { dataRoot } from './storage-roots.mjs';
 
 export function logDecision(entry) {
-  const path = join(homedir(), '.throughline', 'logs', 'inheritance-decision.log');
+  const path = join(dataRoot(), 'logs', 'inheritance-decision.log');
   try {
     mkdirSync(dirname(path), { recursive: true });
     appendBoundedLog(path, JSON.stringify(entry) + '\n');

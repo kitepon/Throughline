@@ -2,10 +2,10 @@ import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { packageFiles } from './windows-package-update.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 const require = createRequire(import.meta.url);
 function alive(pid) {
@@ -52,7 +52,7 @@ function digest(root, files) {
 
 /** An immutable, content-addressed copy: no future npm update touches a live terminal's addon. */
 export function prepareWindowsTerminalRuntime({ source = dirname(require.resolve('node-pty/package.json')),
-  runtimeRoot = join(homedir(), '.throughline', 'terminal-runtimes') } = {}) {
+  runtimeRoot = join(dataRoot(), 'terminal-runtimes') } = {}) {
   const files = packageFiles(source), key = digest(source, files);
   directory(runtimeRoot);
   const lockPath = join(runtimeRoot, '.lifecycle.sqlite');

@@ -13,9 +13,9 @@
  */
 
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { dataRoot } from './storage-roots.mjs';
 
 // claude-auto-handoff.mjs と同じ置き場と形。速い道を保つために、ここでは import しない。
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -33,7 +33,7 @@ export async function run() {
   const payload = JSON.parse(raw.replace(/^﻿/, ''));
   const sessionId = payload?.session_id;
   if (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId) || payload.agent_id) process.exit(0);
-  const dir = join(homedir(), '.throughline', 'claude-auto-handoff');
+  const dir = join(dataRoot(), 'claude-auto-handoff');
   const hasRecord = existsSync(join(dir, `${sessionId}.json`));
   // 引き継ぎ前の会話へ届いた入力の、この会話（後継）の置き場 (ADR 0063)。
   const hasInbox = existsSync(join(dir, 'inbox', sessionId));

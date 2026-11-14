@@ -313,7 +313,8 @@ skip3はWindows cmd shimのargv/stdin、Windows PATH npm起動、Windows real Co
 
 | 実file/関数 | 代表caller・責任/状態/返却 | 保持/失敗/cleanup |
 | --- | --- | --- |
-| [app-dirs](../../src/os/app-dirs.mjs):windowsLocalAppData/xdgConfigHome/xdgStateHome | receipt/runtime store/report→env又はhome fallbackの保存先基底 | path生成だけ、fileは開かない。Bot/Host設定を書換えない |
+| [app-dirs](../../src/os/app-dirs.mjs):windowsLocalAppData/xdgConfigHome/xdgStateHome | [storage-roots](../../src/storage-roots.mjs)だけが呼ぶ。`THROUGHLINE_HOME`未指定時の保存先基底（ADR 0073） | path生成だけ、fileは開かない。Bot/Host設定を書換えない |
+| [storage-roots](../../src/storage-roots.mjs):dataRoot/appStateRoot/appConfigRoot/storageLocations と [CLI](../../src/cli/storage.mjs):run/exportStorage | 全保存先のpath決定。`storage locate`/`storage export`の公開口（[ADR 0073](../adr/0073-storage-location-and-export-contract.md)） | locateは読まず作らない。exportは空でない先・source内の先を拒否し何も書かない。SQLiteは`VACUUM INTO`、他は1回のopenで複写。失敗時の途中dirは呼び手が消す |
 | [ACL](../../src/os/windows-acl.mjs):isWindows/applyAndVerifyWindowsAcl/verifyWindowsAcl/createWindowsPrivateFile | receipt/runtime private writer→platform判定/PowerShell ACL適用と読戻し/新規公開 | prepared tempへACLを検証してhardlink、EEXISTはfalse、finally temp削除。15秒guard/同じ既共有所有者を保ち、今回Windowsへ実行しない |
 | [runtime context](../../src/runtime-error-context.mjs):validateRuntimeErrorContext/bindRuntimeErrorContext/validateRuntimeErrorContextState/runtimeErrorMessageWithContext | observer/store→許可enum/厳格key検証、最新発生へのbinding、公開定型文の補足 | 保存指紋/件数/版/時刻の全一致だけ補足。古い/別発生に流用せず原templateへ。不正形はthrow、raw例外や本文を投影しない |
 | [report trigger](../../src/runtime-error-report-trigger.mjs):defaultRuntimeErrorReportConfigPath/defaultRuntimeErrorReportStatePath/isCanonicalRuntimeErrorReportConfig/readRuntimeErrorReportConfig | report/trigger→別configと送信state path、schema/key検証 | symlink/不正/読取失敗はnull、既定通信OFF。軽いconfig読取とstore側のprivate ACL/lock検証を同一保証としない |

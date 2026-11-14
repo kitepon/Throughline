@@ -27,6 +27,12 @@ Read-only fork sessions are labelled in `sessions` (schema v13) and filtered out
 every automatic main-memory selector, merge and first-prompt handoff; explicit reads
 stay available with the label. Canonical: [fork session isolation](fork-session-isolation.md).
 
+Every storage path (DB, logs, state, receipts, runtime errors and their config) resolves in
+`src/storage-roots.mjs` from `THROUGHLINE_HOME` or the defaults. Hosts use only
+`THROUGHLINE_HOME`, `storage locate --json` and `storage export --to <dir> --json`. The
+function/data-flow contract is canonical in
+[ADR 0073](../adr/0073-storage-location-and-export-contract.md).
+
 ```mermaid
 flowchart TB
   External["4hostのhook / 利用者 / 外部consumer"] --> CLI["bin: 引数dispatch / host payload入口"]

@@ -1,12 +1,12 @@
 import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { normalizeProjectPathForCompare, sameProjectPath } from './project-path.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 // Claude の自動継続の設定。Codex の設定（codex-auto-handoff.json）とは別のファイルで、互いに影響しない。
 export const CLAUDE_AUTO_HANDOFF_CONFIG_SCHEMA = 'throughline.claude-auto-handoff.v1';
-export const claudeAutoHandoffConfigPath = () => join(homedir(), '.throughline', 'claude-auto-handoff.json');
+export const claudeAutoHandoffConfigPath = () => join(dataRoot(), 'claude-auto-handoff.json');
 
 export function readClaudeAutoHandoffConfig(path = claudeAutoHandoffConfigPath()) {
   let text;

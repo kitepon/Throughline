@@ -1,5 +1,4 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { buildBodyRowsFromActiveTurns } from './codex-capture.mjs';
@@ -8,6 +7,7 @@ import { parseCodexRolloutFile } from './codex-rollout-memory.mjs';
 import { getLogicalTurnGroups } from './transcript-reader.mjs';
 import { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 import { CURRENT_VERSION, settleFirstRead } from './db.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 export { hashAuditorBody, normalizeAuditorBody } from './body-digest.mjs';
 
@@ -19,7 +19,7 @@ export const DEFAULT_AUDITOR_MAX_TOTAL_CHARS = 4000;
 const OBSERVER_PROJECTION_BUSY_TIMEOUT_MS = 1_000;
 
 export function defaultAuditorContextDbPath() {
-  return join(homedir(), '.throughline', 'throughline.db');
+  return join(dataRoot(), 'throughline.db');
 }
 
 export function deriveAuditorFreshnessExpectation({ host, transcriptPath, sessionId } = {}) {

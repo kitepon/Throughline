@@ -20,7 +20,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { applyAndVerifyWindowsAcl, createWindowsPrivateFile, isWindows, verifyWindowsAcl } from './os/windows-acl.mjs';
-import { windowsLocalAppData, xdgConfigHome, xdgStateHome } from './os/app-dirs.mjs';
+import { appConfigRoot, appStateRoot } from './storage-roots.mjs';
 
 const require = createRequire(import.meta.url);
 const PACKAGE_VERSION = require('../package.json').version;
@@ -101,17 +101,11 @@ export function runtimeErrorFingerprint(code) {
 }
 
 export function defaultRuntimeErrorConfigPath(env = process.env) {
-  if (isWindows(env)) {
-    return join(windowsLocalAppData(env), 'throughline', 'runtime-errors.config.json');
-  }
-  return join(xdgConfigHome(env), 'throughline', 'runtime-errors.config.json');
+  return join(appConfigRoot(env), 'runtime-errors.config.json');
 }
 
 export function defaultRuntimeErrorStorePath(env = process.env) {
-  if (isWindows(env)) {
-    return join(windowsLocalAppData(env), 'throughline', 'runtime-errors.json');
-  }
-  return join(xdgStateHome(env), 'throughline', 'runtime-errors.json');
+  return join(appStateRoot(env), 'runtime-errors.json');
 }
 
 export function isRuntimeErrorCollectionEnabled({ env = process.env, configPath } = {}) {

@@ -43,8 +43,8 @@
 
 import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { spawnPortableSync } from './os/portable-spawn-sync.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 // Codex CLI 要約の既定。gpt-5.6-luna@low@1/5 は 2026-07-17 の実測評価で選定
@@ -60,7 +60,7 @@ const RECURSION_GUARD_ENV = 'THROUGHLINE_IN_HAIKU_SUBPROCESS';
 const CODEX_SUMMARIZER_GUARD_ENV = 'THROUGHLINE_IN_CODEX_SUMMARIZER';
 
 // 隔離 cwd: Throughline project-local 設定が見つからない空ディレクトリ
-const HAIKU_WORKDIR = join(homedir(), '.throughline', 'haiku-workdir');
+const HAIKU_WORKDIR = join(dataRoot(), 'haiku-workdir');
 
 function ensureWorkdir() {
   try {

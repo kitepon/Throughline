@@ -30,6 +30,7 @@ import { defaultCodexHome, listCodexThreadCandidates } from '../codex-thread-ind
 import { getDb } from '../db.mjs';
 import { detectJsoncFeatures, findMonitorTaskIndex, isMonitorTaskBroken } from '../vscode-task.mjs';
 import { readCodexHookDiagnosis } from '../hosts/codex-hook-diagnosis.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 const GREEN = '\x1b[32m✓\x1b[0m';
 const RED = '\x1b[31m✗\x1b[0m';
@@ -794,7 +795,7 @@ export async function run(argv = []) {
   });
 
   // DB ディレクトリ
-  const dbDir = join(homedir(), '.throughline');
+  const dbDir = dataRoot();
   const dbPath = join(dbDir, 'throughline.db');
   await check('~/.throughline/ ディレクトリ', () => {
     if (!existsSync(dbDir)) throw new Error('ディレクトリが存在しない（初回実行前）');

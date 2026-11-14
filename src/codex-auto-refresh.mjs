@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { foldPathCaseForPlatform } from './os/paths.mjs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { runCodexTrimExecution } from './codex-app-server.mjs';
 import { buildCodexRolloutTrimSource } from './codex-rollout-memory.mjs';
 import { buildTrimPlan } from './trim-model.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 export const CODEX_AUTO_REFRESH_THRESHOLD = 0.75;
 export const CODEX_AUTO_REFRESH_USAGE_EPOCH_PERCENT = 5;
@@ -417,7 +417,7 @@ export function recordCodexAutoRefreshOutcome({
 }
 
 export function createFileCodexAutoRefreshStateStore({
-  dir = join(homedir(), '.throughline', 'codex-auto-refresh'),
+  dir = join(dataRoot(), 'codex-auto-refresh'),
 } = {}) {
   return {
     read(threadId) {

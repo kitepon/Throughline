@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { openReadOnlyDb } from '../db.mjs';
 import { mainSessionFilter } from '../session-kind.mjs';
 import { sameProjectPath } from '../project-path.mjs';
+import { dataRoot } from '../storage-roots.mjs';
 
 export const LATEST_SESSION_SCHEMA = 'throughline.latest_session.v1';
 
@@ -22,7 +22,7 @@ export function parseArgs(argv = []) {
 }
 
 export function findLatestSession(projectPath, {
-  dbPath = join(homedir(), '.throughline', 'throughline.db'),
+  dbPath = join(dataRoot(), 'throughline.db'),
 } = {}) {
   if (!existsSync(dbPath)) return null;
 

@@ -1,6 +1,5 @@
 import { mkdirSync, openSync, closeSync, writeFileSync, realpathSync, statSync, readdirSync, rmSync } from 'node:fs';
 import { appendBoundedLog } from './bounded-log.mjs';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,9 +23,10 @@ import { CODEX_NATIVE_ID_PATTERN, CodexHandoffError, readCodexHandoffState,
 import { resolvePreparedSettings } from './hosts/codex-handoff-state.mjs';
 import { composeAutoHandoffTitle, markHandedOffTitle, usableAutoHandoffTitle } from './auto-handoff-title.mjs';
 import { logHookFailure } from './hook-failure-log.mjs';
+import { dataRoot } from './storage-roots.mjs';
 
 const CLI_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/throughline.mjs');
-const stateRoot = () => join(homedir(), '.throughline', 'codex-auto-handoff');
+const stateRoot = () => join(dataRoot(), 'codex-auto-handoff');
 
 function removeExpiredWorkerDiagnostics() {
   const dir = stateRoot();
