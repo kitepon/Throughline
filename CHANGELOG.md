@@ -10,6 +10,13 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+### Fixed
+
+- The test preload (`src/test-env.mjs`) clears `THROUGHLINE_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
+  `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, so tests that swap only `HOME` can no longer open the live data root.
+  A suite run in a seat with `THROUGHLINE_HOME` set had written test rows and `user_version 99` into the
+  host's shared DB. Test harness only; no runtime change.
+
 ## [0.21.0] - 2026-11-14
 
 ### Added

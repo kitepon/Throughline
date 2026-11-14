@@ -163,7 +163,7 @@ flowchart TD
 
 `scripts/verify-docs.mjs:verifyDocs`は作業treeのMarkdownを再帰読取し、リンク実在/top-level分類/archive/stubを検証する。`scripts/verify-pack-markdown-links.mjs`はnpm packのdry-run/ignore-scriptsのfile集合と相対targetを照合する。`scripts/markdown-link-targets.mjs`は既存remark/unifiedとHTML属性の抽出であり、Mermaid図の構文・見た目は検査しない。開発用scriptは配布対象外なのでsource path/関数名で索引し、tarball内のリンクとして扱わない。3scriptの本文を確認し、今回の文書検査を図描画/目視の代わりにしない。
 
-[test-env](../../src/test-env.mjs)は試験専用のthread環境除去/Windows fake実行adapter/16MiBの既定buffer、[test-temp-dir](../../src/test-temp-dir.mjs)は試験process exit時の一時dir掃除を持つ。製品runtimeではなくfixtureとして分類し、実harness起動の安全根拠やcancelの保証へ補完しない。本体testの実行/最終OS受入は未実施。
+[test-env](../../src/test-env.mjs)は試験専用のthread環境除去/data root環境（THROUGHLINE_HOME・XDG_CONFIG_HOME・XDG_STATE_HOME・CODEX_HOME・CLAUDE_CONFIG_DIR）の除去/Windows fake実行adapter/16MiBの既定buffer、[test-temp-dir](../../src/test-temp-dir.mjs)は試験process exit時の一時dir掃除を持つ。data root除去により、HOMEだけを差し替える試験が席の実DBや設定へ届かない（2026-11-14、共有DBへuser_version 99が書かれた事故の根治）。製品runtimeではなくfixtureとして分類し、実harness起動の安全根拠やcancelの保証へ補完しない。本体testの実行/最終OS受入は未実施。
 
 
 ## S3追補1: Codex停止境界とunknownの保持根拠

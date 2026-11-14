@@ -1,8 +1,13 @@
+export const DATA_ROOT_ENV = ['THROUGHLINE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'];
+
 // Keep tests hermetic when they are run from inside a live Codex session.
 // Individual tests that need these values set them explicitly in child env.
 if (process.env.THROUGHLINE_TEST_ENV_ACTIVE !== '1') {
   delete process.env.THROUGHLINE_CODEX_THREAD_ID;
   delete process.env.CODEX_THREAD_ID;
+  // Data roots: a seat's THROUGHLINE_HOME (or XDG/Codex/Claude dirs) would point tests that only swap HOME
+  // at the live DB and config; a 2026-11-14 run wrote user_version 99 into a production DB this way.
+  for (const key of DATA_ROOT_ENV) delete process.env[key];
   process.env.THROUGHLINE_TEST_ENV_ACTIVE = '1';
 }
 
