@@ -33,6 +33,10 @@ Every storage path (DB, logs, state, receipts, runtime errors and their config) 
 function/data-flow contract is canonical in
 [ADR 0073](../adr/0073-storage-location-and-export-contract.md).
 
+`install` and `harness-entries --json` share one set of builders in `src/cli/install.mjs`. A host that is
+the one writer of shared CLI files applies `harness-entries` instead of calling `install`. Canonical:
+[ADR 0074](../adr/0074-harness-entries-contract.md).
+
 ```mermaid
 flowchart TB
   External["4hostのhook / 利用者 / 外部consumer"] --> CLI["bin: 引数dispatch / host payload入口"]

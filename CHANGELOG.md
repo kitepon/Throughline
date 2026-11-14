@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-14
+
+### Added
+
+- `throughline harness-entries --json [--home <dir>]` prints BellTeam's E1
+  (`bellteam.harness-entries.v1`, ADR 0074): the native Claude/Codex hook groups, Cursor items, the whole
+  Grok hooks file, `settings.codex['features.hooks']` and `owns.commandIncludes`, built from the same
+  builders as `install`, so a host that is the one writer of shared CLI files can apply them instead of
+  calling `install`. Reads only `<home>/.codex/hooks.json` (to keep registered Codex command strings) and the
+  Claude auto-handoff setting; writes nothing.
+
 ## [0.19.0] - 2026-11-14
 
 ### Added
@@ -2954,7 +2965,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/kitepon/Throughline/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/kitepon/Throughline/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/kitepon/Throughline/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/kitepon/Throughline/compare/v0.16.56...v0.17.0

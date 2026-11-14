@@ -764,3 +764,32 @@ export async function run(args = []) {
     emitPathWarning();
   }
 }
+
+/**
+ * ADR 0074: E1 of BellTeam's "One writer per CLI file" contract (bellteam.harness-entries.v1, v1.1).
+ * Native entries exactly as `install` writes them, from the same builders as `run`, so the two cannot drift.
+ * Reads only <home>/.codex/hooks.json (to keep registered Codex command strings) and the Claude
+ * auto-handoff setting; writes nothing.
+ */
+export function harnessEntries({ home = homedir() } = {}) {
+  const claude = {};
+  const add = (target, event, group) => { (target[event] ??= []).push(group); };
+  for (const [event, group] of Object.entries(SC_HOOKS)) add(claude, event, group);
+  if (readClaudeAutoHandoffConfig().enabled) {
+    for (const [event, group] of Object.entries(CLAUDE_AUTO_HANDOFF_HOOKS)) add(claude, event, group);
+  }
+  const codex = {};
+  const codexHooks = createCodexHooks(readSettings(join(home, ...CODEX_HOOKS_RELATIVE_PATH)).hooks ?? {});
+  for (const [event, group] of Object.entries(codexHooks)) add(codex, event, group);
+  return {
+    schema: 'bellteam.harness-entries.v1',
+    product: 'throughline',
+    version: JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')).version,
+    mcpServers: {},
+    hooks: { claude, codex, cursor: createCursorHookEntries(), grok: createGrokHooksFile() },
+    permissions: {},
+    settings: { codex: { 'features.hooks': true } },
+    // Every command Throughline writes or wrote: the CLI script path, plus the PATH-form commands.
+    owns: { commandIncludes: [...new Set(['throughline.mjs', ...SC_COMMANDS, ...CODEX_COMMANDS])] },
+  };
+}

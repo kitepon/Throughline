@@ -161,6 +161,11 @@ switch (cmd) {
     if (exitCode !== 0) process.exitCode = exitCode;
     break;
   }
+  case 'harness-entries': {
+    const exitCode = (await import('../src/cli/harness-entries.mjs')).run(rest);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    break;
+  }
   case 'storage': {
     const exitCode = (await import('../src/cli/storage.mjs')).run(rest);
     if (exitCode !== 0) process.exitCode = exitCode;
@@ -329,6 +334,9 @@ Usage:
   throughline factory-diagnostics --json
                               Read-only native factory readiness JSON. Never emits
                               session/prompt bodies, secrets, absolute paths, or raw state
+  throughline harness-entries --json [--home <absolute-dir>]
+                              Print the native hooks and settings install writes into each harness
+                              (bellteam.harness-entries.v1) for a host that is the one writer (ADR 0074)
   throughline storage locate --json
                               Print where Throughline stores data (THROUGHLINE_HOME or defaults)
   throughline storage export --to <empty-directory> --json
