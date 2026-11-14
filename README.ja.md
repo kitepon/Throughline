@@ -447,6 +447,7 @@ Throughline state をまだ書いていない現在セッションも表示で�
 | --- | --- |
 | `throughline install` | hook / Codex UserPromptSubmit・PostToolUse・Stop hook / Codex skill / `~/.grok/hooks/throughline.json` を登録し、VS Code 配下なら現プロジェクトの monitor task も配置 |
 | `throughline install --project` | 現リポジトリの `.claude/settings.json` だけに hook を登録 |
+| `throughline install --own-files` | slash command と Codex の `$throughline` skill だけを置く。共有の hook ファイルを `throughline harness-entries --json` から自分で書くホスト向け（ADR 0074） |
 | `throughline self-update [--json]` | 公式npm package更新、公開PATHがその新CLI・versionを指すことの確認、製品所有連携の再適用、既存DB migration、公開diagnosticsの確認までを一回で実行 |
 | `throughline uninstall` | hook を削除 |
 

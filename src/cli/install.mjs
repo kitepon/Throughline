@@ -670,6 +670,17 @@ export async function run(args = []) {
     return;
   }
 
+  // ADR 0074 step 3: a one-writer host (BellTeam) writes the shared hook/config files from E1;
+  // Throughline places only its own files here.
+  if (args.includes('--own-files')) {
+    const { installed } = installSlashCommands(commandsDir);
+    const skills = args.includes('--project') ? { installed: [] } : installCodexSkills(codexSkillsDir);
+    console.log('Throughline の自分のファイルだけを配置しました（共有の設定ファイルには書いていません）');
+    if (installed.length > 0) console.log(`  ${commandsDir}: ${installed.join(', ')}`);
+    if (skills.installed.length > 0) console.log(`  ${codexSkillsDir}: ${skills.installed.join(', ')}`);
+    return;
+  }
+
   // インストール
   for (const [key, entry] of Object.entries(SC_HOOKS)) {
     const list = existingHooks[key] ?? [];

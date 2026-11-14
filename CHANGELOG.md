@@ -10,6 +10,17 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-14
+
+### Added
+
+- `throughline install --own-files` places only Throughline's own files (`~/.claude/commands/tl.md`,
+  `sc-detail.md`, `~/.codex/skills/throughline/`) and writes none of the shared hook/config files that
+  `harness-entries` carries (ADR 0074 step 3). A host that is the one writer of those files (BellTeam) calls
+  it instead of `install`, so Throughline no longer writes shared files in its seat homes and an explicit
+  Codex `[features] hooks = false` stays false there. Plain `install`, `uninstall` and `self-update` are
+  unchanged.
+
 ## [0.20.0] - 2026-11-14
 
 ### Added
@@ -2965,7 +2976,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/kitepon/Throughline/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/kitepon/Throughline/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/kitepon/Throughline/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/kitepon/Throughline/compare/v0.17.0...v0.18.0

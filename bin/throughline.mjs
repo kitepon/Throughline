@@ -286,6 +286,9 @@ async function showHelp() {
 
 Usage:
   throughline install           Register Claude, Codex, and Grok hooks
+  throughline install --own-files
+                              Place only Throughline's own files (slash commands, Codex skill);
+                              for a host that writes the shared hook files from harness-entries
   throughline uninstall         Remove hooks
   throughline monitor           Multi-session token monitor (use --all, --session <id>)
   throughline detail <time>     Retrieve L2+L3 detail for a turn (e.g. 14:23:05, 14:23-14:30,

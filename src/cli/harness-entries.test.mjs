@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,4 +54,24 @@ test('harness-entries lists exactly the native entries install writes (bellteam.
   }
   assert.deepEqual(json(join(home, '.grok', 'hooks', 'throughline.json')), e1.hooks.grok);
   assert.match(readFileSync(join(home, '.codex', 'config.toml'), 'utf8'), /^\[features\]\nhooks = true$/m);
+});
+
+test('install --own-files places only Throughline\'s own files and leaves every shared file alone (ADR 0074 step 3)', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tl-own-files-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'home');
+  const project = join(root, 'project');
+  mkdirSync(join(home, '.codex'), { recursive: true });
+  mkdirSync(project);
+  const config = '[features]\nhooks = false\ncodex_hooks = false\n';
+  writeFileSync(join(home, '.codex', 'config.toml'), config);
+  throughline(['install', '--own-files'], home, project);
+  for (const name of ['tl.md', 'sc-detail.md']) assert.ok(existsSync(join(home, '.claude', 'commands', name)), name);
+  assert.ok(existsSync(join(home, '.codex', 'skills', 'throughline', 'SKILL.md')));
+  assert.equal(readFileSync(join(home, '.codex', 'config.toml'), 'utf8'), config);
+  for (const shared of [['.claude', 'settings.json'], ['.codex', 'hooks.json'], ['.cursor', 'hooks.json'],
+    ['.grok', 'hooks', 'throughline.json'], ['.cursor'], ['.grok']]) {
+    assert.ok(!existsSync(join(home, ...shared)), shared.join('/'));
+  }
+  assert.ok(!existsSync(join(project, '.vscode')));
 });

@@ -60,12 +60,33 @@ Switchover follows BellTeam's contract: E1 alone changes nothing; BellTeam appli
 files are byte-equal; after BellTeam's one "applied" message Throughline stops writing the shared files for
 BellTeam seat homes. `install` stays the writer on standalone machines.
 
+### Step 3: `install --own-files` for a one-writer host (0.21.0)
+
+BellTeam's applied message for Throughline arrived on 2026-11-14 (#1447 LIVE, body cb74b6ec, Centi lab
+byte-equal). Throughline retires its shared writes for BellTeam seat homes by giving the one writer a
+contracted install that touches only Throughline's own files:
+
+- `throughline install --own-files` writes `~/.claude/commands/tl.md`, `~/.claude/commands/sc-detail.md`
+  and `~/.codex/skills/throughline/` (with `--project`: the project's `.claude/commands/` only, as
+  `install --project` does). It writes nothing that E1 carries or that another product shares:
+  `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.codex/config.toml`, `~/.cursor/hooks.json`,
+  `~/.grok/hooks/throughline.json`, and no `.vscode/tasks.json`.
+- BellTeam replaces its `throughline install` call with `throughline install --own-files`. Throughline does
+  not detect BellTeam: the host chooses by the flag, so the boundary is the contract, not an environment
+  guess. Plain `install`, `uninstall` and `self-update` (which runs plain `install`) stay the standalone
+  writer.
+- After the switch, the legacy `codex_hooks` removal and the forced `[features] hooks = true` no longer run in
+  seat homes, so an explicit `hooks = false` stays false (E3 settings rule).
+- `throughline auto-handoff` for Claude still writes `~/.claude/settings.json` itself (above). Auto-handoff is
+  not enabled in BellTeam seats; enabling it there needs the writer to run `harness-entries` after toggling.
+
 ## Function diagram
 
 ```mermaid
 flowchart LR
   Host[BellTeam CLI registration, the one writer] -- harness-entries --json --home --> HE[cli/harness-entries.mjs]
   User[Standalone user] -- install --> Install[cli/install.mjs run]
+  Host -- install --own-files --> Own[cli/install.mjs run, own files only]
   HE --> Builders[install.mjs builders:\nSC_HOOKS, CLAUDE_AUTO_HANDOFF_HOOKS,\ncreateCodexHooks, createCursorHookEntries,\ncreateGrokHooksFile]
   Install --> Builders
 ```
@@ -79,6 +100,8 @@ flowchart LR
   Builders --> E1[bellteam.harness-entries.v1]
   E1 --> Host[BellTeam writes the shared CLI files]
   Builders --> Install[install writes CLI files directly, standalone]
+  Pkg[(package .claude/commands/ and codex/skills/)] --> Own[install --own-files]
+  Own --> OwnFiles[(~/.claude/commands/tl.md, sc-detail.md,\n~/.codex/skills/throughline/)]
 ```
 
 ## Consequences

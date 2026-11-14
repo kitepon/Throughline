@@ -917,6 +917,7 @@ actual reply body remain intact.
 | ---------------------------------------------- | ------------------------------------------------------------ |
 | `throughline install`                          | Register Claude user hooks/slash commands, the global Codex UserPromptSubmit/PostToolUse/Stop hooks, the global `$throughline` Codex skill, `~/.grok/hooks/throughline.json`, and the current VS Code monitor task when applicable |
 | `throughline install --project`                | Register Claude hooks/slash commands in this repo only       |
+| `throughline install --own-files`              | Place only the slash commands and the `$throughline` Codex skill, for a host that writes the shared hook files itself from `throughline harness-entries --json` (ADR 0074) |
 | `throughline self-update [--json]`             | Update the official npm package, verify that public PATH resolves to that new CLI/version, reapply product-owned integrations, migrate an existing database, and verify public diagnostics in one call |
 | `throughline uninstall`                        | Remove Throughline-managed Claude hooks/slash commands, only the Throughline-managed Codex hook, and the `$throughline` Codex skill |
 
