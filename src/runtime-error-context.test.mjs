@@ -180,6 +180,8 @@ for (const basis of ['session_meta', 'thread_settings']) test(`ordinary pre-comp
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).continue, true);
+  // The record is best effort with a fixed 10 s deadline; name a drop instead of failing later on a missing entry.
+  assert.doesNotMatch(result.stderr, /store_unavailable/, 'runtime error record dropped (observer deadline exceeded or store failed)');
   const failure = JSON.parse(readFileSync(join(box.root, '.throughline', 'logs', 'hook-failures.log'), 'utf8').trim());
   const digest = path => createHash('sha256').update(normalizeProjectPathForCompare(path)).digest('hex');
   assert.equal(failure.identity.hook_cwd_sha256, digest(box.root));
