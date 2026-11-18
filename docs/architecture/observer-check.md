@@ -7,17 +7,23 @@ flowchart TD
   Core[check core: 全request検証] --> Catalog[createObserverCheckCatalog: request内の一覧を一度取得]
   Catalog --> Index[listCodexThreadCandidates: 既一覧とmetadata]
   Index -->|一覧失敗又はmetadata不明| Error
+  Catalog --> Store[app-state observer-check-rollouts.json: 前request要約を読む / 壊れ・別版は空]
   Catalog --> Project[read: 実在canonical projectと既path比較]
   Project --> Receipt[既claudeCandidates: private receipt snapshot]
-  Project --> Cache[該当rolloutだけ解析しrequest内再利用]
-  Cache --> Guard[読取前後のfile一致と破損行確認]
-  Guard --> Chain[既Codex完了chain組立て]
+  Project --> Cache[該当rolloutだけ: request内再利用]
+  Cache --> Stat[発見時mtimeと現statを照合]
+  Stat -->|path/thread id/dev/ino/size/mtime/ctimeが保存要約と一致| Summary[保存要約を再利用: 全文解析なし]
+  Stat -->|不一致又は未保存| Guard[全文解析と読取前後のfile一致と破損行確認]
+  Guard --> Chain[既Codex完了chain組立て -> 要約: host/thread/floor/latest/source/prefix digest]
+  Store --> Summary
   Receipt --> Result[全完了候補のfingerprintと曖昧判定]
   Chain --> Result
+  Summary --> Result
   Result --> Core
   Project -->|source失敗| Error[callerへthrow: core又はCLIで固定codeへ写す]
+  Stat -->|発見後変化| Error
   Guard -->|変化又は破損| Error
-  Core --> Cleanup[finally close: cacheと一覧参照を解放]
+  Core --> Cleanup[finally close: 新要約があれば現存rolloutだけ一時file+renameで保存 / 失敗は無視 / cacheと一覧参照を解放]
   Existing[既read/wait] --> Legacy[既一覧と同じ完了chain組立て]
 ```
 
@@ -73,3 +79,9 @@ readonly完了source、確認値生成、consumerの全page/append/state後採�
 
 
 段階2の確認: 新core4件・CLI9件と既catalog/index/feed/projection/read/waitを含む53試験が通過。1MiB境界/超過・分割UTF-8/EOF・引数・不正token/project束縛・canonical重複・全体/個別失敗・stdin中/出力前取消・親変化・pipe切断・閉じた出力の失敗を確認。最大escaped id/512-byte token fixtureを実CLI serializerへ通し、stdout一回・順序/id一致・16MiB未満をassertした。これはserializerの直接検証で、133件source性能/実runner/3OSの成立とは別。
+
+### request間の要約再利用（2026-11-18、BugHub 9d0288c9 再発）
+
+BellTeamの観測pollは全member（142件）を1回の`observer-check`へ渡し、その呼出し全体に60秒のIPC期限がある。旧catalogはrequestごとに全memberのCodex rollout（3932件、11 GB）を全文解析し、当席で50.8秒/63.3秒/55.0秒、負荷時はそれ以上かかった。これが11/15以降の`CONVERSATION_OBSERVATION_FAILED`（reason `CONVERSATION_IPC_TIMEOUT`）の原因で、11/15に直したDB版の経路とは別である。
+
+catalogはrolloutごとの確認用要約（host、thread SHA、history floor、最新完了時刻、source SHA、chain prefix digest、空か）を`<app-state>/observer-check-rollouts.json`（schema `throughline.observer_check_rollout_cache.v1`、mode 0600）へ置く。本文、session id、projectのpathは入らない（rolloutのpathはkey）。path・thread id・`dev/ino/size/mtimeMs/ctimeMs`とThroughlineの版がすべて一致する時だけ再利用し、一致しなければ従来どおり全文解析と読取前後の照合を行う。発見後の変化と破損行の失敗は変えていない。fileは派生データであり、読めない・壊れている・別版の時は空として作り直す。closeの時に新しい要約があれば、現存するrolloutの分だけを一時file+renameで書く。書込み失敗は結果に影響しない。同時に走ったcheckとは後勝ちになり、失われた要約は次回の再解析で戻る。出力のtokenとstatusは従来と同じ値になる（当席の142件で0.21.0のCLIと一致）。2回目以降は1.1〜3.5秒。`cachePath: null`は保存しない（試験用）。read/waitの経路は変えていない。

@@ -10,7 +10,16 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-18
+
 ### Fixed
+
+- `observer-check` keeps each Codex rollout's check summary (hashes and timestamps only) in
+  `<app-state>/observer-check-rollouts.json` and reuses it while the rollout's path, thread id, file stat and the
+  Throughline version are unchanged. Before, every request fully re-parsed every matching rollout: a 142-project
+  BellTeam poll over 3932 rollouts (11 GB) took 50-63 s against the caller's 60 s limit. Repeated checks now take
+  1-4 s. Tokens and statuses are unchanged; the file is derived data and is rebuilt if missing, unreadable or from
+  another version.
 
 - The test preload (`src/test-env.mjs`) clears `THROUGHLINE_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
   `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, so tests that swap only `HOME` can no longer open the live data root.

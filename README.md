@@ -1209,6 +1209,11 @@ consumers use only this public JSON interface.
 EOF and returns one complete JSON result. The [v1 schema](docs/observer-check.schema.json)
 and [ownership/cancellation contract](docs/architecture/observer-check.md) describe
 this implementation. Confirmation values are independent of observer-read cursors.
+Each Codex rollout's check summary (hashes and timestamps only, no bodies) is kept in
+`<app-state>/observer-check-rollouts.json` and reused while the rollout's path,
+thread id, file stat and the Throughline version are unchanged, so a repeated check
+re-parses only changed rollouts. The file is derived data and is rebuilt if missing,
+unreadable or from another version.
 
 Requests use `throughline.observer_check_request.v1` and contain 1..256 ordered
 `{id, projectPath, after}` entries. The encoded request is at most 1 MiB; ids are

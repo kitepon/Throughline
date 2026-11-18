@@ -1,6 +1,8 @@
-import { createHash } from 'node:crypto';
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, join } from 'node:path';
+import { appStateRoot } from './storage-roots.mjs';
 import { listCodexThreadCandidates, normalizeCodexProjectPath, isCodexProjectOrDescendant } from './codex-thread-index.mjs';
 import { parseCodexRolloutFile } from './codex-rollout-memory.mjs';
 import { hashAuditorBody } from './body-digest.mjs';
@@ -9,6 +11,8 @@ import { readCompletedTurnReceiptSnapshot } from './completed-turn-receipts.mjs'
 import { readCompletedPairProjection } from './auditor-context.mjs';
 import { CODEX_HOST, hostOfSessionId } from './hosts/identity.mjs';
 import { TURN_START_PROMPT, publicTurnStart } from './turn-start.mjs';
+
+const PACKAGE_VERSION = createRequire(import.meta.url)('../package.json').version;
 
 export const OBSERVER_CURSOR_SCHEMA = 'throughline.observer_cursor.v1';
 export const OBSERVER_READ_SCHEMA = 'throughline.observer_read.v1';
@@ -189,45 +193,117 @@ function codexCandidateFromParsed(item, parsed) {
   return candidate('codex', sha256(item.id), chain, 1, buildCodexThroughlineSessionId(item.id));
 }
 
-/** One request owns the catalog and must close it after checking its projects. */
-export function createObserverCheckCatalog({ codexHome, receiptOptions } = {}) {
+export const OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA = 'throughline.observer_check_rollout_cache.v1';
+const ROLLOUT_STAT_FIELDS = ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'];
+
+export function defaultObserverCheckRolloutCachePath(env = process.env) {
+  return join(appStateRoot(env), 'observer-check-rollouts.json');
+}
+
+/**
+ * One request owns the catalog and must close it after checking its projects.
+ * A rollout's check summary is reused across requests while its file stat is unchanged
+ * (BugHub 9d0288c9: re-parsing every rollout each poll outgrew the caller's 60 s limit).
+ */
+export function createObserverCheckCatalog({ codexHome, receiptOptions, cachePath } = {}) {
   let items = listCodexThreadCandidates({ codexHome, allProjects: true, limit: Number.MAX_SAFE_INTEGER });
   if (items.some((item) => typeof item.cwd !== 'string' || item.cwd.length === 0)) {
     throw new Error('observer check source project unavailable');
   }
   items = items.map((item) => ({ ...item, projectKey: normalizeCodexProjectPath(item.cwd) }));
+  cachePath = cachePath === undefined ? defaultObserverCheckRolloutCachePath(receiptOptions?.env) : cachePath;
+  const stored = cachePath === null ? new Map() : readRolloutCache(cachePath);
+  const used = new Map();
+  let fresh = false;
   const parsed = new Map();
   return {
     read(projectPath) {
       if (items === null) throw new Error('observer check catalog closed');
       const project = canonicalExistingProject(projectPath);
       const key = normalizeCodexProjectPath(project);
-      const candidates = [...claudeCandidates(project, receiptOptions)];
+      const candidates = claudeCandidates(project, receiptOptions).map(checkSummary);
       for (const item of items) {
         if (!isCodexProjectOrDescendant(item.projectKey, key)) continue;
         if (!parsed.has(item.rolloutPath)) {
           try {
             const before = statSync(item.rolloutPath);
             if (before.mtimeMs !== item.mtimeMs) throw new Error('observer check source changed after discovery');
-            const value = parseCodexRolloutFile(item.rolloutPath);
-            const after = statSync(item.rolloutPath);
-            if (value.stats.corruptRows > 0 || ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].some((field) => before[field] !== after[field])) {
-              throw new Error('observer check source changed or corrupt');
+            const stat = ROLLOUT_STAT_FIELDS.map((field) => before[field]);
+            const hit = stored.get(item.rolloutPath);
+            let summary;
+            if (hit && hit.id === item.id && sameStat(hit.stat, stat)) {
+              summary = hit.summary;
+            } else {
+              const value = parseCodexRolloutFile(item.rolloutPath);
+              const after = statSync(item.rolloutPath);
+              if (value.stats.corruptRows > 0 || ROLLOUT_STAT_FIELDS.some((field) => before[field] !== after[field])) {
+                throw new Error('observer check source changed or corrupt');
+              }
+              summary = checkSummary(codexCandidateFromParsed(item, value));
+              fresh = true;
             }
-            parsed.set(item.rolloutPath, codexCandidateFromParsed(item, value));
+            used.set(item.rolloutPath, { id: item.id, stat, summary });
+            parsed.set(item.rolloutPath, summary);
           } catch (error) { parsed.set(item.rolloutPath, error); }
         }
         const current = parsed.get(item.rolloutPath);
         if (current instanceof Error) throw current;
-        if (current.chain.length > 0) candidates.push(current);
+        if (!current.empty) candidates.push(current);
       }
-      const fingerprints = candidates.map((item) => [item.host, item.threadHash, item.historyFloor, prefixDigest(item.chain)]);
+      const fingerprints = candidates.map((item) => [item.host, item.threadHash, item.historyFloor, item.prefix]);
       fingerprints.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
       return { projectSha256: sha256(project), fingerprint: sha256(JSON.stringify(fingerprints)), ambiguous: selectLatest(candidates)?.ambiguous === true };
     },
-    close() { parsed.clear(); items = null; },
+    close() {
+      if (items !== null && fresh && cachePath !== null) writeRolloutCache(cachePath, stored, used, items);
+      parsed.clear(); stored.clear(); used.clear(); items = null;
+    },
   };
 }
+
+// Only what the check fingerprint and latest-parent choice read; never bodies or session ids.
+function checkSummary(item) {
+  return { host: item.host, threadHash: item.threadHash, historyFloor: item.historyFloor, latestAt: item.latestAt,
+    sourceHash: item.sourceHash, prefix: prefixDigest(item.chain), empty: item.chain.length === 0 };
+}
+
+function sameStat(a, b) { return Array.isArray(a) && a.length === b.length && a.every((value, index) => value === b[index]); }
+
+// The cache is derived data: an unreadable, foreign or old-version file is ignored and rebuilt.
+function readRolloutCache(path) {
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (value?.schema !== OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA || value.version !== PACKAGE_VERSION ||
+      !value.entries || typeof value.entries !== 'object') return new Map();
+    return new Map(Object.entries(value.entries).filter(([, entry]) => validCacheEntry(entry)));
+  } catch { return new Map(); }
+}
+
+function validCacheEntry(entry) {
+  const summary = entry?.summary;
+  return typeof entry?.id === 'string' && Array.isArray(entry.stat) && entry.stat.length === ROLLOUT_STAT_FIELDS.length &&
+    summary && summary.host === CODEX_HOST && isSha256Value(summary.threadHash) && summary.historyFloor === 1 &&
+    Number.isFinite(summary.latestAt) && isSha256Value(summary.sourceHash) && isSha256Value(summary.prefix) &&
+    typeof summary.empty === 'boolean';
+}
+
+// shortcut: last writer wins between concurrent checks; a lost entry only costs one re-parse later.
+function writeRolloutCache(path, stored, used, items) {
+  const live = new Set(items.map((item) => item.rolloutPath));
+  const entries = {};
+  for (const [file, entry] of stored) if (live.has(file)) entries[file] = entry;
+  for (const [file, entry] of used) entries[file] = entry;
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(temporary, JSON.stringify({ schema: OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA, version: PACKAGE_VERSION, entries }), { mode: 0o600 });
+    renameSync(temporary, path);
+  } catch {
+    rmSync(temporary, { force: true });
+  }
+}
+
+function isSha256Value(value) { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value); }
 
 function codexTurnEntry(turn, threadId, rolloutPath) {
   if (!Number.isSafeInteger(turn.completedAt) || turn.completedAt < 0) return [];

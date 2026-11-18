@@ -82,3 +82,28 @@ test('check catalog fails closed if a rollout changes after discovery', () => {
     assert.throws(() => catalog.read(box.project), /changed after discovery/);
   } finally { catalog?.close(); fs.rmSync(box.root, { recursive: true, force: true }); }
 });
+
+test('check catalog reuses an unchanged rollout summary across requests and re-parses a changed one', (t) => {
+  const box = fixture(); let catalog;
+  const cachePath = join(box.root, 'state', 'throughline', 'observer-check-rollouts.json');
+  try {
+    const path = box.rollout('1', box.project);
+    catalog = createObserverCheckCatalog(box); const first = catalog.read(box.project); catalog.close();
+    assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schema, 'throughline.observer_check_rollout_cache.v1');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(cachePath).mode & 0o777, 0o600);
+    const read = fs.readFileSync; let rolloutReads = 0;
+    t.mock.method(fs, 'readFileSync', (file, ...args) => { if (file === path) rolloutReads++; return read(file, ...args); });
+    syncBuiltinESMExports();
+    catalog = createObserverCheckCatalog(box); assert.deepEqual(catalog.read(box.project), first); catalog.close();
+    assert.equal(rolloutReads, 0);
+    box.rollout('1', box.project, 'a longer changed body');
+    catalog = createObserverCheckCatalog(box); assert.notEqual(catalog.read(box.project).fingerprint, first.fingerprint); catalog.close();
+    assert.equal(rolloutReads, 1);
+    t.mock.restoreAll(); syncBuiltinESMExports();
+    fs.writeFileSync(cachePath, '{broken');
+    catalog = createObserverCheckCatalog(box); const rebuilt = catalog.read(box.project); catalog.close();
+    catalog = createObserverCheckCatalog({ ...box, cachePath: null }); assert.deepEqual(catalog.read(box.project), rebuilt);
+  } finally {
+    catalog?.close(); t.mock.restoreAll(); syncBuiltinESMExports(); fs.rmSync(box.root, { recursive: true, force: true });
+  }
+});

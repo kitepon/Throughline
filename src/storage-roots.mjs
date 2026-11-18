@@ -21,7 +21,7 @@ export function dataRoot({ env = process.env, home = homedir() } = {}) {
   return value ? resolve(home, value) : join(home, '.throughline');
 }
 
-/** App state: completed-turn receipts and runtime errors. */
+/** App state: completed-turn receipts, runtime errors and the observer-check rollout summaries. */
 export function appStateRoot(env = process.env) {
   if (custom(env)) return join(dataRoot({ env }), 'app-state');
   return join(isWindows(env) ? windowsLocalAppData(env) : xdgStateHome(env), 'throughline');

@@ -327,19 +327,19 @@
     {
       "source": "docs/architecture/observer-check.md",
       "block": 1,
-      "mermaidSha256": "d19d5bd35c018872d25107a61a92b7461586832a0b3146ee7bb0fd1b106c0554",
+      "mermaidSha256": "408f2e37120674c0662218145f40bf55b4c421f174fb1a65bd73f3a40372e9d4",
       "svg": "docs/architecture/diagrams/observer-check-01.svg",
       "status": "rendered-visually-reviewed",
       "svgExit": 0,
-      "svgSha256": "288e42bf7dca48c56c6e1274f2c095435ed6f4674ee54ca96055cd19ca99c304",
-      "svgBytes": 28252,
+      "svgSha256": "824fb6270804de544c8eb7394d36045c37bf570abf0ace80aa6593d4459da2c9",
+      "svgBytes": 36501,
       "pngExit": 0,
-      "pngSha256": "02649c7ba5ce23cf5f0f08f8e6682df4da1e07e33d64190a3aa89c3ffc2f8249",
-      "pngBytes": 155186,
+      "pngSha256": "899e850862a22531a6ef5637fabf3aeed2d432b2db9da2d8c3667efd75e2e420",
+      "pngBytes": 245407,
       "xmlValid": true,
-      "visualReview": "catalog共有とcore/CLI/取消/出力確定/失敗/cleanupの新差分をPNGで確認。図2は余白を広げ端のedge labelを判読可能にした。",
-      "sourceDocumentSha256": "c3e32ddb016357e197594b1ba3ace11bcc277f28b10347643ae51609db3133ba",
-      "pngEvidence": "work/throughline-observer-check-20261103/stage2-diagram/observer-check-01.png (product owner project)"
+      "visualReview": "2026-11-18 BugHub 9d0288c9: request間の要約再利用（保存・stat照合・再利用/再解析・close時保存）を足してPNGで確認。",
+      "sourceDocumentSha256": "090cc9cddcff1dd6003f983e23ef56353e0fb1654703715f363ba44d9d6d6cb5",
+      "pngEvidence": "work/throughline-9d02-cache-20261118/observer-check-01.png (product owner project)"
     },
     {
       "source": "docs/architecture/observer-check.md",
@@ -355,7 +355,7 @@
       "pngBytes": 231715,
       "xmlValid": true,
       "visualReview": "catalog共有とcore/CLI/取消/出力確定/失敗/cleanupの新差分をPNGで確認。図2は余白を広げ端のedge labelを判読可能にした。",
-      "sourceDocumentSha256": "c3e32ddb016357e197594b1ba3ace11bcc277f28b10347643ae51609db3133ba",
+      "sourceDocumentSha256": "090cc9cddcff1dd6003f983e23ef56353e0fb1654703715f363ba44d9d6d6cb5",
       "pngEvidence": "work/throughline-observer-check-20261103/stage2-diagram/observer-check-02.png (product owner project)"
     }
   ],
