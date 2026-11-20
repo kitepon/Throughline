@@ -10,6 +10,18 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-20
+
+### Fixed
+
+- Claude Code's machine interface (`claude -p --input-format stream-json`, the form BellTeam seats may run in) is read
+  like the TUI ([ADR 0075](docs/adr/0075-claude-machine-mode-rows.md)). Measured with a real `claude -p` (2.1.328): a
+  request arriving on stdin has no `origin` and `turnOrigin: "sdk"`, so it was stored with `turn_start: unknown`
+  (the TUI stores `prompt`); and an input sent while a turn was running arrives as a `queued_command` without
+  `origin`, so it was dropped from the turn's request instead of being appended. Both now match the TUI. Rows of
+  the TUI and every other host are read as before. Hook input without `scratchpad_dir` / SessionStart `model` needs
+  no change: the Claude hooks do not read them.
+
 ## [0.21.1] - 2026-11-18
 
 ### Fixed
@@ -2992,7 +3004,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.1...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.2...HEAD
+[0.21.2]: https://github.com/kitepon/Throughline/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/kitepon/Throughline/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/kitepon/Throughline/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/kitepon/Throughline/compare/v0.19.0...v0.20.0

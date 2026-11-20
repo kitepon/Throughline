@@ -20,6 +20,15 @@ test('turn start: Claude origin.kind maps human, task notification, and auto con
   assert.equal(classifyTurnStart(claudeUser(undefined), 'x'), 'unknown', '印の無い古い transcript は推測しない');
 });
 
+test('turn start: Claude machine mode (claude -p) stdin prompt has no origin and turnOrigin sdk (ADR 0075)', () => {
+  const sdk = (extra) => ({ ...claudeUser(undefined, 'x'), entrypoint: 'sdk-cli', promptSource: 'sdk', turnOrigin: 'sdk', ...extra });
+  assert.equal(classifyTurnStart(sdk(), 'x'), 'prompt');
+  assert.equal(classifyTurnStart(sdk({ origin: { kind: 'task-notification' }, turnOrigin: 'task_notification' }), 'x'), 'self');
+  assert.equal(classifyTurnStart(sdk({ turnOrigin: 'scheduled' }), 'x'), 'self');
+  assert.equal(classifyTurnStart(sdk({ turnOrigin: 'system' }), 'x'), 'unknown');
+  assert.equal(classifyTurnStart(claudeUser(undefined, 'x'), 'x'), 'unknown', 'turnOrigin の無い行は推測しない');
+});
+
 test('turn start: Grok prompt_index and synthetic_reason', () => {
   assert.equal(classifyTurnStart({ type: 'user', content: '<user_query>x</user_query>', prompt_index: 0 }, 'x'), 'prompt');
   assert.equal(classifyTurnStart({ type: 'user', content: 'x', synthetic_reason: 'task_completed', prompt_index: 1 }, 'x'), 'self');

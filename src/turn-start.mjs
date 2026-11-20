@@ -41,6 +41,8 @@ export function classifyTurnStart(entry, text) {
   if (entry.type === 'user' && entry.message && typeof entry.message === 'object') {
     const kind = entry.origin?.kind;
     if (Object.hasOwn(CLAUDE_ORIGIN_KINDS, kind)) return CLAUDE_ORIGIN_KINDS[kind];
+    // 機械インターフェース（`claude -p`）の標準入力の依頼。`origin` を持たず `turnOrigin: "sdk"` で来る (ADR 0075)。
+    if (typeof kind !== 'string' && entry.turnOrigin === 'sdk') return TURN_START_PROMPT;
     // 予定（cron）が起こしたターン。予定は会話が自分で置いた物なので self (ADR 0065)。
     return entry.turnOrigin === 'scheduled' || typeof entry.scheduledTaskId === 'string'
       ? TURN_START_SELF

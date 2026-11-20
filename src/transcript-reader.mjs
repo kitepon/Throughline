@@ -101,7 +101,10 @@ function claudeMidTurnInputText(entry) {
   // 待つ hook が、次の番の作業中に運んだ入力（ADR 0063）。Claude Code が通知の形で順番待ちへ入れる。
   const forwarded = unwrapClaudeForwardedDelivery(extractText(attachment.prompt));
   if (forwarded !== null) return claudeForwardCarriesHumanInput(forwarded) ? (normalizeTerminalText(forwarded) || null) : null;
-  if (!CLAUDE_MID_TURN_INPUT_ORIGINS.includes(attachment.origin?.kind)) return null;
+  // 機械インターフェース（`claude -p`）の標準入力の割り込みは `origin` を持たない。TUI の human と同じに扱う (ADR 0075)。
+  const machineInput = typeof attachment.origin?.kind !== 'string' && attachment.commandMode === 'prompt'
+    && typeof entry.entrypoint === 'string' && entry.entrypoint.startsWith('sdk-');
+  if (!machineInput && !CLAUDE_MID_TURN_INPUT_ORIGINS.includes(attachment.origin?.kind)) return null;
   const text = normalizeTerminalText(compactClaudePeerMessage(extractText(attachment.prompt)));
   return text ? text : null;
 }

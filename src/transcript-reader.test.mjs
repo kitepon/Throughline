@@ -711,3 +711,37 @@ test('sliceCurrentTurnEntries / sliceInFlightTurnEntries: host が書いた meta
   assert.equal(done[0].message.content, '今の依頼');
   assert.equal(done.length, 9);
 });
+
+// --- ADR 0075: Claude Code の機械インターフェース（claude -p）の行 ---
+
+test('readTranscript: claude -p の依頼と割り込み入力は、TUI と同じ形で保存される (ADR 0075)', () => {
+  const sdkUser = (text, extra = {}) => ({ type: 'user', entrypoint: 'sdk-cli', promptSource: 'sdk', turnOrigin: 'sdk',
+    message: { role: 'user', content: text }, ...extra });
+  // 実測した行: 割り込み入力の queued_command は origin を持たず、commandMode と delivery_id を持つ。
+  const sdkQueued = (prompt, extra = {}) => ({ type: 'attachment', entrypoint: 'sdk-cli',
+    attachment: { type: 'queued_command', prompt, commandMode: 'prompt', delivery_id: 'd1', hostsOwnTurn: true, ...extra } });
+  const path = writeTranscript([
+    sdkUser('最初の依頼'),
+    asstToolUseEntry('toolu_1', 'Read', { file_path: '/a' }),
+    sdkQueued('途中の追加'),
+    userToolResultEntry('toolu_1', 'ok'),
+    asstTextEntry('最終回答'),
+    sdkUser('次の依頼'),
+    asstTextEntry('次の回答'),
+  ]);
+  const turns = readTranscript(path);
+  assert.equal(turns[0].content, '最初の依頼\n\n（作業の途中で届いた入力）\n途中の追加');
+  assert.equal(turns[0].start, 'prompt');
+  assert.deepEqual(turns.filter((t) => t.role === 'user').map((t) => t.start), ['prompt', 'prompt']);
+});
+
+test('readTranscript: origin を持たない queued_command は、claude -p の行（entrypoint sdk-）の時だけ依頼へ足す (ADR 0075)', () => {
+  const noOrigin = { type: 'attachment', attachment: { type: 'queued_command', prompt: '印の無い入力', commandMode: 'prompt' } };
+  const tui = readTranscript(writeTranscript([humanEntry('依頼'), noOrigin, asstTextEntry('回答')]));
+  assert.equal(tui[0].content, '依頼', 'TUI の行は今までどおり足さない');
+  const sdkNotification = { type: 'attachment', entrypoint: 'sdk-cli',
+    attachment: { type: 'queued_command', prompt: '<task-notification>\n<status>completed</status>\n</task-notification>',
+      commandMode: 'prompt', origin: { kind: 'task-notification' } } };
+  const sdk = readTranscript(writeTranscript([humanEntry('依頼'), sdkNotification, asstTextEntry('回答')]));
+  assert.equal(sdk[0].content, '依頼', 'origin を持つ完了通知は足さない');
+});
