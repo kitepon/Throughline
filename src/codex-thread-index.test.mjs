@@ -180,3 +180,37 @@ function writeRollout(home, { day, started, id, cwd }) {
   );
   return path;
 }
+
+test('listCodexThreadCandidates: sessionMetaCache reuses a rollout cwd by dev/ino and drops rollouts that are gone', () => {
+  const home = mkdtempSync(join(tmpdir(), 'tl-codex-home-'));
+  const project = mkdtempSync(join(tmpdir(), 'tl-codex-project-'));
+  const moved = mkdtempSync(join(tmpdir(), 'tl-codex-moved-'));
+  try {
+    const id = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+    const path = writeRollout(home, { day: '06', started: '2026-05-06T09-40-50', id, cwd: project });
+    const sessionMetaCache = { entries: new Map(), dirty: false };
+    assert.equal(listCodexThreadCandidates({ codexHome: home, projectPath: project, sessionMetaCache }).length, 1);
+    assert.equal(sessionMetaCache.dirty, true);
+    assert.equal(sessionMetaCache.entries.get(path).meta.cwd, project);
+
+    // The cwd comes from the cache while dev/ino match, so the file is not opened again.
+    sessionMetaCache.entries.get(path).meta.cwd = moved;
+    assert.equal(listCodexThreadCandidates({ codexHome: home, projectPath: project, sessionMetaCache }).length, 0);
+    assert.equal(listCodexThreadCandidates({ codexHome: home, projectPath: moved, sessionMetaCache })[0].cwd, moved);
+
+    sessionMetaCache.entries.get(path).ino += 1; // a different file at the same path is read again
+    assert.equal(listCodexThreadCandidates({ codexHome: home, projectPath: project, sessionMetaCache }).length, 1);
+
+    sessionMetaCache.entries.get(path).meta.cwd = moved;
+    sessionMetaCache.entries.get(path).size = 1e9; // a file smaller than when read was rewritten: read again
+    assert.equal(listCodexThreadCandidates({ codexHome: home, projectPath: project, sessionMetaCache }).length, 1);
+
+    sessionMetaCache.entries.set(join(home, 'sessions', 'gone.jsonl'), { dev: 1, ino: 1, size: 1, meta: { cwd: project } });
+    listCodexThreadCandidates({ codexHome: home, projectPath: project, sessionMetaCache });
+    assert.deepEqual([...sessionMetaCache.entries.keys()], [path]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+    rmSync(moved, { recursive: true, force: true });
+  }
+});

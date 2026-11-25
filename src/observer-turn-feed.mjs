@@ -32,7 +32,7 @@ export function resolveObserverTurnFeed({ projectPath, cursor = null, codexHome,
   const project = canonicalExistingProject(projectPath);
   const projectSha256 = sha256(project);
   const claude = claudeCandidates(project, receiptOptions);
-  const codex = codexCandidates(project, codexHome);
+  const codex = codexCandidates(project, codexHome, receiptOptions?.env);
   const candidates = [...claude, ...codex];
   if (cursor === null || cursor === undefined) {
     const selected = selectLatest(candidates);
@@ -80,7 +80,7 @@ export function readObserverTurnPage({
   if (!OBSERVER_READ_WIRES.includes(wire)) throw new TypeError('observer read wire must be v1 or v2');
   const project = canonicalExistingProject(projectPath);
   const projectSha256 = sha256(project);
-  const candidates = [...claudeCandidates(project, receiptOptions), ...codexCandidates(project, codexHome)];
+  const candidates = [...claudeCandidates(project, receiptOptions), ...codexCandidates(project, codexHome, receiptOptions?.env)];
   const normalizedAfter = afterCursor ?? null;
   const normalizedThrough = throughCursor ?? null;
   const normalizedPageToken = pageToken ?? null;
@@ -182,15 +182,95 @@ function claudeCandidates(projectPath, receiptOptions) {
   return [...grouped].map(([threadHash, chain]) => candidate('claude', threadHash, chain, snapshot.history_floor, chain.at(-1)?._sessionId ?? null));
 }
 
-function codexCandidates(projectPath, codexHome) {
-  return listCodexThreadCandidates({ codexHome, projectPath, limit: Number.MAX_SAFE_INTEGER })
-    .map((item) => codexCandidateFromParsed(item, parseCodexRolloutFile(item.rolloutPath)))
-    .filter((item) => item.chain.length > 0);
+/**
+ * Both caches are derived data kept under app-state (BugHub runtime-supervisor-cpu: a poll cost 1.3 CPU s):
+ * the rollout's cwd (found once per file) and, per project, each rollout's chain while its file stat is unchanged.
+ */
+function codexCandidates(projectPath, codexHome, env) {
+  const metaPath = sessionMetaCachePath(env);
+  const meta = readSessionMetaCache(metaPath);
+  const items = listCodexThreadCandidates({ codexHome, projectPath, limit: Number.MAX_SAFE_INTEGER, sessionMetaCache: meta });
+  if (meta.dirty) writeJsonAtomic(metaPath, { schema: SESSION_META_CACHE_SCHEMA, entries: Object.fromEntries(meta.entries) });
+  if (items.length === 0) return [];
+  const chainPath = rolloutChainCachePath(sha256(projectPath), env);
+  const stored = readRolloutChainCache(chainPath);
+  const used = new Map();
+  let fresh = false;
+  const chains = items.map((item) => {
+    const before = statSync(item.rolloutPath);
+    const stat = ROLLOUT_STAT_FIELDS.map((field) => before[field]);
+    const hit = stored.get(item.rolloutPath);
+    if (hit && hit.id === item.id && sameStat(hit.stat, stat)) { used.set(item.rolloutPath, hit); return hit.chain; }
+    const chain = codexChainOf(item, parseCodexRolloutFile(item.rolloutPath));
+    const after = statSync(item.rolloutPath);
+    // A file that moved during the parse is used once but not remembered.
+    if (ROLLOUT_STAT_FIELDS.every((field) => before[field] === after[field])) { used.set(item.rolloutPath, { id: item.id, stat, chain }); fresh = true; }
+    return chain;
+  });
+  if (fresh || used.size !== stored.size) {
+    writeJsonAtomic(chainPath, { schema: ROLLOUT_CHAIN_CACHE_SCHEMA, version: PACKAGE_VERSION, entries: Object.fromEntries(used) });
+  }
+  return items.map((item, index) => codexCandidateFromChain(item, chains[index])).filter((item) => item.chain.length > 0);
+}
+
+function codexChainOf(item, parsed) {
+  return parsed.activeTurns.flatMap((turn) => codexTurnEntry(turn, item.id, item.rolloutPath));
+}
+
+function codexCandidateFromChain(item, chain) {
+  return candidate('codex', sha256(item.id), chain, 1, buildCodexThroughlineSessionId(item.id));
 }
 
 function codexCandidateFromParsed(item, parsed) {
-  const chain = parsed.activeTurns.flatMap((turn) => codexTurnEntry(turn, item.id, item.rolloutPath));
-  return candidate('codex', sha256(item.id), chain, 1, buildCodexThroughlineSessionId(item.id));
+  return codexCandidateFromChain(item, codexChainOf(item, parsed));
+}
+
+const SESSION_META_CACHE_SCHEMA = 'throughline.codex_session_meta_cache.v1';
+const ROLLOUT_CHAIN_CACHE_SCHEMA = 'throughline.observer_read_rollout_cache.v1';
+
+function sessionMetaCachePath(env = process.env) { return join(appStateRoot(env), 'codex-session-meta.json'); }
+// shortcut: one file per project is never deleted; delete observer-read-rollouts/ if projects are retired in bulk.
+function rolloutChainCachePath(projectSha256, env = process.env) { return join(appStateRoot(env), 'observer-read-rollouts', `${projectSha256}.json`); }
+
+function readSessionMetaCache(path) {
+  const cache = { entries: new Map(), dirty: false };
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (value?.schema !== SESSION_META_CACHE_SCHEMA || !value.entries || typeof value.entries !== 'object') return cache;
+    for (const [file, entry] of Object.entries(value.entries)) {
+      if (Number.isFinite(entry?.dev) && Number.isFinite(entry.ino) && Number.isFinite(entry.size) && typeof entry.meta?.cwd === 'string' && entry.meta.cwd) cache.entries.set(file, entry);
+    }
+  } catch { /* derived data: unreadable means rebuild */ }
+  return cache;
+}
+
+function readRolloutChainCache(path) {
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (value?.schema !== ROLLOUT_CHAIN_CACHE_SCHEMA || value.version !== PACKAGE_VERSION ||
+      !value.entries || typeof value.entries !== 'object') return new Map();
+    return new Map(Object.entries(value.entries).filter(([, entry]) => validChainCacheEntry(entry)));
+  } catch { return new Map(); }
+}
+
+function validChainCacheEntry(entry) {
+  return typeof entry?.id === 'string' && Array.isArray(entry.stat) && entry.stat.length === ROLLOUT_STAT_FIELDS.length &&
+    entry.stat.every(Number.isFinite) && Array.isArray(entry.chain) &&
+    entry.chain.every((row) => row?.host === CODEX_HOST && isSha256Value(row.thread_sha256) && isSha256Value(row.origin_sha256) &&
+      isSha256Value(row.user_sha256) && isSha256Value(row.assistant_sha256) && isSha256Value(row.source_sha256) &&
+      Number.isSafeInteger(row.completed_at));
+}
+
+// shortcut: last writer wins between concurrent readers; a lost entry only costs one re-parse later.
+function writeJsonAtomic(path, value) {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
+    renameSync(temporary, path);
+  } catch {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export const OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA = 'throughline.observer_check_rollout_cache.v1';
@@ -206,7 +286,10 @@ export function defaultObserverCheckRolloutCachePath(env = process.env) {
  * (BugHub 9d0288c9: re-parsing every rollout each poll outgrew the caller's 60 s limit).
  */
 export function createObserverCheckCatalog({ codexHome, receiptOptions, cachePath } = {}) {
-  let items = listCodexThreadCandidates({ codexHome, allProjects: true, limit: Number.MAX_SAFE_INTEGER });
+  const metaPath = cachePath === null ? null : join(dirname(cachePath ?? defaultObserverCheckRolloutCachePath(receiptOptions?.env)), 'codex-session-meta.json');
+  const meta = metaPath === null ? undefined : readSessionMetaCache(metaPath);
+  let items = listCodexThreadCandidates({ codexHome, allProjects: true, limit: Number.MAX_SAFE_INTEGER, sessionMetaCache: meta });
+  if (meta?.dirty) writeJsonAtomic(metaPath, { schema: SESSION_META_CACHE_SCHEMA, entries: Object.fromEntries(meta.entries) });
   if (items.some((item) => typeof item.cwd !== 'string' || item.cwd.length === 0)) {
     throw new Error('observer check source project unavailable');
   }
@@ -293,14 +376,7 @@ function writeRolloutCache(path, stored, used, items) {
   const entries = {};
   for (const [file, entry] of stored) if (live.has(file)) entries[file] = entry;
   for (const [file, entry] of used) entries[file] = entry;
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    writeFileSync(temporary, JSON.stringify({ schema: OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA, version: PACKAGE_VERSION, entries }), { mode: 0o600 });
-    renameSync(temporary, path);
-  } catch {
-    rmSync(temporary, { force: true });
-  }
+  writeJsonAtomic(path, { schema: OBSERVER_CHECK_ROLLOUT_CACHE_SCHEMA, version: PACKAGE_VERSION, entries });
 }
 
 function isSha256Value(value) { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value); }

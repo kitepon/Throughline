@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { CURRENT_VERSION } from './db.mjs';
 import { decodeObserverCursor, encodeObserverCursor, readObserverTurnPage, resolveObserverTurnFeed } from './observer-turn-feed.mjs';
+import { appStateRoot } from './storage-roots.mjs';
 import { writeCompletedTurnReceipt } from './completed-turn-receipts.mjs';
 import { seedCompletedTurnReceiptStore } from './completed-turn-receipts-test-fixture.mjs';
 import { hashAuditorBody } from './body-digest.mjs';
@@ -486,4 +487,34 @@ test('observer read v2: Cursor host, pre-v11 DB, Codex prompt, and empty states'
     codexDb?.close();
     rmSync(codexBox.root, { recursive: true, force: true });
   }
+});
+
+test('observer feed: Codex chain cache gives the same result, follows a changed rollout, and rebuilds from a broken file', () => {
+  const box = fixture();
+  try {
+    const id = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f9';
+    const options = { projectPath: box.project, codexHome: box.home, receiptOptions: box.receiptOptions };
+    const dir = join(appStateRoot(box.receiptOptions.env), 'observer-read-rollouts');
+    writeRollout(box.home, box.project, id, completeEvents());
+    const first = resolveObserverTurnFeed(options);
+    const [file] = readdirSync(dir);
+    assert.ok(file, 'the first read leaves the project cache');
+    assert.deepEqual(resolveObserverTurnFeed(options), first, 'a cache hit returns what the parse returned');
+
+    writeRollout(box.home, box.project, id, [...completeEvents(), ...completeEvents('2026-07-15T00:02:00.000Z').map((row) => ({ ...row, timestamp: '2026-07-15T00:01:30.000Z' }))]);
+    assert.equal(resolveObserverTurnFeed({ ...options, cursor: first.throughCursor }).status, 'append', 'a changed rollout is parsed again');
+
+    const second = resolveObserverTurnFeed(options);
+    writeFileSync(join(dir, file), '{broken');
+    assert.deepEqual(resolveObserverTurnFeed(options), second, 'an unreadable cache is rebuilt');
+    assert.equal(JSON.parse(readFileSync(join(dir, file), 'utf8')).schema, 'throughline.observer_read_rollout_cache.v1');
+
+    const secondId = '019dfaba-f87e-7f41-a144-d5ca7c6dd7f8';
+    const secondPath = writeRollout(box.home, box.project, secondId, completeEvents('2026-07-15T00:09:00.000Z'));
+    resolveObserverTurnFeed(options);
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(dir, file), 'utf8')).entries).length, 2);
+    rmSync(secondPath);
+    assert.equal(resolveObserverTurnFeed(options).chain.length, 2, 'a removed rollout leaves the feed');
+    assert.equal(Object.keys(JSON.parse(readFileSync(join(dir, file), 'utf8')).entries).length, 1, 'and leaves the cache');
+  } finally { rmSync(box.root, { recursive: true, force: true }); }
 });

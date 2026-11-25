@@ -1,7 +1,7 @@
 {
   "base": "39ff812d46c0e84e8fc1418096c509551cf3928b",
   "renderer": "@mermaid-js/mermaid-cli 12.0.0; existing read-only installation",
-  "reviewedAt": "2026-11-03T05:24:28.944811+09:00",
+  "reviewedAt": "2026-11-26T08:20:00+09:00",
   "evidenceDirectory": "work/throughline-refactor-evidence-20261103/diagram-pass-01 (product owner project)",
   "scope": "0.16.54 Codex hook local exception preservation; only current-entrypoints block4 rerendered and visually checked; other existing figures unchanged.",
   "rows": [
@@ -327,19 +327,19 @@
     {
       "source": "docs/architecture/observer-check.md",
       "block": 1,
-      "mermaidSha256": "408f2e37120674c0662218145f40bf55b4c421f174fb1a65bd73f3a40372e9d4",
+      "mermaidSha256": "2bfe56ab2b68c446a43e04c4917e6bce3e93d587e964f733b0f81156bb960733",
       "svg": "docs/architecture/diagrams/observer-check-01.svg",
       "status": "rendered-visually-reviewed",
       "svgExit": 0,
-      "svgSha256": "824fb6270804de544c8eb7394d36045c37bf570abf0ace80aa6593d4459da2c9",
-      "svgBytes": 36501,
+      "svgSha256": "df7142c33b847e635732a77edc4a6c92ddcb6339d6b5525c6dfcc942f50942a9",
+      "svgBytes": 41431,
       "pngExit": 0,
-      "pngSha256": "899e850862a22531a6ef5637fabf3aeed2d432b2db9da2d8c3667efd75e2e420",
-      "pngBytes": 245407,
+      "pngSha256": "9a669fbd007707529eb84f5fb88a2c0cc4d95bf703d7ffcc15e9c065d67231e3",
+      "pngBytes": 121303,
       "xmlValid": true,
-      "visualReview": "2026-11-18 BugHub 9d0288c9: request間の要約再利用（保存・stat照合・再利用/再解析・close時保存）を足してPNGで確認。",
-      "sourceDocumentSha256": "090cc9cddcff1dd6003f983e23ef56353e0fb1654703715f363ba44d9d6d6cb5",
-      "pngEvidence": "work/throughline-9d02-cache-20261118/observer-check-01.png (product owner project)"
+      "visualReview": "2026-11-26 incident runtime-supervisor-cpu: Index節点へcwd cache(codex-session-meta.json)の注記を追加。PNGで構造を確認。この描画環境に日本語fontが無くPNGのラベルは豆腐のため、ラベルはSVGの文字列で確認した。",
+      "sourceDocumentSha256": "07e4df83b1fab5d32f51b49ccfbab2927ffe5e9476a241bfa289d581cdb6fbd5",
+      "pngEvidence": "work/throughline-observer-read-20261126/observer-check-01.png (product owner project)"
     },
     {
       "source": "docs/architecture/observer-check.md",
@@ -357,6 +357,23 @@
       "visualReview": "catalog共有とcore/CLI/取消/出力確定/失敗/cleanupの新差分をPNGで確認。図2は余白を広げ端のedge labelを判読可能にした。",
       "sourceDocumentSha256": "090cc9cddcff1dd6003f983e23ef56353e0fb1654703715f363ba44d9d6d6cb5",
       "pngEvidence": "work/throughline-observer-check-20261103/stage2-diagram/observer-check-02.png (product owner project)"
+    },
+    {
+      "source": "docs/architecture/observer-check.md",
+      "block": 3,
+      "mermaidSha256": "086f1984baccabc0fbf5500178681c7aa43fdab155577c732265cf2e519c78a2",
+      "svg": "docs/architecture/diagrams/observer-check-03.svg",
+      "status": "rendered-visually-reviewed",
+      "svgExit": 0,
+      "svgSha256": "6e2bf26c2c86d6345a21198979331176109e4d89f29220f2ffe66c854a70d87b",
+      "svgBytes": 45698,
+      "pngExit": 0,
+      "pngSha256": "d0d3ab8a33ca2e7ee5878add02b597e8cceda583347a695d4ec362552e8e9fb0",
+      "pngBytes": 106304,
+      "xmlValid": true,
+      "visualReview": "2026-11-26 incident runtime-supervisor-cpu: observer-read/waitのrollout cwd・chain cache（保存・dev/ino/stat照合・再利用/再解析・解析前後のstat確認・保存）。PNGで分岐構造を確認。この描画環境に日本語fontが無くPNGのラベルは豆腐のため、ラベルはSVGの文字列で確認した。",
+      "sourceDocumentSha256": "07e4df83b1fab5d32f51b49ccfbab2927ffe5e9476a241bfa289d581cdb6fbd5",
+      "pngEvidence": "work/throughline-observer-read-20261126/observer-check-03.png (product owner project)"
     }
   ],
   "sourceDocumentUpdatedAt": "2026-11-03T07:28:08.052973+09:00",

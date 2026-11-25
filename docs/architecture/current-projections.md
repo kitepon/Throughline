@@ -89,7 +89,7 @@ flowchart LR
 
 | source / 関数 | 正常返却と状態の所有 | 失敗・取消・部分成功・保持 |
 | --- | --- | --- |
-| [feed](../../src/observer-turn-feed.mjs):resolveObserverTurnFeed/claudeCandidates/codexCandidates/codexTurnEntry/selectLatest | Claude互換receipt又はCodex task_completeから完了chainを作り、最新host/threadを選ぶ。本文DBやmtimeを完了証拠にしない | 同時刻cross-hostはambiguous。旧source消失/rollback/prefix不一致はswitchへ補完せずresync。各pollで候補探索/rollout parseを行う既構造で、batch/O(1)供給済みではない |
+| [feed](../../src/observer-turn-feed.mjs):resolveObserverTurnFeed/claudeCandidates/codexCandidates/codexTurnEntry/selectLatest | Claude互換receipt又はCodex task_completeから完了chainを作り、最新host/threadを選ぶ。本文DBやmtimeを完了証拠にしない | 同時刻cross-hostはambiguous。旧source消失/rollback/prefix不一致はswitchへ補完せずresync。各pollで候補探索を行い、rolloutのcwdとproject一致rolloutのchainはapp-stateの派生cacheを再利用する（[observer-check](observer-check.md)）。batch/O(1)供給済みではない |
 | 同:encodeObserverCursor/decodeObserverCursor/validateCursorCandidate/prefixDigest | project SHA/host lane/thread SHA/length/prefixをopaque cursorへ。形はv1を保持 | history_floorは形に残すが位置検証では比較しない（ADR0035）。prefixが一致する既cursorを不必要に失効させない。cursorは認可鍵やconsumer保存値ではない |
 | 同:readObserverTurnPage/logicalDeltaSeries/fixedCandidate/projectReadPage | snapshotは直近limit件・historyTruncated付きでcomplete。deltaは固定throughまでpage分割。limit1..100、既定10 | page tokenはproject/after/through/offset-prefixに束縛。本文pairが一つでも不足なら全pageのturns空、through=null、complete=false/next=null。前の成功pageを製品が保存確定するわけではない |
 | 同:decodeObserverPageToken/validatePageTokenBinding/validatePageTokenPrefix/harnessOf | cursorは共通、page tokenはcanonical符号化を検証。v1は既lane/本文制限、v2は全文/実harness/turn_start | Grok/Cursorは互換receipt laneを使う。v2だけ実session prefixからhostを求め、v1はclaude laneのまま。wire切替でcursorを変えない |

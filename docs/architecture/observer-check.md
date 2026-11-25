@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
   Core[check core: 全request検証] --> Catalog[createObserverCheckCatalog: request内の一覧を一度取得]
-  Catalog --> Index[listCodexThreadCandidates: 既一覧とmetadata]
+  Catalog --> Index[listCodexThreadCandidates: 既一覧とmetadata / cwdはapp-state codex-session-meta.jsonを再利用]
   Index -->|一覧失敗又はmetadata不明| Error
   Catalog --> Store[app-state observer-check-rollouts.json: 前request要約を読む / 壊れ・別版は空]
   Catalog --> Project[read: 実在canonical projectと既path比較]
@@ -85,3 +85,44 @@ readonly完了source、確認値生成、consumerの全page/append/state後採�
 BellTeamの観測pollは全member（142件）を1回の`observer-check`へ渡し、その呼出し全体に60秒のIPC期限がある。旧catalogはrequestごとに全memberのCodex rollout（3932件、11 GB）を全文解析し、当席で50.8秒/63.3秒/55.0秒、負荷時はそれ以上かかった。これが11/15以降の`CONVERSATION_OBSERVATION_FAILED`（reason `CONVERSATION_IPC_TIMEOUT`）の原因で、11/15に直したDB版の経路とは別である。
 
 catalogはrolloutごとの確認用要約（host、thread SHA、history floor、最新完了時刻、source SHA、chain prefix digest、空か）を`<app-state>/observer-check-rollouts.json`（schema `throughline.observer_check_rollout_cache.v1`、mode 0600）へ置く。本文、session id、projectのpathは入らない（rolloutのpathはkey）。path・thread id・`dev/ino/size/mtimeMs/ctimeMs`とThroughlineの版がすべて一致する時だけ再利用し、一致しなければ従来どおり全文解析と読取前後の照合を行う。発見後の変化と破損行の失敗は変えていない。fileは派生データであり、読めない・壊れている・別版の時は空として作り直す。closeの時に新しい要約があれば、現存するrolloutの分だけを一時file+renameで書く。書込み失敗は結果に影響しない。同時に走ったcheckとは後勝ちになり、失われた要約は次回の再解析で戻る。出力のtokenとstatusは従来と同じ値になる（当席の142件で0.21.0のCLIと一致）。2回目以降は1.1〜3.5秒。`cachePath: null`は保存しない（試験用）。read/waitの経路は変えていない。
+
+
+### observer-read / observer-waitの再利用（2026-11-26、incident runtime-supervisor-cpu）
+
+BellTeam本体はpendingのBotごとに約5秒おき、変化したBotごとに1回`observer-read --wire v2 --limit 100`を起動する。0.21.2では1回が約1.3 CPU秒（当席で実測: real 1.38秒、user 1.07秒、sys 0.42秒）かかった。Node起動は0.02秒でほぼ無関係。CPU profileの内訳は、全Codex rollout（4073件）の先頭行を開く約0.4秒と、project一致rolloutの全文解析約0.6秒で、Claude側のreceipt読取とDB投影は約0.01秒だった。本文はDBから返るため、Codex側は完了chainのhashだけが要る。
+
+`observer-turn-feed:codexCandidates`は二つの派生dataを`<app-state>`へ置く（どちらもmode 0600、本文・session id・projectのpathは入らない。rolloutのpathはkey）。
+
+- `codex-session-meta.json`（schema `throughline.codex_session_meta_cache.v1`）: rolloutのpath→`dev/ino/size`とsession_metaのcwd/source/cli_version。session_metaは作成時に一度だけ書かれる先頭行でfileは追記だけなので、`dev/ino`が同じでfileが読んだ時より小さくない間は再利用し、rolloutを開かない（縮んだfileは書き換えとみなして読み直す）。先頭行が空又は途中でcwdが取れない時は保存しない。一覧に無いpathは保存から外す。`listCodexThreadCandidates`は任意の`sessionMetaCache`を受けるだけで、引数なしの呼出し（doctor/codex-threads/token-monitor等）は変わらない。observer-checkのcatalogも同じfileを使う。
+- `observer-read-rollouts/<project SHA256>.json`（schema `throughline.observer_read_rollout_cache.v1`）: projectごとに、一致したrolloutの`id`/`dev,ino,size,mtimeMs,ctimeMs`/完了chain（hashとtimestampだけ）。path・thread id・stat・Throughlineの版がすべて一致する時だけchainを再利用する。一致しなければ従来どおり全文解析し、解析の前後でstatが同じ時だけ保存する（解析中に動いたfileは今回だけ使う）。fileは派生dataであり、読めない・壊れている・別版・形が違う項目は空として作り直す。新項目又は消えたrolloutがある時だけ、今のrolloutの分を一時file+renameで書く。書込み失敗は結果に影響しない。同時に走ったreadとは後勝ちで、失われた項目は次回の全文解析で戻る。一致するrolloutが無いprojectはfileを読み書きしない。
+
+```mermaid
+flowchart TD
+  Entry[observer-read / observer-wait: readObserverTurnPage・resolveObserverTurnFeed] --> Cand[codexCandidates: project SHAとapp-state]
+  Cand --> MetaStore[app-state codex-session-meta.json: 読む / 壊れ・別形式は空]
+  Cand --> List[listCodexThreadCandidates: readdirとstat]
+  MetaStore --> Hit{pathのdev/inoが保存と一致しfileが縮んでいない?}
+  List --> Hit
+  Hit -->|一致| Cwd[保存cwdを使う: rolloutを開かない]
+  Hit -->|不一致又は未保存| First[先頭の1行だけ読む]
+  First -->|cwdあり| Remember[保存へ追加]
+  First -->|先頭行が空又は途中| Retry[保存しない: 次回また読む]
+  List --> Prune[一覧に無いpathを保存から外す]
+  Cwd --> Match[projectに一致したrolloutだけ]
+  First --> Match
+  Match --> ChainStore[app-state observer-read-rollouts/project SHA.json: 読む / 壊れ・別版は空]
+  Match --> Same{id・dev/ino/size/mtime/ctime・版が保存と一致?}
+  ChainStore --> Same
+  Same -->|一致| Reuse[保存chainを使う: 全文解析なし]
+  Same -->|不一致又は未保存| Parse[parseCodexRolloutFileで全文解析してchain組立て]
+  Parse --> Moved{解析の前後でstatが同じ?}
+  Moved -->|同じ| Keep[新chainを保存へ追加]
+  Moved -->|変わった| Once[今回だけ使い保存しない]
+  Reuse --> Out[Codex候補のchain: 解析した時と同じ値]
+  Keep --> Out
+  Once --> Out
+  Out --> Write[新項目又は消えたrolloutがあれば一時file+renameで保存 / 失敗は無視]
+  Out --> Page[既cursor・page・DB本文投影: 不変]
+```
+
+返す値は変わらない: cursor・status・chain・page・DB本文投影・エラー処理は旧版と同じで、当席のprojectの出力はbyte一致、BellTeamの144 projectの`readObserverTurnPage`（v2、limit 100）も旧版と全件一致した（差分0）。実測は同じprojectで1回1.38秒→0.12秒（CPU 約1.5秒→約0.18秒）。残りは約4000件のstat（約30 ms）とモジュール読込。active中のBotは自分のrolloutが変わった時だけそのfileを再解析する。project fileは消さない（`shortcut`: 退役したprojectの分が残る。多数退役したら`observer-read-rollouts/`を消してよい）。`resolveObserverTurnFeed`とobserver-waitも同じ`codexCandidates`を通るので同じ効果を得る。

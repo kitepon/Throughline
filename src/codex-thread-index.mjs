@@ -9,11 +9,17 @@ export function defaultCodexHome() {
   return process.env.CODEX_HOME || join(homedir(), '.codex');
 }
 
+/**
+ * sessionMetaCache ({ entries: Map, dirty }) is optional. A rollout's session_meta line is written once and the
+ * file only grows, so its cwd is reused while dev/ino match and the file is not smaller than when it was read;
+ * this skips opening every rollout on each call.
+ */
 export function listCodexThreadCandidates({
   codexHome = defaultCodexHome(),
   projectPath = process.cwd(),
   allProjects = false,
   limit = 10,
+  sessionMetaCache,
 } = {}) {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error('limit must be an integer >= 1');
@@ -23,12 +29,14 @@ export function listCodexThreadCandidates({
   const rollouts = findRolloutFiles(join(codexHome, 'sessions'));
   const normalizedProject = normalizePath(projectPath);
 
+  const projectOf = new Map(); // cwd -> matches; normalizePath hits the disk, and rollouts share few cwds
   const candidates = rollouts
     .map((rollout) => {
-      const meta = readSessionMeta(rollout.path);
+      const meta = cachedSessionMeta(rollout, sessionMetaCache);
       const indexed = index.get(rollout.threadId) ?? {};
       const cwd = meta?.cwd ?? null;
-      const matchesProject = cwd ? isSameProjectOrDescendant(normalizePath(cwd), normalizedProject) : false;
+      if (cwd && !projectOf.has(cwd)) projectOf.set(cwd, isSameProjectOrDescendant(normalizePath(cwd), normalizedProject));
+      const matchesProject = cwd ? projectOf.get(cwd) : false;
       return {
         id: rollout.threadId,
         threadName: indexed.thread_name ?? null,
@@ -46,6 +54,7 @@ export function listCodexThreadCandidates({
     .filter((candidate) => allProjects || candidate.matchesProject)
     .sort(compareCandidates);
 
+  if (sessionMetaCache) pruneSessionMetaCache(sessionMetaCache, rollouts);
   return candidates.slice(0, limit);
 }
 
@@ -131,12 +140,32 @@ function findRolloutFiles(root) {
         path,
         threadId: match[2],
         startedAt: match[1],
+        dev: stat.dev,
+        ino: stat.ino,
+        size: stat.size,
         mtimeMs: stat.mtimeMs,
         mtimeIso: stat.mtime.toISOString(),
       });
     }
   }
   return out;
+}
+
+function cachedSessionMeta(rollout, cache) {
+  const hit = cache?.entries.get(rollout.path);
+  if (hit && hit.dev === rollout.dev && hit.ino === rollout.ino && rollout.size >= hit.size) return hit.meta;
+  const meta = readSessionMeta(rollout.path);
+  // A missing or half-written first line is not cached; it is read again next time.
+  if (cache && typeof meta?.cwd === 'string' && meta.cwd) {
+    cache.entries.set(rollout.path, { dev: rollout.dev, ino: rollout.ino, size: rollout.size, meta: { cwd: meta.cwd, source: meta.source, cli_version: meta.cli_version } });
+    cache.dirty = true;
+  }
+  return meta;
+}
+
+function pruneSessionMetaCache(cache, rollouts) {
+  const live = new Set(rollouts.map((rollout) => rollout.path));
+  for (const path of cache.entries.keys()) if (!live.has(path)) { cache.entries.delete(path); cache.dirty = true; }
 }
 
 function readSessionMeta(path) {
@@ -151,12 +180,14 @@ function readSessionMeta(path) {
   }
 }
 
+const FIRST_LINE_BUFFER = Buffer.allocUnsafe(64 * 1024);
+
 function readFirstLine(path) {
   const fd = openSync(path, 'r');
   try {
-    const buffer = Buffer.alloc(64 * 1024);
-    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
-    return buffer.subarray(0, bytes).toString('utf8').split('\n', 1)[0];
+    const bytes = readSync(fd, FIRST_LINE_BUFFER, 0, FIRST_LINE_BUFFER.length, 0);
+    const newline = FIRST_LINE_BUFFER.subarray(0, bytes).indexOf(10);
+    return FIRST_LINE_BUFFER.toString('utf8', 0, newline < 0 ? bytes : newline); // decode one line, not 64 KiB
   } finally {
     closeSync(fd);
   }

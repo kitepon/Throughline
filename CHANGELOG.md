@@ -10,6 +10,20 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-11-26
+
+### Fixed
+
+- `observer-read` / `observer-wait` no longer open every Codex rollout and re-parse the project's rollouts on each call
+  (BellTeam incident runtime-supervisor-cpu: the body runs `observer-read` about every 5 s per pending Bot, and one call
+  cost ~1.3 CPU seconds on a host with 4073 rollouts). The rollout's session cwd is kept in
+  `<app-state>/codex-session-meta.json` (reused while the file's dev/ino match; `observer-check` shares it), and each
+  project's rollout chains in `<app-state>/observer-read-rollouts/<project SHA256>.json` (reused while the path, thread
+  id, file stat and Throughline version match; a rollout that moved during the parse is not saved). Both are derived
+  files: unreadable, broken or old ones are rebuilt. Output is unchanged (byte-equal for the same project, equal for
+  all 144 BellTeam projects); one call dropped from 1.38 s to 0.12 s wall time. `listCodexThreadCandidates` reads the
+  first line without decoding 64 KiB per rollout.
+
 ## [0.21.2] - 2026-11-20
 
 ### Fixed
@@ -3004,7 +3018,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.2...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.3...HEAD
+[0.21.3]: https://github.com/kitepon/Throughline/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/kitepon/Throughline/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/kitepon/Throughline/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/kitepon/Throughline/compare/v0.20.0...v0.21.0
