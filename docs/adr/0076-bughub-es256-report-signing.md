@@ -12,7 +12,7 @@ authentication module, the receiver keeps only the public key, and its answer is
 ## Decision
 
 1. A credential file may take a second exact shape: `{ "url", "key_id", "sign_command", "response_public_key" }`. The HMAC shape `{ url, key_id, secret }` stays valid. Any other key set is refused.
-2. `sign_command` is an argv array whose first element is an absolute path; it is run without a shell. Throughline writes `<ts>\n<SHA-256 hex of the exact body>` to a private temporary file and gives the command that file as standard input (a file, not a pipe: the Windows ssh client hangs on a pipe).
+2. `sign_command` is an argv array whose first element is an absolute path; it is run without a shell. Throughline writes `<ts>\n<SHA-256 hex of the exact body>` to a private temporary file and gives the command that file as standard input and takes the command's standard output through another private file (a file, not a pipe, for both: the Windows ssh client hangs on a pipe; found on fox 2026-11-28, where a piped stdout ended in `signer_unavailable`).
    Exit 0 and a standard output that is the base64 of a 64-byte raw r||s are the only accepted signature; stderr is never read. At most 1 KiB of output and 20 s.
 3. The header is `Authorization: BugHub-ES256 key_id=<key_id>, ts=<ts>, sig=<base64>`. The signed text is the same as the HMAC one.
 4. An acceptance is acknowledged only when it is `200`, `accepted: true`, the same `report_id`, `sig_alg: "ES256"` and an ES256 signature over `report_id + "\n" + received_at` that verifies with `response_public_key` (PEM or base64 SPKI DER, P-256 only). A missing or wrong signature leaves the records pending (`unverified_response`).

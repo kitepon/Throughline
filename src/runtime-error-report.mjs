@@ -17,7 +17,7 @@
  */
 import { createHash, createHmac, createPublicKey, randomUUID, timingSafeEqual, verify } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -260,36 +260,35 @@ async function signAuthorization(credential, { ts, body, env }) {
   return `BugHub-ES256 key_id=${credential.keyId}, ts=${ts}, sig=${sig}`;
 }
 
-// 入力は pipe ではなくファイルで渡す（Windows の ssh は pipe の標準入力で止まる）。
+// 入力も出力も pipe ではなくファイルで渡す（Windows の ssh は pipe の標準入出力で止まる）。
 // 終了0で標準出力がraw r||sのbase64の時だけ署名とみなす。stderrは読まない。
 async function runSignCommand(command, input, env) {
   const dir = mkdtempSync(join(tmpdir(), 'throughline-sign-'));
-  let fd;
+  let inFd;
+  let outFd;
   try {
     const inputPath = join(dir, 'input');
+    const outputPath = join(dir, 'output');
     writeFileSync(inputPath, input, { mode: 0o600 });
-    fd = openSync(inputPath, 'r');
-    const stdout = await new Promise((resolve, reject) => {
-      const child = spawn(command[0], command.slice(1), { env, stdio: [fd, 'pipe', 'ignore'], windowsHide: true });
-      const chunks = [];
-      let size = 0;
+    inFd = openSync(inputPath, 'r');
+    outFd = openSync(outputPath, 'w', 0o600);
+    await new Promise((resolve, reject) => {
+      const child = spawn(command[0], command.slice(1), { env, stdio: [inFd, outFd, 'ignore'], windowsHide: true });
       const timer = setTimeout(() => { child.kill(); reject(new Error('sign command timed out')); }, SIGN_COMMAND_TIMEOUT_MS);
-      child.stdout.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > 1024) { child.kill(); reject(new Error('sign output too large')); return; }
-        chunks.push(chunk);
-      });
       child.on('error', (error) => { clearTimeout(timer); reject(error); });
       child.on('close', (code) => {
         clearTimeout(timer);
-        if (code === 0) resolve(Buffer.concat(chunks).toString('utf8').trim());
+        if (code === 0) resolve();
         else reject(new Error('sign command failed'));
       });
     });
+    if (statSync(outputPath).size > 1024) throw new Error('sign output too large');
+    const stdout = readFileSync(outputPath, 'utf8').trim();
     if (!ES256_SIGNATURE.test(stdout)) throw new Error('sign output invalid');
     return stdout;
   } finally {
-    if (fd !== undefined) closeSync(fd);
+    if (inFd !== undefined) closeSync(inFd);
+    if (outFd !== undefined) closeSync(outFd);
     rmSync(dir, { recursive: true, force: true });
   }
 }
