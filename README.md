@@ -1050,7 +1050,9 @@ Throughline then sends `Authorization: BugHub-ES256 key_id=..., ts=..., sig=...`
 standard input, and expects the base64 of a raw 64-byte r||s signature on standard output
 (exit 0). Records are acknowledged only when the answer carries `sig_alg: "ES256"` and a
 signature over `report_id + "\n" + received_at` that `response_public_key` verifies. A signer
-that fails leaves the records pending (`signer_unavailable`). See
+that fails leaves the records pending (`signer_unavailable`). If the signer is ssh,
+close its other routes: `-F none -o IdentityAgent=none -o IdentitiesOnly=yes -o BatchMode=yes
+-o StrictHostKeyChecking=yes -o UserKnownHostsFile=<pinned> -i <the one key>`. See
 [ADR 0076](docs/adr/0076-bughub-es256-report-signing.md).
 
 ### Remote Claude seats

@@ -17,7 +17,8 @@ authentication module, the receiver keeps only the public key, and its answer is
 3. The header is `Authorization: BugHub-ES256 key_id=<key_id>, ts=<ts>, sig=<base64>`. The signed text is the same as the HMAC one.
 4. An acceptance is acknowledged only when it is `200`, `accepted: true`, the same `report_id`, `sig_alg: "ES256"` and an ES256 signature over `report_id + "\n" + received_at` that verifies with `response_public_key` (PEM or base64 SPKI DER, P-256 only). A missing or wrong signature leaves the records pending (`unverified_response`).
 5. A signer that fails, times out or prints anything else is `signer_unavailable` (retry after the normal 1 h interval; the credential is not at fault). Nothing is sent and nothing is acknowledged.
-6. Throughline names no authentication module, host or route: how the command reaches the key (the module's `auth sign` directly, or ssh to a host that has it) is the credential file's business. The file runs code, so the POSIX owner/mode/symlink checks of ADR 0025 apply unchanged.
+6. When the command is ssh, the credential file must close the ssh client's own routes, or another identity from the user's ssh config or agent can log in and run the signing input as shell commands. Required argv: `-F none -o IdentityAgent=none -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<pinned known_hosts> -i <the one signing key> <user@host>`. The target host's forced command ignores the input except as signing bytes.
+7. Throughline names no authentication module, host or route: how the command reaches the key (the module's `auth sign` directly, or ssh to a host that has it) is the credential file's business. The file runs code, so the POSIX owner/mode/symlink checks of ADR 0025 apply unchanged.
 
 ## Consequences
 
