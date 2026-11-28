@@ -521,6 +521,14 @@ hookは送信を待ちません。送るのはsnapshotの公開項目
 macOS/Linuxでは、本人所有でgroup/otherに権限が無く、symlinkでないcredential fileだけを読みます。
 詳細は[ADR 0025](docs/adr/0025-runtime-error-reporting.md)。
 
+受け口の鍵を端末に置きたくない時は、credential fileを
+`{"url": "...", "key_id": "...", "sign_command": ["/絶対path/signer", "arg"], "response_public_key": "<P-256公開鍵 PEMまたはbase64 SPKI>"}`
+にできます。`ts + "\n" + SHA-256(本文)`を私有の一時ファイルへ書き、それを標準入力にして
+`sign_command`をshellなしで実行し、標準出力のraw r||s（64 bytes）のbase64を署名として使います
+（終了0のみ）。ackは、応答が`sig_alg: "ES256"`と、`report_id + "\n" + received_at`への署名を持ち、
+`response_public_key`で検証できた時だけです。署名器が失敗した時は送らず記録を残します
+（`signer_unavailable`）。[ADR 0076](docs/adr/0076-bughub-es256-report-signing.md)。
+
 ### ローカルlauncher向けread-only handoff context
 
 通常handoffを実行せず、同一端末のlauncherからThroughline記憶だけを使う場合は次を呼ぶ:

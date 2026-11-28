@@ -10,6 +10,15 @@ shipped to npm but were not individually tagged on GitHub.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-28
+
+### Added
+
+- The runtime-error report credential file may be `{url, key_id, sign_command, response_public_key}`: the report is signed with
+  `BugHub-ES256` by an external signer command (no secret on the machine) and the receiver's ES256 answer is verified with the
+  public key before records are acknowledged. The HMAC `{url, key_id, secret}` form is unchanged. A failing signer reports
+  `signer_unavailable` and sends nothing ([ADR 0076](docs/adr/0076-bughub-es256-report-signing.md)).
+
 ## [0.21.3] - 2026-11-26
 
 ### Fixed
@@ -3018,7 +3027,8 @@ two attempts, instrument first instead of patching again.
 
 ---
 
-[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.21.3...HEAD
+[Unreleased]: https://github.com/kitepon/Throughline/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/kitepon/Throughline/compare/v0.21.3...v0.22.0
 [0.21.3]: https://github.com/kitepon/Throughline/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/kitepon/Throughline/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/kitepon/Throughline/compare/v0.21.0...v0.21.1

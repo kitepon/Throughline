@@ -9,12 +9,18 @@
  *   Authorization: BugHub-HMAC-SHA256 key_id=<key_id>, ts=<UNIX秒>, sig=<hex>
  *   sig = HMAC-SHA256(secret, ts + "\n" + SHA-256(送ったbody bytes)のhex)
  *   応答のsig = HMAC-SHA256(secret, report_id + "\n" + received_at)
+ * credential fileが {url, key_id, sign_command, response_public_key} の時は、端末に鍵を置かない
+ * BugHub-ES256を使う（ADR 0094）。署名対象は同じ ts + "\n" + SHA-256(body)のhexで、署名は
+ * sign_commandが標準入力のファイルから読んで標準出力へ返すraw r||sのbase64。応答のsig（ES256）は
+ * response_public_keyで確かめる。
  * secretは通信に載せない。200・accepted・report_id一致・応答sig一致がそろった時だけackする。
  */
-import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { createHash, createHmac, createPublicKey, randomUUID, timingSafeEqual, verify } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import {
   acknowledgeRuntimeErrors,
   compactRuntimeErrors,
@@ -45,12 +51,14 @@ export const REPORT_INTERVAL_MS = 60 * 60 * 1000;
 export const REPORT_REJECTED_BACKOFF_MS = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
+const SIGN_COMMAND_TIMEOUT_MS = 20_000;
+const ES256_SIGNATURE = /^[A-Za-z0-9+/]{86}==$/; // raw r||s の64 bytes（base64、padding付き88字）
 
 // 設定を直すまで通らない結果。1時間ごとに同じ拒否を受け続けないよう、間隔を空ける。
 const LONG_BACKOFF_STATUSES = new Set(['credential_unavailable', 'rejected_credential', 'rejected_report']);
 const RESULT_STATUSES = new Set([
   'sent', 'nothing_pending', 'collection_disabled', 'credential_unavailable', 'rejected_credential',
-  'rejected_report', 'clock_skew', 'rate_limited', 'unreachable', 'unverified_response',
+  'rejected_report', 'clock_skew', 'rate_limited', 'unreachable', 'unverified_response', 'signer_unavailable',
 ]);
 
 export function setRuntimeErrorReportingEnabled(enabled, options = {}) {
@@ -170,6 +178,12 @@ async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credent
   const reportId = randomUUID();
   const body = Buffer.from(JSON.stringify(buildRuntimeErrorReport({ snapshot, reportId, nowMs })), 'utf8');
   const ts = String(Math.floor(nowMs / 1000));
+  let authorization;
+  try {
+    authorization = await signAuthorization(credential, { ts, body, env });
+  } catch {
+    return result('signer_unavailable');
+  }
   const counts = { runtime_errors: snapshot.runtime_errors.length, resolutions: snapshot.resolutions.length, report_id: reportId };
 
   let response;
@@ -179,7 +193,7 @@ async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credent
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `BugHub-HMAC-SHA256 key_id=${credential.keyId}, ts=${ts}, sig=${signRuntimeErrorReport({ secret: credential.secret, ts, body })}`,
+        authorization,
       },
       body,
       // 署名付きの本文を、設定した宛先以外へ運ばない。
@@ -192,7 +206,7 @@ async function sendPendingRecords({ env, nowMs, fetchImpl, storeOptions, credent
   }
 
   if (response.status !== 200) return result(classifyRejection(response.status, text), counts);
-  if (!isVerifiedAcceptance(text, { secret: credential.secret, reportId })) {
+  if (!isVerifiedAcceptance(text, { secret: credential.secret, publicKey: credential.publicKey, reportId })) {
     return result('unverified_response', counts);
   }
   const ack = acknowledgeRuntimeErrors(snapshot.cursor.next, storeOptions);
@@ -237,11 +251,54 @@ export function signRuntimeErrorReport({ secret, ts, body }) {
   return createHmac('sha256', Buffer.from(secret, 'utf8')).update(`${ts}\n${bodyHash}`).digest('hex');
 }
 
+async function signAuthorization(credential, { ts, body, env }) {
+  if (credential.signCommand === undefined) {
+    return `BugHub-HMAC-SHA256 key_id=${credential.keyId}, ts=${ts}, sig=${signRuntimeErrorReport({ secret: credential.secret, ts, body })}`;
+  }
+  const bodyHash = createHash('sha256').update(body).digest('hex');
+  const sig = await runSignCommand(credential.signCommand, `${ts}\n${bodyHash}`, env);
+  return `BugHub-ES256 key_id=${credential.keyId}, ts=${ts}, sig=${sig}`;
+}
+
+// 入力は pipe ではなくファイルで渡す（Windows の ssh は pipe の標準入力で止まる）。
+// 終了0で標準出力がraw r||sのbase64の時だけ署名とみなす。stderrは読まない。
+async function runSignCommand(command, input, env) {
+  const dir = mkdtempSync(join(tmpdir(), 'throughline-sign-'));
+  let fd;
+  try {
+    const inputPath = join(dir, 'input');
+    writeFileSync(inputPath, input, { mode: 0o600 });
+    fd = openSync(inputPath, 'r');
+    const stdout = await new Promise((resolve, reject) => {
+      const child = spawn(command[0], command.slice(1), { env, stdio: [fd, 'pipe', 'ignore'], windowsHide: true });
+      const chunks = [];
+      let size = 0;
+      const timer = setTimeout(() => { child.kill(); reject(new Error('sign command timed out')); }, SIGN_COMMAND_TIMEOUT_MS);
+      child.stdout.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > 1024) { child.kill(); reject(new Error('sign output too large')); return; }
+        chunks.push(chunk);
+      });
+      child.on('error', (error) => { clearTimeout(timer); reject(error); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve(Buffer.concat(chunks).toString('utf8').trim());
+        else reject(new Error('sign command failed'));
+      });
+    });
+    if (!ES256_SIGNATURE.test(stdout)) throw new Error('sign output invalid');
+    return stdout;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 export function signRuntimeErrorReportResponse({ secret, reportId, receivedAt }) {
   return createHmac('sha256', Buffer.from(secret, 'utf8')).update(`${reportId}\n${receivedAt}`).digest('hex');
 }
 
-function isVerifiedAcceptance(text, { secret, reportId }) {
+function isVerifiedAcceptance(text, { secret, publicKey, reportId }) {
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -250,7 +307,13 @@ function isVerifiedAcceptance(text, { secret, reportId }) {
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
   if (parsed.accepted !== true || parsed.report_id !== reportId) return false;
-  if (typeof parsed.received_at !== 'string' || typeof parsed.sig !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.sig)) return false;
+  if (typeof parsed.received_at !== 'string' || typeof parsed.sig !== 'string') return false;
+  if (publicKey !== undefined) {
+    return parsed.sig_alg === 'ES256' && ES256_SIGNATURE.test(parsed.sig) &&
+      verify('sha256', Buffer.from(`${reportId}\n${parsed.received_at}`, 'utf8'),
+        { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(parsed.sig, 'base64'));
+  }
+  if (!/^[0-9a-f]{64}$/.test(parsed.sig)) return false;
   const expected = signRuntimeErrorReportResponse({ secret, reportId, receivedAt: parsed.received_at });
   return timingSafeEqual(Buffer.from(parsed.sig, 'hex'), Buffer.from(expected, 'hex'));
 }
@@ -288,14 +351,32 @@ function readReportCredential(path, env) {
   const parsed = JSON.parse(readFileSync(path, 'utf8'));
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('credential file invalid');
   const keys = Object.keys(parsed);
-  if (keys.length !== 3 || !['url', 'key_id', 'secret'].every((key) => keys.includes(key))) throw new Error('credential file invalid');
-  const { url, key_id: keyId, secret } = parsed;
+  const es256 = keys.includes('sign_command');
+  const expectedKeys = es256 ? ['url', 'key_id', 'sign_command', 'response_public_key'] : ['url', 'key_id', 'secret'];
+  if (keys.length !== expectedKeys.length || !expectedKeys.every((key) => keys.includes(key))) throw new Error('credential file invalid');
+  const { url, key_id: keyId } = parsed;
+  const secret = es256 ? '-' : parsed.secret;
   if (typeof url !== 'string' || typeof keyId !== 'string' || typeof secret !== 'string') throw new Error('credential file invalid');
   const target = new URL(url);
   if (!['http:', 'https:'].includes(target.protocol) || target.username !== '' || target.password !== '') throw new Error('credential url invalid');
   // key_idはAuthorization headerの「, 」区切りへ入る。区切りと制御文字を含む値は使わない。
   if (!/^[\x21-\x2b\x2d-\x7e]{1,256}$/.test(keyId) || secret.length === 0) throw new Error('credential file invalid');
-  return { url: target.href, keyId, secret };
+  if (!es256) return { url: target.href, keyId, secret };
+  const signCommand = parsed.sign_command;
+  // 実行する物は絶対pathで指す（PATH上の差し替えを避ける）。shellは通さない。
+  if (!Array.isArray(signCommand) || signCommand.length === 0 || signCommand.some((part) => typeof part !== 'string' || part === '') ||
+    !isAbsolute(signCommand[0])) throw new Error('credential sign_command invalid');
+  return { url: target.href, keyId, signCommand, publicKey: readResponsePublicKey(parsed.response_public_key) };
+}
+
+// PEM、またはSPKI DERのbase64（BugHubの公開鍵の配り方）。P-256以外は使わない。
+function readResponsePublicKey(value) {
+  if (typeof value !== 'string' || value === '') throw new Error('credential public key invalid');
+  const key = value.includes('BEGIN PUBLIC KEY')
+    ? createPublicKey(value)
+    : createPublicKey({ key: Buffer.from(value, 'base64'), format: 'der', type: 'spki' });
+  if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') throw new Error('credential public key invalid');
+  return key;
 }
 
 function stateOptions(options, env) {

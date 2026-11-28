@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, sign as cryptoSign, verify as cryptoVerify } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -629,4 +629,106 @@ test('ordinary reporting reclaims only expired acknowledged resolutions, includi
   assert.equal(snapshot.resolutions.some(x => x.fingerprint === pending.fingerprint), false);
   assert.equal(snapshot.runtime_errors.some(x => x.fingerprint === open.fingerprint), true);
   assert.equal(snapshot.resolutions.some(x => x.fingerprint === recent.fingerprint), true);
+});
+
+// BugHub-ES256: the private key lives only in the sign command (the test uses a local script that stands in for
+// the authentication module); the report process only holds the response public key.
+function es256Fixture() {
+  const { root, env } = createEnvironment();
+  const request = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const response = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const keyPath = join(root, 'request-key.pem');
+  writeFileSync(keyPath, request.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  const script = join(root, 'signer.mjs');
+  // Reads the file on stdin (like `ssh ... < file`), prints base64 raw r||s; MODE picks a failure.
+  writeFileSync(script, `import { readFileSync } from 'node:fs'; import { createPrivateKey, sign } from 'node:crypto';
+if (process.env.SIGNER_MODE === 'fail') process.exit(1);
+if (process.env.SIGNER_MODE === 'junk') { console.log('not-a-signature'); process.exit(0); }
+const key = createPrivateKey(readFileSync(${JSON.stringify(keyPath)}));
+console.log(sign('sha256', readFileSync(0), { key, dsaEncoding: 'ieee-p1363' }).toString('base64'));`);
+  const credential = (overrides = {}) => {
+    const path = join(root, 'credential.json');
+    writeFileSync(path, JSON.stringify({
+      url: 'http://127.0.0.1:9/receiver',
+      key_id: 'test-host.throughline.es256-00000000',
+      sign_command: [process.execPath, script],
+      response_public_key: response.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+      ...overrides,
+    }), { mode: 0o600 });
+    return path;
+  };
+  const receive = ({ replySig = true, tamper = false } = {}) => {
+    const seen = [];
+    const fetch = async (url, init) => {
+      const m = /^BugHub-ES256 key_id=(\S+), ts=(\d+), sig=(\S+)$/.exec(init.headers.authorization);
+      const text = `${m[2]}\n${createHash('sha256').update(init.body).digest('hex')}`;
+      const valid = cryptoVerify('sha256', Buffer.from(text), { key: request.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(m[3], 'base64'));
+      const report = JSON.parse(init.body.toString('utf8'));
+      seen.push({ valid, keyId: m[1], sigLength: Buffer.from(m[3], 'base64').length, report });
+      const receivedAt = '2026-10-03T08:00:01.000Z';
+      const signed = cryptoSign('sha256', Buffer.from(`${report.report_id}\n${tamper ? 'other' : receivedAt}`),
+        { key: response.privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64');
+      const body = { accepted: true, report_id: report.report_id, duplicate: false, received_at: receivedAt,
+        ...(replySig ? { sig: signed, sig_alg: 'ES256' } : {}) };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    return { seen, fetch };
+  };
+  return { env, credential, receive };
+}
+
+test('runtime error report: BugHub-ES256 signs through the sign command and acks only an ES256-verified acceptance', async () => {
+  const { env, credential, receive } = es256Fixture();
+  setRuntimeErrorCollectionEnabled(true, { env });
+  observeRuntimeError({ code: 'HOOK_CODEX_FAILED', now: '2026-10-03T07:00:00.000Z' }, { env });
+  setRuntimeErrorReportingEnabled(true, { env, credentialFile: credential() });
+  const receiver = receive();
+  const result = await reportRuntimeErrors({ env, now: NOW, fetch: receiver.fetch });
+  assert.equal(result.status, 'sent');
+  assert.equal(receiver.seen.length, 1);
+  assert.equal(receiver.seen[0].valid, true);
+  assert.equal(receiver.seen[0].keyId, 'test-host.throughline.es256-00000000');
+  assert.equal(receiver.seen[0].sigLength, 64);
+  assert.equal(readRuntimeErrorSnapshot({ env, afterCursor: result.acknowledged_through }).runtime_errors.length, 0);
+});
+
+test('runtime error report: ES256 failures never send or ack', async () => {
+  const cases = [
+    ['signer refuses', { SIGNER_MODE: 'fail' }, {}, 'signer_unavailable', 0],
+    ['signer prints junk', { SIGNER_MODE: 'junk' }, {}, 'signer_unavailable', 0],
+    ['response has no sig', {}, { replySig: false }, 'unverified_response', 1],
+    ['response sig over other data', {}, { tamper: true }, 'unverified_response', 1],
+  ];
+  for (const [name, signerEnv, receiverOptions, status, sent] of cases) {
+    const { env, credential, receive } = es256Fixture();
+    setRuntimeErrorCollectionEnabled(true, { env });
+    observeRuntimeError({ code: 'HOOK_CODEX_FAILED', now: '2026-10-03T07:00:00.000Z' }, { env });
+    setRuntimeErrorReportingEnabled(true, { env, credentialFile: credential() });
+    const receiver = receive(receiverOptions);
+    const result = await reportRuntimeErrors({ env: { ...env, ...signerEnv }, now: NOW, fetch: receiver.fetch });
+    assert.equal(result.status, status, name);
+    assert.equal(receiver.seen.length, sent, name);
+    assert.equal(readRuntimeErrorSnapshot({ env }).runtime_errors.length, 1, name);
+  }
+});
+
+test('runtime error report: a malformed ES256 credential file is never used', { skip: process.platform === 'win32' }, async () => {
+  const bad = [
+    { sign_command: ['relative-ssh'] },
+    { sign_command: [] },
+    { sign_command: [process.execPath, 7] },
+    { response_public_key: 'not a key' },
+    { response_public_key: generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'der' }).toString('base64') },
+    { secret: 'extra' },
+  ];
+  for (const overrides of bad) {
+    const { env, credential } = es256Fixture();
+    setRuntimeErrorCollectionEnabled(true, { env });
+    observeRuntimeError({ code: 'HOOK_CODEX_FAILED' }, { env });
+    setRuntimeErrorReportingEnabled(true, { env, credentialFile: credential(overrides) });
+    let calls = 0;
+    const result = await reportRuntimeErrors({ env, now: NOW, fetch: async () => { calls += 1; throw new Error('must not be called'); } });
+    assert.equal(result.status, 'credential_unavailable', JSON.stringify(overrides));
+    assert.equal(calls, 0);
+  }
 });

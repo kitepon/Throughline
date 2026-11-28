@@ -1043,6 +1043,16 @@ macOS/Linux the credential file must be owned by you with no group/other
 permissions and must not be a symlink. See
 [ADR 0025](docs/adr/0025-runtime-error-reporting.md).
 
+To keep the receiver's key off the machine, the credential file may instead be
+`{"url": "...", "key_id": "...", "sign_command": ["/absolute/path/to/signer", "arg"], "response_public_key": "<P-256 public key, PEM or base64 SPKI>"}`.
+Throughline then sends `Authorization: BugHub-ES256 key_id=..., ts=..., sig=...`: it writes
+`ts + "\n" + SHA-256(body)` to a private file, runs the command (no shell) with that file as
+standard input, and expects the base64 of a raw 64-byte r||s signature on standard output
+(exit 0). Records are acknowledged only when the answer carries `sig_alg: "ES256"` and a
+signature over `report_id + "\n" + received_at` that `response_public_key` verifies. A signer
+that fails leaves the records pending (`signer_unavailable`). See
+[ADR 0076](docs/adr/0076-bughub-es256-report-signing.md).
+
 ### Remote Claude seats
 
 Remote launchers can forward completed Claude transcript deltas without copying
